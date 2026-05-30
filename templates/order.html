@@ -6,21 +6,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{
-      --bg:#f3f4f6;
+      --bg:#f8faf9;
       --card:#ffffff;
       --text:#111827;
       --muted:#6b7280;
       --line:#e5e7eb;
-      --blue:#2563eb;
-      --blue-soft:#dbeafe;
-      --blue-text:#1d4ed8;
-      --green:#059669;
+
+      --mint:#14b8a6;
+      --mint-soft:#ccfbf1;
+      --mint-text:#0f766e;
+
+      --green:#10b981;
       --green-soft:#d1fae5;
       --green-text:#047857;
+
       --red-soft:#fee2e2;
       --red-text:#b91c1c;
+
       --gray-soft:#f3f4f6;
-      --shadow:0 1px 3px rgba(0,0,0,0.08);
+
+      --shadow:0 10px 30px rgba(0,0,0,0.06);
     }
 
     * { box-sizing: border-box; }
@@ -48,11 +53,11 @@
     }
 
     .card {
-      background: var(--card);
-      border-radius: 18px;
-      padding: 20px;
-      margin-bottom: 20px;
-      box-shadow: var(--shadow);
+      background:white;
+      border-radius:22px;
+      padding:24px;
+      box-shadow:0 8px 24px rgba(0,0,0,.05);
+      border:1px solid #eef2f7;
     }
 
     .grid {
@@ -104,12 +109,14 @@
     }
 
     .btn-primary {
-      background: var(--blue);
-      color: white;
+      background: var(--mint);
+      color:white;
+      box-shadow:0 4px 12px rgba(20,184,166,.25);
     }
 
-    .btn-primary:hover {
-      filter: brightness(1.05);
+    .btn-primary:hover{
+      transform:translateY(-1px);
+      filter:brightness(1.05);
     }
 
     .btn-dark {
@@ -141,11 +148,17 @@
       background: #fef2f2;
     }
 
-    .summary-card {
-      background: white;
-      border-radius: 18px;
-      padding: 18px;
-      box-shadow: var(--shadow);
+    .summary-card{
+      background:white;
+      border-radius:22px;
+      padding:22px;
+      border:1px solid #ecfdf5;
+      transition:.2s;
+    }
+
+    .summary-card:hover{
+      transform:translateY(-3px);
+      box-shadow:0 12px 30px rgba(20,184,166,.12);
     }
 
     .summary-label {
@@ -154,8 +167,9 @@
     }
 
     .summary-value {
-      font-size: 28px;
-      font-weight: 700;
+      font-size: 34px;
+      font-weight: 800;
+      color:var(--mint);
       margin-top: 6px;
     }
 
@@ -175,13 +189,19 @@
       gap: 8px;
       flex-wrap: wrap;
     }
-
-    .rep-card {
-      background: linear-gradient(135deg, #eff6ff, #ffffff);
-      border: 1px solid #dbeafe;
-      border-radius: 18px;
-      padding: 18px;
-      box-shadow: var(--shadow);
+<div class="welcome-banner">
+  <div>
+    <h2>i's Order</h2>
+    <p>스마트 발주 추천 시스템</p>
+  </div>
+</div>
+    .rep-card{
+      background:linear-gradient(
+        135deg,
+        #ccfbf1 0%,
+        #ffffff 100%
+      );
+      border:1px solid #99f6e4;
     }
 
     .rep-top {
@@ -334,8 +354,9 @@
     }
 
     th {
-      background: #f9fafb;
-      color: var(--muted);
+      background: #14b8a6;
+      color: white;
+      font-weight:700;
       position: sticky;
       top: 0;
       z-index: 1;
@@ -372,6 +393,15 @@
       color: #374151;
     }
 
+    .order-pill{
+      display:inline-block;
+      background:#14b8a6;
+       color:white;
+      padding:6px 12px;
+      border-radius:999px;
+      font-weight:700;
+    }
+
     .empty-box {
       text-align: center;
       color: var(--muted);
@@ -384,11 +414,15 @@
       gap: 12px;
     }
 
-    .history-card {
-      background: #f8fafc;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 14px;
+    .history-card{
+      background:white;
+      border:1px solid #ecfdf5;
+      transition:.2s;
+    }
+
+    .history-card:hover{
+      transform:translateY(-4px);
+      box-shadow:0 12px 24px rgba(20,184,166,.1);
     }
 
     .history-top {
@@ -486,6 +520,34 @@
       to { transform: rotate(360deg); }
     }
 
+    .welcome-banner{
+      background:linear-gradient(
+        135deg,
+        #14b8a6,
+        #2dd4bf
+      );
+
+      color:white;
+
+      padding:28px;
+      border-radius:24px;
+      margin-bottom:24px;
+
+      box-shadow:0 12px 32px rgba(20,184,166,.25);
+    }
+
+    .welcome-banner h2{
+      margin:0;
+      font-size:32px;
+      font-weight:800;
+    }
+
+    .welcome-banner p{
+      margin:8px 0 0 0;
+      opacity:.95;
+      font-size:15px;
+    }
+
 
     @media (max-width: 960px) {
       .grid-4, .grid-5, .grid-6, .grid-2, .grid-3, .rep-grid, .search-toolbar {
@@ -496,13 +558,25 @@
 </head>
 <body>
 <div class="container">
+  <div class="welcome-banner">
+    <div>
+      <h2>🍦 i'S Order</h2>
+      <p>스마트 발주 추천 시스템</p>
+    </div>
+  </div>
+  
   <div class="header">
     <div>
       <div class="muted">지점용 자동발주 MVP</div>
       <h1 id="pageTitle" style="margin:6px 0 0 0;">지점 발주 화면</h1>
     </div>
     <div class="row-actions">
-      <button class="btn-light" onclick="location.href='/docs'">API 문서</button>
+        <!-- 개발용 -->
+        <!--
+        <button class="btn-light" onclick="location.href='/docs'">
+          API 문서
+        </button>
+        -->
       <button class="btn-dark" id="coupangStartTopBtn" disabled>쿠팡 발주 시작</button>
     </div>
   </div>
@@ -1227,7 +1301,11 @@
         <td>${item["판매수량"] ?? 0}</td>
         <td>${item["7일예상수량"] ?? 0}</td>
         <td>${item["안전재고"] ?? 0}</td>
-        <td><b>${item["추천발주량"] ?? 0}</b></td>
+        <td>
+          <span class="order-pill">
+            ${item["추천발주량"]}
+          </span>
+        </td>
         <td>${item["추천박스수"] ?? 0}</td>
         <td>${badge}</td>
       `;
@@ -1400,7 +1478,11 @@
           <td>${item["판매수량"] ?? 0}</td>
           <td>${item["7일예상수량"] ?? 0}</td>
           <td>${item["안전재고"] ?? 0}</td>
-          <td><b>${item["추천발주량"] ?? 0}</b></td>
+          <td>
+            <span class="order-pill">
+              ${item["추천발주량"] ?? 0}
+            </span>
+          </td>
           <td>${item["추천박스수"] ?? 0}</td>
           <td>${badge}</td>
         </tr>
