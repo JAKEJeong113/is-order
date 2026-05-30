@@ -53,11 +53,11 @@
     }
 
     .card {
-      background:white;
-      border-radius:22px;
-      padding:24px;
-      box-shadow:0 8px 24px rgba(0,0,0,.05);
-      border:1px solid #eef2f7;
+      background: var(--card);
+      border-radius: 18px;
+      padding: 20px;
+      margin-bottom: 36px;
+      box-shadow: var(--shadow);
     }
 
     .grid {
@@ -549,10 +549,51 @@
     }
 
 
-    @media (max-width: 960px) {
-      .grid-4, .grid-5, .grid-6, .grid-2, .grid-3, .rep-grid, .search-toolbar {
+    @media (max-width: 768px) {
+
+      .grid-4,
+      .grid-5,
+      .grid-2,
+      .grid-3,
+      .rep-grid,
+      .search-toolbar {
         grid-template-columns: 1fr;
       }
+
+      /* 요약카드는 2열 유지 */
+      .grid-6 {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      /* 테이블 가로스크롤 허용 */
+      table {
+        min-width: 700px;
+      }
+
+      /* 모바일에서 중요하지 않은 컬럼 숨김 */
+      th:nth-child(2),
+      td:nth-child(2),
+      th:nth-child(4),
+      td:nth-child(4),
+      th:nth-child(5),
+      td:nth-child(5) {
+        display: none;
+      }
+
+      /* 상단 버튼 영역 */
+      .row-actions {
+        width: 100%;
+      }
+
+      .row-actions button {
+        flex: 1;
+      }
+
+      /* 카드 간격 조금 더 */
+      .card {
+        margin-bottom: 24px;
+      }
+
     }
   </style>
 </head>
@@ -577,6 +618,7 @@
           API 문서
         </button>
         -->
+      <button class="btn-light" onclick="showBarcodeSection()">바코드 검색</button>
       <button class="btn-dark" id="coupangStartTopBtn" disabled>쿠팡 발주 시작</button>
     </div>
   </div>
@@ -664,8 +706,9 @@
     </div>
   </div>
 
-  <div class="card">
+  <div id="barcodeSearchCard" class="card" style="display:none;">
     <div class="section-title">상품 바코드 검색</div>
+    <button class="btn-light" onclick="hideBarcodeSection()">닫기</button>
     <div class="muted" style="margin-bottom:12px;">
       상품명, 바코드로 검색할 수 있습니다. 추천 판매가는 값이 없으면 공란으로 표시됩니다.
     </div>
@@ -1383,6 +1426,16 @@
     document.getElementById("barcodeSearchResultBody").innerHTML =
       `<tr><td colspan="3" class="empty-box">상품명을 검색하면 결과가 여기에 표시됩니다.</td></tr>`;
   }
+
+  function showBarcodeSection() {
+    const card = document.getElementById("barcodeSearchCard");
+    card.style.display = "block";
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+function hideBarcodeSection() {
+  document.getElementById("barcodeSearchCard").style.display = "none";
+}
 
   function openCoupangActionModal() {
     if (!currentData) {
