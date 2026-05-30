@@ -27,7 +27,14 @@ def download_orderqueen_xlsx(
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage"
+            ],
+        )
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
 
