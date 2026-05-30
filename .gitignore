@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+
+.env
+cmt_cookies.json
+
+*.db
+*.sqlite
+*.sqlite3
+
+.vscode/
+.idea/
+
+~$*

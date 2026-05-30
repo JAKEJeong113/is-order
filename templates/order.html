@@ -1,0 +1,1779 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>지점 발주 화면</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --bg:#f3f4f6;
+      --card:#ffffff;
+      --text:#111827;
+      --muted:#6b7280;
+      --line:#e5e7eb;
+      --blue:#2563eb;
+      --blue-soft:#dbeafe;
+      --blue-text:#1d4ed8;
+      --green:#059669;
+      --green-soft:#d1fae5;
+      --green-text:#047857;
+      --red-soft:#fee2e2;
+      --red-text:#b91c1c;
+      --gray-soft:#f3f4f6;
+      --shadow:0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: var(--bg);
+      margin: 0;
+      padding: 24px;
+      color: var(--text);
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: 18px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+    .grid-6 {
+      grid-template-columns: repeat(6, 1fr);
+    }
+
+
+    .grid-4 {
+      grid-template-columns: repeat(4, 1fr);
+    }
+
+    .grid-5 {
+      grid-template-columns: repeat(5, 1fr);
+    }
+
+    .grid-2 {
+      grid-template-columns: 1.2fr 1fr;
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #d1d5db;
+      box-sizing: border-box;
+      background: white;
+    }
+
+    button {
+      padding: 10px 16px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      font-weight: 700;
+      transition: 0.15s ease;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--blue);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.05);
+    }
+
+    .btn-dark {
+      background: #111827;
+      color: white;
+    }
+
+    .btn-dark:hover {
+      background: #1f2937;
+    }
+
+    .btn-light {
+      background: white;
+      color: var(--text);
+      border: 1px solid #d1d5db;
+    }
+
+    .btn-light:hover {
+      background: #f9fafb;
+    }
+
+    .btn-danger {
+      background: white;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+    }
+
+    .btn-danger:hover {
+      background: #fef2f2;
+    }
+
+    .summary-card {
+      background: white;
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .summary-label {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .summary-value {
+      font-size: 28px;
+      font-weight: 700;
+      margin-top: 6px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .rep-card {
+      background: linear-gradient(135deg, #eff6ff, #ffffff);
+      border: 1px solid #dbeafe;
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .rep-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .rep-title {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status-ok {
+      background: var(--green-soft);
+      color: var(--green-text);
+    }
+
+    .status-none {
+      background: var(--red-soft);
+      color: var(--red-text);
+    }
+
+    .rep-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .rep-box {
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+    }
+
+    .rep-box-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .rep-box-value {
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .rep-link-box {
+      background: #111827;
+      color: white;
+      border-radius: 14px;
+      padding: 14px;
+      margin-top: 10px;
+    }
+
+    .rep-link-label {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-bottom: 6px;
+    }
+
+    .rep-link-value {
+      font-size: 14px;
+      line-height: 1.5;
+      word-break: break-all;
+    }
+
+    .filter-wrap {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .filter-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .filter-btn {
+      border: 1px solid #d1d5db;
+      background: white;
+      color: #111827;
+    }
+
+    .filter-btn.active {
+      background: #111827;
+      color: white;
+      border-color: #111827;
+    }
+
+    .filter-stats {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .mini-pill {
+      background: var(--gray-soft);
+      color: #374151;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .mini-pill.blue {
+      background: var(--blue-soft);
+      color: var(--blue-text);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 980px;
+      background: white;
+    }
+
+    th, td {
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      font-size: 14px;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f9fafb;
+      color: var(--muted);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    tr.coupang-row {
+      background: #f8fbff;
+    }
+
+    tr:hover td {
+      background: #fafafa;
+    }
+
+    .clickable-row:hover td {
+      background: #f0f7ff !important;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .badge-coupang {
+      background: var(--blue-soft);
+      color: var(--blue-text);
+    }
+
+    .badge-other {
+      background: #e5e7eb;
+      color: #374151;
+    }
+
+    .empty-box {
+      text-align: center;
+      color: var(--muted);
+      padding: 28px 10px;
+      font-size: 14px;
+    }
+
+    .history-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .history-card {
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+    }
+
+    .history-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .history-date {
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .history-meta {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .checkbox-row {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: #374151;
+      white-space: nowrap;
+    }
+
+    .top-note {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #dbeafe;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 13px;
+      margin-top: 12px;
+    }
+
+    .search-toolbar {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 12px;
+      align-items: end;
+    }
+
+    .small-link {
+      color: #2563eb;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .small-link:hover {
+      text-decoration: underline;
+    }
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(17,24,39,0.45);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-card {
+      width: 100%;
+      background: #fff;
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+    }
+
+    .info-note {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #6b7280;
+      line-height: 1.6;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+
+    @media (max-width: 960px) {
+      .grid-4, .grid-5, .grid-6, .grid-2, .grid-3, .rep-grid, .search-toolbar {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <div class="muted">지점용 자동발주 MVP</div>
+      <h1 id="pageTitle" style="margin:6px 0 0 0;">지점 발주 화면</h1>
+    </div>
+    <div class="row-actions">
+      <button class="btn-light" onclick="location.href='/docs'">API 문서</button>
+      <button class="btn-dark" id="coupangStartTopBtn" disabled>쿠팡 발주 시작</button>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="section-title">지점 정보 / 자동 로그인</div>
+      <div class="grid grid-4">
+        <div>
+          <div class="muted" style="margin-bottom:6px;">지점명</div>
+          <input id="storeName" type="text" placeholder="예: 아이즈크림 오산세교">
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:6px;">오더퀸 ID</div>
+          <input id="loginId" type="text" placeholder="오더퀸 ID">
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:6px;">오더퀸 PW</div>
+          <input id="loginPw" type="password" placeholder="오더퀸 PW">
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:6px;">기본 안전재고</div>
+          <input id="defaultSafetyStock" type="number" value="0">
+        </div>
+      </div>
+
+      <div class="checkbox-row">
+        <label class="checkbox-label">
+          <input id="saveStoreName" type="checkbox" checked>
+          지점명 저장
+        </label>
+        <label class="checkbox-label">
+          <input id="autoLoginEnabled" type="checkbox" checked>
+          오더퀸 자동 로그인 사용
+        </label>
+      </div>
+
+      <div class="row-actions" style="margin-top:16px;">
+        <button class="btn-primary" onclick="saveSettings()">설정 저장</button>
+        <button class="btn-danger" onclick="clearSettings()">저장값 초기화</button>
+      </div>
+
+      <div class="top-note">
+        저장된 지점명과 오더퀸 로그인 정보는 현재 브라우저에만 저장됩니다.
+      </div>
+    </div>
+
+    <div class="rep-card">
+      <div class="rep-top">
+        <div>
+          <div class="rep-title">대표 발주 링크 상태</div>
+          <div class="muted" style="margin-top:4px;">대표 파트너스 링크로 쿠팡 발주를 시작합니다.</div>
+        </div>
+        <div id="repStatusPill" class="status-pill status-none">미생성</div>
+      </div>
+
+      <div class="rep-grid">
+        <div class="rep-box">
+          <div class="rep-box-label">대표 상품</div>
+          <div class="rep-box-value" id="repMenuName">-</div>
+        </div>
+        <div class="rep-box">
+          <div class="rep-box-label">검색 키워드</div>
+          <div class="rep-box-value" id="repKeyword">-</div>
+        </div>
+        <div class="rep-box">
+          <div class="rep-box-label">카탈로그 매핑 상태</div>
+          <div class="rep-box-value" id="repCatalogInfo">-</div>
+        </div>
+      </div>
+
+      <div class="rep-link-box">
+        <div class="rep-link-label">생성된 대표 파트너스 링크</div>
+        <div class="rep-link-value" id="repPartnerLink">아직 생성되지 않았습니다.</div>
+      </div>
+
+      <div class="row-actions" style="margin-top:16px;">
+        <button class="btn-dark" id="coupangStartBtn" disabled>쿠팡 발주 시작</button>
+        <button class="btn-light" id="icecreamSheetBtn" disabled>아이스크림 발주표</button>
+        <button class="btn-light" id="excelDownloadBtn" disabled>엑셀 다운로드</button>
+      </div>
+      <div style="margin-top:8px; font-size:12px; color:#1d4ed8;">
+        *본 링크를 통하여 구매를 진행하실 경우 쿠팡 파트너스 활동의 일환으로 그에 따른 일정액의 수수료를 제공받습니다.
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">상품 바코드 검색</div>
+    <div class="muted" style="margin-bottom:12px;">
+      상품명, 바코드로 검색할 수 있습니다. 추천 판매가는 값이 없으면 공란으로 표시됩니다.
+    </div>
+
+    <div class="search-toolbar">
+      <div>
+        <div class="muted" style="margin-bottom:6px;">검색어</div>
+        <input id="barcodeSearchKeyword" type="text" placeholder="예: 메로나 / 880xxxx ">
+      </div>
+      <button class="btn-primary" onclick="searchBarcode()">검색</button>
+      <button class="btn-light" onclick="clearBarcodeSearch()">초기화</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>상품명</th>
+            <th>바코드</th>
+            <th>추천 판매가</th>
+          </tr>
+        </thead>
+        <tbody id="barcodeSearchResultBody">
+          <tr>
+            <td colspan="10" class="empty-box">상품명을 검색하면 결과가 여기에 표시됩니다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">발주 추천 생성</div>
+    <div class="grid grid-4">
+      <div>
+        <div class="muted" style="margin-bottom:6px;">조회 시작일</div>
+        <input id="periodFrom" type="date">
+      </div>
+      <div>
+        <div class="muted" style="margin-bottom:6px;">조회 종료일</div>
+        <input id="periodTo" type="date">
+      </div>
+      <div>
+        <div class="muted" style="margin-bottom:6px;">이번 발주 안전재고</div>
+        <input id="safetyStock" type="number" value="0">
+      </div>
+      <div style="display:flex; align-items:end;">
+        <button class="btn-primary" style="width:100%;" onclick="generateOrder()">발주 추천 생성</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-6">
+    <div class="summary-card">
+      <div class="summary-label">총판매수량</div>
+      <div class="summary-value" id="sumTotalSold">-</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">상품종류수</div>
+      <div class="summary-value" id="sumSkuCount">-</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">아이스크림 품목 수</div>
+      <div class="summary-value" id="sumIcecreamCount">-</div>
+    </div>
+
+    <div class="summary-card">
+      <div class="summary-label">쿠팡 품목 수</div>
+      <div class="summary-value" id="sumCoupangCount">-</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">도매몰 품목 수</div>
+      <div class="summary-value" id="sumWholesaleCount">-</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-label">문구완구 품목 수</div>
+      <div class="summary-value" id="sumToyCount">-</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 28px;">
+    <div class="history-top">
+      <div class="section-title" style="margin-bottom:0;">최근 발주 이력</div>
+      <button class="btn-light" onclick="clearHistory()">이력 초기화</button>
+    </div>
+    <div id="historyList" class="history-list">
+      <div class="empty-box">아직 저장된 발주 이력이 없습니다.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="filter-wrap">
+      <div class="section-title" style="margin-bottom:0;">추천 발주표</div>
+
+      <div class="filter-stats">
+        <div class="mini-pill">전체 <span id="countAll">0</span></div>
+        <div class="mini-pill">아이스크림 <span id="countIcecream">0</span></div>
+        <div class="mini-pill blue">쿠팡 <span id="countCoupang">0</span></div>
+        <div class="mini-pill">도매몰 <span id="countWholesale">0</span></div>
+        <div class="mini-pill">문구완구 <span id="countStationery">0</span></div>
+      </div>
+
+      <div class="filter-tabs">
+        <button id="filterAll" class="filter-btn active" onclick="setFilter('all')">전체 보기</button>
+        <button id="filterIcecream" class="filter-btn" onclick="setFilter('icecream')">아이스크림만 보기</button>
+        <button id="filterCoupang" class="filter-btn" onclick="setFilter('coupang')">쿠팡 품목만 보기</button>
+        <button id="filterWholesale" class="filter-btn" onclick="setFilter('wholesale')">도매몰 품목만 보기</button>
+        <button id="filterStationery" class="filter-btn" onclick="setFilter('stationery')">문구완구만 보기</button>
+        <button id="filterUnmapped" class="filter-btn" onclick="setFilter('unmapped')">미분류 보기</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>품목명</th>
+            <th>바코드</th>
+            <th style="cursor:pointer;" onclick="sortTable('판매수량')">
+              판매수량 ↕
+            </th>
+            <th>7일예상수량</th>
+            <th>안전재고</th>
+            <th>추천발주량</th>
+            <th style="cursor:pointer;" onclick="sortTable('추천박스수')">
+              포장반영 ↕
+            </th>
+            <th>발주구분</th>
+          </tr>
+        </thead>
+        <tbody id="resultBody">
+          <tr>
+            <td colspan="8" class="empty-box">발주 추천을 생성하면 결과가 여기에 표시됩니다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="loadingModal" class="modal-overlay" style="z-index:20000;">
+  <div class="modal-card" style="max-width:440px; text-align:center;">
+    <div style="
+      width:48px;
+      height:48px;
+      border:5px solid #e5e7eb;
+      border-top:5px solid #2563eb;
+      border-radius:50%;
+      margin:0 auto 18px auto;
+      animation:spin 1s linear infinite;
+    "></div>
+
+    <div style="font-size:20px; font-weight:800;">발주 추천표를 생성중입니다</div>
+    <div style="font-size:13px; color:#6b7280; margin-top:8px; white-space:nowrap;">
+      오더퀸 데이터를 조회하고 있습니다. 잠시만 기다려주세요.
+    </div>
+  </div>
+</div>
+
+<div id="coupangActionModal" class="modal-overlay">
+  <div class="modal-card" style="max-width:520px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px;">
+      <div>
+        <div style="font-size:22px; font-weight:800; color:#111827;">쿠팡 발주 실행</div>
+        <div style="font-size:13px; color:#6b7280; margin-top:6px;">
+          원하는 실행 방식을 선택해줘.
+        </div>
+      </div>
+      <button class="btn-light" onclick="closeCoupangActionModal()">닫기</button>
+    </div>
+
+    <div class="row-actions" style="margin-top:16px; flex-direction:column;">
+      <button class="btn-dark" style="width:100%;" onclick="openRepresentativePartnerLink()">대표 파트너스 링크 열기</button>
+      <button class="btn-primary" style="width:100%;" onclick="showCoupangSheetFromModal()">쿠팡 발주표 보기</button>
+    </div>
+
+  </div>
+</div>
+
+<div id="coupangSheetModal" class="modal-overlay" style="z-index:10000;">
+  <div class="modal-card" style="max-width:900px; max-height:85vh; overflow:auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
+      <div>
+        <div style="font-size:22px; font-weight:800; color:#111827;">쿠팡 발주표</div>
+        <div style="font-size:13px; color:#6b7280; margin-top:6px;">
+          상품명 기준으로 쿠팡 검색 결과를 엽니다.
+        </div>
+        <div class="row-actions" style="margin-top:12px;">
+          <button class="btn-dark" onclick="setCoupangSheetFilter('all')">전체</button>
+          <button class="btn-light" onclick="setCoupangSheetFilter('drink')">음료수</button>
+          <button class="btn-light" onclick="setCoupangSheetFilter('snack')">상품류</button>
+
+          <select id="snackPackUnit" onchange="showCoupangSheet()" style="padding:10px; border-radius:10px; border:1px solid #d1d5db;">
+            <option value="10">상품류 10개 단위</option>
+            <option value="20">상품류 20개 단위</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn-light" onclick="closeCoupangSheetModal()">닫기</button>
+    </div>
+
+    <div class="table-wrap">
+      <table style="table-layout:fixed; width:100%; min-width:700px;">
+        <thead>
+          <tr>
+            <th style="width:32%;">상품명</th>
+            <th style="width:20%;">바코드</th>
+            <th style="width:10%; cursor:pointer;" onclick="sortCoupangSheet('판매수량')">
+              판매수량 ↕
+            </th>
+            <th style="width:28%; cursor:pointer;" onclick="sortCoupangSheet('추천발주량')">
+              추천발주량 ↕
+            </th>
+            <th style="width:10%;">열기</th>
+          </tr>
+        </thead>
+        <tbody id="coupangSheetBody">
+          <tr>
+            <td colspan="5" class="empty-box">쿠팡 품목이 없습니다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="icecreamSheetModal" class="modal-overlay" style="z-index:10000;">
+  <div class="modal-card" style="max-width:1000px; max-height:85vh; overflow:auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px;">
+      <div>
+        <div style="font-size:22px; font-weight:800;">아이스크림 발주표</div>
+        <div style="font-size:13px; color:#6b7280; margin-top:6px;">
+          추천 발주표의 아이스크림만 보기와 동일한 내용입니다.
+        </div>
+      </div>
+      <button class="btn-light" onclick="closeIcecreamSheetModal()">닫기</button>
+    </div>
+
+    <div class="table-wrap">
+      <table style="table-layout:fixed; width:100%; min-width:900px;">
+        <thead>
+          <tr>
+            <th>품목명</th>
+            <th>바코드</th>
+            <th style="cursor:pointer;" onclick="sortIcecreamSheet('판매수량')">판매수량 ↕</th>
+            <th>7일예상수량</th>
+            <th>안전재고</th>
+            <th>추천발주량</th>
+            <th style="cursor:pointer;" onclick="sortIcecreamSheet('추천박스수')">포장반영 ↕</th>
+            <th>발주구분</th>
+          </tr>
+        </thead>
+        <tbody id="icecreamSheetBody">
+          <tr>
+            <td colspan="8" class="empty-box">아이스크림 품목이 없습니다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+<div id="coupangContinueModal" class="modal-overlay" style="z-index:10001;">
+  <div class="modal-card" style="max-width:520px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px;">
+      <div>
+        <div id="coupangContinueTitle" style="font-size:22px; font-weight:800; color:#111827;">1단계</div>
+        <div id="coupangContinueDesc" style="font-size:13px; color:#6b7280; margin-top:6px;">
+          대표 링크 열기 버튼을 누르면 최초 1회에 한하여 대표 파트너스 링크가 열립니다. 대표 링크 페이지가 열리면 페이지를 닫고 이어서 진행해주세요.
+        </div>
+      </div>
+      <button class="btn-light" style="flex:0 0 auto; padding:8px 14px;" onclick="closeCoupangContinueModal()">닫기</button>
+    </div>
+
+    <div class="row-actions" style="margin-top:16px; flex-direction:column;">
+      <button id="coupangContinueMainBtn" class="btn-primary" style="width:100%;" onclick="handleCoupangContinueStep()">대표링크 열기</button>
+      <button class="btn-light" style="width:100%;" onclick="cancelPendingCoupangItem()">취소</button>
+    </div>
+
+    <div id="coupangContinueFoot" class="info-note">
+      최초 1회만 이 절차가 필요합니다. 이후에는 발주표 상품을 클릭하면 바로 열립니다.
+    </div>
+  </div>
+</div>
+
+<script>
+  const STORAGE_KEYS = {
+    storeName: "branchOrder.storeName",
+    loginId: "branchOrder.loginId",
+    loginPw: "branchOrder.loginPw",
+    autoLoginEnabled: "branchOrder.autoLoginEnabled",
+    saveStoreName: "branchOrder.saveStoreName",
+    defaultSafetyStock: "branchOrder.defaultSafetyStock",
+    orderHistory: "branchOrder.orderHistory"
+  };
+
+  let currentData = null;
+  let currentFilter = "all";
+  let currentSortField = "";
+  let currentSortDirection = "asc";
+  let coupangPartnerEntryDone = false;
+  let coupangSheetFilter = "all";
+  let coupangSortField = "";
+  let coupangSortDirection = "desc";
+  let icecreamSortField = "";
+  let icecreamSortDirection = "desc";
+  let pendingCoupangItemUrl = null;
+  let coupangContinueStep = 1;
+
+  function setDefaultDates() {
+    const today = new Date();
+    const to = today.toISOString().slice(0, 10);
+    const fromDate = new Date(today);
+    fromDate.setDate(today.getDate() - 7);
+    const from = fromDate.toISOString().slice(0, 10);
+
+    document.getElementById("periodFrom").value = from;
+    document.getElementById("periodTo").value = to;
+  }
+
+  function updatePageTitle() {
+    const storeName = document.getElementById("storeName").value.trim();
+    document.getElementById("pageTitle").innerText = storeName
+      ? `${storeName} 발주 화면`
+      : "지점 발주 화면";
+  }
+
+  function loadSettings() {
+    const storeName = localStorage.getItem(STORAGE_KEYS.storeName) || "";
+    const loginId = localStorage.getItem(STORAGE_KEYS.loginId) || "";
+    const loginPw = localStorage.getItem(STORAGE_KEYS.loginPw) || "";
+    const autoLoginEnabled = localStorage.getItem(STORAGE_KEYS.autoLoginEnabled);
+    const saveStoreName = localStorage.getItem(STORAGE_KEYS.saveStoreName);
+    const defaultSafetyStock = localStorage.getItem(STORAGE_KEYS.defaultSafetyStock);
+
+    document.getElementById("storeName").value = storeName;
+    document.getElementById("loginId").value = loginId;
+    document.getElementById("loginPw").value = loginPw;
+    document.getElementById("autoLoginEnabled").checked = autoLoginEnabled !== "false";
+    document.getElementById("saveStoreName").checked = saveStoreName !== "false";
+    document.getElementById("defaultSafetyStock").value = defaultSafetyStock ?? "0";
+    document.getElementById("safetyStock").value = defaultSafetyStock ?? "0";
+
+    updatePageTitle();
+  }
+
+  function saveSettings() {
+    const storeName = document.getElementById("storeName").value.trim();
+    const loginId = document.getElementById("loginId").value.trim();
+    const loginPw = document.getElementById("loginPw").value.trim();
+    const autoLoginEnabled = document.getElementById("autoLoginEnabled").checked;
+    const saveStoreName = document.getElementById("saveStoreName").checked;
+    const defaultSafetyStock = document.getElementById("defaultSafetyStock").value || "0";
+
+    if (saveStoreName) {
+      localStorage.setItem(STORAGE_KEYS.storeName, storeName);
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.storeName);
+    }
+
+    if (autoLoginEnabled) {
+      localStorage.setItem(STORAGE_KEYS.loginId, loginId);
+      localStorage.setItem(STORAGE_KEYS.loginPw, loginPw);
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.loginId);
+      localStorage.removeItem(STORAGE_KEYS.loginPw);
+    }
+
+    localStorage.setItem(STORAGE_KEYS.autoLoginEnabled, String(autoLoginEnabled));
+    localStorage.setItem(STORAGE_KEYS.saveStoreName, String(saveStoreName));
+    localStorage.setItem(STORAGE_KEYS.defaultSafetyStock, String(defaultSafetyStock));
+
+    document.getElementById("safetyStock").value = defaultSafetyStock;
+    updatePageTitle();
+    alert("지점 설정이 저장되었습니다.");
+  }
+
+  function clearSettings() {
+    localStorage.removeItem(STORAGE_KEYS.storeName);
+    localStorage.removeItem(STORAGE_KEYS.loginId);
+    localStorage.removeItem(STORAGE_KEYS.loginPw);
+    localStorage.removeItem(STORAGE_KEYS.autoLoginEnabled);
+    localStorage.removeItem(STORAGE_KEYS.saveStoreName);
+    localStorage.removeItem(STORAGE_KEYS.defaultSafetyStock);
+
+    document.getElementById("storeName").value = "";
+    document.getElementById("loginId").value = "";
+    document.getElementById("loginPw").value = "";
+    document.getElementById("defaultSafetyStock").value = "0";
+    document.getElementById("safetyStock").value = "0";
+    document.getElementById("autoLoginEnabled").checked = true;
+    document.getElementById("saveStoreName").checked = true;
+
+    updatePageTitle();
+    alert("저장된 설정이 초기화되었습니다.");
+  }
+
+  function getHistory() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEYS.orderHistory) || "[]");
+    } catch {
+      return [];
+    }
+  }
+
+  function saveHistory(history) {
+    localStorage.setItem(STORAGE_KEYS.orderHistory, JSON.stringify(history));
+  }
+
+  function addHistoryEntry(data) {
+    const storeName = document.getElementById("storeName").value.trim() || "지점명 미입력";
+    const history = getHistory();
+
+    const entry = {
+      createdAt: new Date().toISOString(),
+      storeName,
+      periodFrom: data.summary?.period_from ?? "",
+      periodTo: data.summary?.period_to ?? "",
+      totalSold: data.summary?.["총판매수량"] ?? 0,
+      skuCount: data.summary?.["상품종류수"] ?? 0,
+      icecreamCount: data.summary?.["아이스크림품목수"] ?? 0,
+      coupangCount: data.summary?.["쿠팡품목수"] ?? 0,
+      wholesaleCount: data.summary?.["도매몰품목수"] ?? 0,
+      toyCount: data.summary?.["문구완구품목수"] ?? 0,
+      representativeName: data.representative_product?.menu_name ?? "없음",
+      representativeLink: data.representative_partner_link ?? "",
+      jobId: data.job_id ?? ""
+    };
+
+    history.unshift(entry);
+    saveHistory(history.slice(0, 10));
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const historyList = document.getElementById("historyList");
+    const history = getHistory();
+
+    if (!history.length) {
+      historyList.innerHTML = '<div class="empty-box">아직 저장된 발주 이력이 없습니다.</div>';
+      return;
+    }
+
+    historyList.innerHTML = history.map(item => {
+      const dt = new Date(item.createdAt);
+      const createdText = isNaN(dt.getTime()) ? item.createdAt : dt.toLocaleString("ko-KR");
+
+      return `
+        <div class="history-card">
+          <div class="history-top">
+            <div class="history-date">${item.storeName}</div>
+            <span class="badge ${item.representativeLink ? "badge-coupang" : "badge-other"}">
+              ${item.representativeLink ? "대표링크 생성" : "대표링크 없음"}
+            </span>
+          </div>
+
+          <div class="history-meta">
+            <div><b>생성시각:</b> ${createdText}</div>
+            <div><b>조회기간:</b> ${item.periodFrom} ~ ${item.periodTo}</div>
+            <div><b>총판매수량:</b> ${item.totalSold}개 / <b>상품종류수:</b> ${item.skuCount}종</div>
+            <div><b>아이스크림 품목 수:</b> ${item.icecreamCount ?? 0}종</div>
+            <div><b>쿠팡 품목 수:</b> ${item.coupangCount ?? 0}종</div>
+            <div><b>도매몰 품목 수:</b> ${item.wholesaleCount ?? 0}종</div>
+            <div><b>문구완구 품목 수:</b> ${item.toyCount ?? 0}종</div>
+            <div><b>대표상품:</b> ${item.representativeName}</div>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function clearHistory() {
+    localStorage.removeItem(STORAGE_KEYS.orderHistory);
+    renderHistory();
+    alert("최근 발주 이력이 초기화되었습니다.");
+  }
+
+  function setFilter(type) {
+    currentFilter = type;
+
+    document.getElementById("filterAll").classList.remove("active");
+    document.getElementById("filterIcecream").classList.remove("active");
+    document.getElementById("filterCoupang").classList.remove("active");
+    document.getElementById("filterWholesale").classList.remove("active");
+    document.getElementById("filterStationery").classList.remove("active");
+    document.getElementById("filterUnmapped").classList.remove("active");
+
+    if (type === "all") document.getElementById("filterAll").classList.add("active");
+    if (type === "icecream") document.getElementById("filterIcecream").classList.add("active");
+    if (type === "coupang") document.getElementById("filterCoupang").classList.add("active");
+    if (type === "wholesale") document.getElementById("filterWholesale").classList.add("active");
+    if (type === "stationery") document.getElementById("filterStationery").classList.add("active");
+    if (type === "unmapped") document.getElementById("filterUnmapped").classList.add("active");
+
+    renderTable();
+  }
+
+  function renderSummary(data) {
+    document.getElementById("sumTotalSold").innerText = `${data.summary["총판매수량"] ?? "-"}개`;
+    document.getElementById("sumSkuCount").innerText = `${data.summary["상품종류수"] ?? "-"}종`;
+    document.getElementById("sumIcecreamCount").innerText = `${data.summary["아이스크림품목수"] ?? 0}종`;
+    document.getElementById("sumCoupangCount").innerText = `${data.summary["쿠팡품목수"] ?? 0}종`;
+    document.getElementById("sumWholesaleCount").innerText = `${data.summary["도매몰품목수"] ?? 0}종`;
+    document.getElementById("sumToyCount").innerText = `${data.summary["문구완구품목수"] ?? 0}종`;
+
+    const visibleItems = data.top_items || [];
+
+
+    document.getElementById("countAll").innerText = visibleItems.length;
+    document.getElementById("countIcecream").innerText =
+      visibleItems.filter(x => Number(x.is_coupang ?? x.is_coupang_type ?? 0) === 0).length;
+    document.getElementById("countCoupang").innerText =
+      visibleItems.filter(x => Number(x.is_coupang ?? x.is_coupang_type ?? 0) === 1).length;
+    document.getElementById("countWholesale").innerText =
+      visibleItems.filter(x => Number(x.is_coupang ?? x.is_coupang_type ?? 0) === 2).length;
+    document.getElementById("countStationery").innerText =
+      visibleItems.filter(x => Number(x.is_coupang ?? x.is_coupang_type ?? 0) === 3).length;
+
+    const repStatusPill = document.getElementById("repStatusPill");
+    if (data.representative_partner_link) {
+      repStatusPill.className = "status-pill status-ok";
+      repStatusPill.innerText = "생성 완료";
+    } else {
+      repStatusPill.className = "status-pill status-none";
+      repStatusPill.innerText = "미생성";
+    }
+
+    document.getElementById("repMenuName").innerText =
+      data.representative_product?.menu_name ?? "-";
+
+    document.getElementById("repKeyword").innerText =
+      data.representative_product?.search_keyword ?? "-";
+
+    document.getElementById("repCatalogInfo").innerText =
+      data.representative_product ? "대표 상품 선택 완료" : "대표 상품 없음";
+
+    document.getElementById("repPartnerLink").innerText =
+      data.representative_partner_link ?? "아직 생성되지 않았습니다.";
+  }
+
+  function sortTable(field) {
+    if (currentSortField === field) {
+      currentSortDirection = currentSortDirection === "asc" ? "desc" : "asc";
+    } else {
+      currentSortField = field;
+      currentSortDirection = "asc";
+    }
+
+    renderTable();
+  }
+
+  function renderTable() {
+    const tbody = document.getElementById("resultBody");
+    tbody.innerHTML = "";
+
+    if (!currentData || !currentData.top_items) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-box">데이터가 없습니다.</td></tr>`;
+      return;
+    }
+
+    let rows = currentData.top_items || [];
+
+    if (currentFilter === "coupang") {
+      rows = rows.filter(item => Number(item.is_coupang ?? item.is_coupang_type ?? 0) === 1);
+    } else if (currentFilter === "icecream") {
+      rows = rows.filter(item => Number(item.is_coupang ?? item.is_coupang_type ?? 0) === 0);
+    } else if (currentFilter === "wholesale") {
+      rows = rows.filter(item => Number(item.is_coupang ?? item.is_coupang_type ?? 0) === 2);
+    } else if (currentFilter === "stationery") {
+      rows = rows.filter(item => Number(item.is_coupang ?? item.is_coupang_type ?? 0) === 3);
+    }
+    else if (currentFilter === "unmapped") {
+      rows = rows.filter(item => Number(item.is_coupang ?? item.is_coupang_type ?? 0) === 99);
+    }
+
+    if (currentSortField) {
+
+      rows.sort((a, b) => {
+
+        let aVal = a[currentSortField];
+        let bVal = b[currentSortField];
+
+        // "1박스 (0.95)" 같은 문자열 대응
+        if (currentSortField === "추천박스수") {
+          aVal = parseFloat(String(aVal).match(/[\d.]+/)?.[0] || 0);
+          bVal = parseFloat(String(bVal).match(/[\d.]+/)?.[0] || 0);
+        } else {
+          aVal = Number(aVal || 0);
+          bVal = Number(bVal || 0);
+        }
+
+        if (currentSortDirection === "asc") {
+          return aVal - bVal;
+        } else {
+          return bVal - aVal;
+        }
+
+      });
+    }
+
+
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-box">해당 조건의 품목이 없습니다.</td></tr>`;
+      return;
+    }
+
+    rows.forEach(item => {
+      const typeValue = Number(item.is_coupang ?? item.is_coupang_type ?? 0);
+
+      let badge = '<span class="badge badge-other">아이스크림</span>';
+      if (typeValue === 1) {
+        badge = '<span class="badge badge-coupang">쿠팡</span>';
+      } else if (typeValue === 2) {
+        badge = '<span class="badge badge-other">도매몰</span>';
+      } else if (typeValue === 3) {
+        badge = '<span class="badge badge-other">문구완구</span>';
+      }
+      else if (typeValue === 99) {
+        badge = '<span class="badge badge-other">미분류</span>';
+      }
+
+      const tr = document.createElement("tr");
+      if (typeValue === 1) tr.classList.add("coupang-row");
+      if (item["low_rotation"] === true) {
+        tr.style.color = "#dc2626";
+        tr.style.fontWeight = "700";
+      }
+
+      tr.innerHTML = `
+        <td>${item["메뉴명"] ?? ""}</td>
+        <td>${item["바코드번호"] ?? ""}</td>
+        <td>${item["판매수량"] ?? 0}</td>
+        <td>${item["7일예상수량"] ?? 0}</td>
+        <td>${item["안전재고"] ?? 0}</td>
+        <td><b>${item["추천발주량"] ?? 0}</b></td>
+        <td>${item["추천박스수"] ?? 0}</td>
+        <td>${badge}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function formatRecommendedPrice(value) {
+    if (value === null || value === undefined || value === "") return "";
+    const num = Number(value);
+    if (Number.isNaN(num)) return String(value);
+    return `${num.toLocaleString("ko-KR")}원`;
+  }
+
+  function formatBarcode(value) {
+    if (value === null || value === undefined || value === "") return "";
+    const text = String(value).trim();
+    if (text.endsWith(".0")) {
+      return text.slice(0, -2);
+    }
+    return text;
+  }
+
+  function buildCoupangSearchUrl(item) {
+    const keyword = (item["메뉴명"] || "").trim();
+    return `https://www.coupang.com/np/search?q=${encodeURIComponent(keyword)}`;
+  }
+
+  function renderBarcodeSearchResults(items) {
+    const tbody = document.getElementById("barcodeSearchResultBody");
+
+    if (!items || !items.length) {
+      tbody.innerHTML = `<tr><td colspan="3" class="empty-box">검색 결과가 없습니다.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = items.map(item => `
+      <tr>
+        <td>${item.menu_name ?? ""}</td>
+        <td>${formatBarcode(item.barcode)}</td>
+        <td>${formatRecommendedPrice(item.recommended_price)}</td>
+      </tr>
+    `).join("");
+  }
+
+  async function searchBarcode() {
+    const keyword = document.getElementById("barcodeSearchKeyword").value.trim();
+    const tbody = document.getElementById("barcodeSearchResultBody");
+
+    if (!keyword) {
+      alert("검색어를 입력해줘.");
+      return;
+    }
+
+    tbody.innerHTML = `<tr><td colspan="3" class="empty-box">검색 중...</td></tr>`;
+
+    try {
+      const res = await fetch(`/api/products/search?q=${encodeURIComponent(keyword)}`);
+
+      if (!res.ok) {
+        const txt = await res.text();
+        tbody.innerHTML = `<tr><td colspan="3" class="empty-box">검색 중 오류가 발생했습니다.<br>${txt}</td></tr>`;
+        return;
+      }
+
+      const data = await res.json();
+      renderBarcodeSearchResults(data.items || []);
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="3" class="empty-box">요청 중 오류가 발생했습니다.<br>${String(e)}</td></tr>`;
+    }
+  }
+
+  function clearBarcodeSearch() {
+    document.getElementById("barcodeSearchKeyword").value = "";
+    document.getElementById("barcodeSearchResultBody").innerHTML =
+      `<tr><td colspan="3" class="empty-box">상품명을 검색하면 결과가 여기에 표시됩니다.</td></tr>`;
+  }
+
+  function openCoupangActionModal() {
+    if (!currentData) {
+      alert("먼저 발주 추천을 생성해줘.");
+      return;
+    }
+    document.getElementById("coupangActionModal").style.display = "flex";
+  }
+
+  function closeCoupangActionModal() {
+    document.getElementById("coupangActionModal").style.display = "none";
+  }
+
+  function closeCoupangSheetModal() {
+    document.getElementById("coupangSheetModal").style.display = "none";
+  }
+
+  function closeIcecreamSheetModal() {
+    document.getElementById("icecreamSheetModal").style.display = "none";
+  }
+
+  function sortIcecreamSheet(field) {
+
+    if (icecreamSortField === field) {
+      icecreamSortDirection =
+        icecreamSortDirection === "asc" ? "desc" : "asc";
+    } else {
+      icecreamSortField = field;
+      icecreamSortDirection = "desc";
+    }
+
+    showIcecreamSheet();
+  }
+
+  function showIcecreamSheet() {
+    if (!currentData || !currentData.top_items) {
+      alert("먼저 발주 추천을 생성해줘.");
+      return;
+    }
+
+    let items = currentData.top_items.filter(item => {
+      const type = Number(item.is_coupang ?? item.is_coupang_type ?? 0);
+      return type === 0;
+    });
+
+    const tbody = document.getElementById("icecreamSheetBody");
+
+    if (icecreamSortField) {
+
+      items = [...items].sort((a, b) => {
+
+        let aVal = a[icecreamSortField];
+        let bVal = b[icecreamSortField];
+
+        // 포장반영 "1박스 (0.88)" 처리
+        if (icecreamSortField === "추천박스수") {
+
+          aVal = parseFloat(
+            String(aVal).match(/[\d.]+/)?.[0] || 0
+          );
+
+          bVal = parseFloat(
+            String(bVal).match(/[\d.]+/)?.[0] || 0
+          );
+
+        } else {
+
+          aVal = Number(aVal || 0);
+          bVal = Number(bVal || 0);
+
+        }
+
+        return icecreamSortDirection === "asc"
+          ? aVal - bVal
+          : bVal - aVal;
+
+      });
+
+    }
+
+    if (!items.length) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-box">아이스크림 품목이 없습니다.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = items.map(item => {
+      const badge = '<span class="badge badge-other">아이스크림</span>';
+
+      return `
+        <tr>
+          <td>${item["메뉴명"] ?? ""}</td>
+          <td>${formatBarcode(item["바코드번호"])}</td>
+          <td>${item["판매수량"] ?? 0}</td>
+          <td>${item["7일예상수량"] ?? 0}</td>
+          <td>${item["안전재고"] ?? 0}</td>
+          <td><b>${item["추천발주량"] ?? 0}</b></td>
+          <td>${item["추천박스수"] ?? 0}</td>
+          <td>${badge}</td>
+        </tr>
+      `;
+    }).join("");
+
+    document.getElementById("icecreamSheetModal").style.display = "flex";
+  }
+
+
+  function closeCoupangContinueModal() {
+    document.getElementById("coupangContinueModal").style.display = "none";
+  }
+
+  function openRepresentativePartnerLink() {
+    if (!currentData?.representative_partner_link) {
+      alert("대표 파트너스 링크가 없습니다.");
+      return;
+    }
+
+    window.open(currentData.representative_partner_link, "_blank");
+    coupangPartnerEntryDone = true;
+    closeCoupangActionModal();
+  }
+
+  function sortCoupangSheet(field) {
+    if (coupangSortField === field) {
+      coupangSortDirection = coupangSortDirection === "asc" ? "desc" : "asc";
+    } else {
+      coupangSortField = field;
+      coupangSortDirection = "desc";
+    }
+
+    showCoupangSheet();
+  }
+
+  function setCoupangSheetFilter(type) {
+    coupangSheetFilter = type;
+    showCoupangSheet();
+  }
+
+  function showCoupangSheet() {
+    if (!currentData || !currentData.top_items) {
+      alert("먼저 발주 추천을 생성해줘.");
+      return;
+    }
+
+    let items = currentData.top_items.filter(item => {
+      const type = Number(item.is_coupang ?? item.is_coupang_type ?? 0);
+      return type === 1;
+    });
+
+    if (coupangSheetFilter === "drink") {
+      items = items.filter(item => String(item.category ?? "").trim() === "음료수");
+    }
+
+    if (coupangSheetFilter === "snack") {
+      items = items.filter(item => String(item.category ?? "").trim() !== "음료수");
+    }
+
+    const tbody = document.getElementById("coupangSheetBody");
+
+    if (coupangSortField) {
+      items = [...items].sort((a, b) => {
+        let aVal = 0;
+        let bVal = 0;
+
+        if (coupangSortField === "판매수량") {
+          aVal = Number(a["판매수량"] ?? 0);
+          bVal = Number(b["판매수량"] ?? 0);
+        } else if (coupangSortField === "추천발주량") {
+          aVal = Number(a["_sort_boxQty"] ?? 0);
+          bVal = Number(b["_sort_boxQty"] ?? 0);
+        }
+
+        return coupangSortDirection === "asc" ? aVal - bVal : bVal - aVal;
+      });
+    }
+
+    if (!items.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-box">쿠팡 품목이 없습니다.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = items.map(item => {
+      const url = buildCoupangSearchUrl(item);
+
+      const soldQty = Number(item["판매수량"] ?? 0);
+      const expectedQty = Number(item["7일예상수량"] ?? item["추천발주량"] ?? 0);
+      const category = String(item.category ?? "").trim();
+
+    let packUnit = 1;
+
+    if (category === "음료수") {
+      packUnit = 24;
+    } else {
+      packUnit = Number(document.getElementById("snackPackUnit")?.value || 10);
+    }
+
+    const rawBoxRatio = expectedQty / packUnit;
+    let boxQty = Math.round(rawBoxRatio);
+
+    // 쿠팡도 아이스크림과 같은 4주 보정 로직 구조 적용
+    // 현재는 2~4주 판매량 데이터가 없으므로 이번 조회 판매수량 기준으로 임시 적용
+    if (boxQty === 0) {
+      const twoWeekSoldQty = Number(item["2주판매수량"] ?? 0);
+      const threeWeekSoldQty = Number(item["3주판매수량"] ?? 0);
+      const fourWeekSoldQty = Number(item["4주판매수량"] ?? 0);
+
+      if (twoWeekSoldQty > packUnit * 0.5) {
+        boxQty = 1;
+      } else if (threeWeekSoldQty > packUnit * 0.5) {
+        boxQty = 1;
+      } else if (fourWeekSoldQty > packUnit * 0.5) {
+        boxQty = 1;
+      } else {
+        item["low_rotation"] = true;
+      }
+    }
+
+    let orderDisplay = "";
+    item["_sort_boxQty"] = boxQty;
+
+    if (boxQty === 1 && rawBoxRatio < 1) {
+      orderDisplay = `1박스 (${rawBoxRatio.toFixed(2)}) / ${boxQty * packUnit}개`;
+    } else {
+      orderDisplay = `${boxQty}박스 / ${boxQty * packUnit}개`;
+    }
+
+      return `
+        <tr class="clickable-row" onclick="openCoupangItem('${url.replace(/'/g, "\\'")}')" style="cursor:pointer;">
+          <td style="max-width:260px; white-space:normal; word-break:break-word;">${item["메뉴명"] ?? ""}</td>
+          <td>${formatBarcode(item["바코드번호"])}</td>
+          <td>${soldQty}</td>
+          <td style="white-space:nowrap;"><b>${orderDisplay}</b></td>
+          <td style="white-space:nowrap;"><span class="small-link">열기</span></td>
+        </tr>
+      `;
+
+    }).join("");
+  }
+
+  function showCoupangSheetFromModal() {
+    showCoupangSheet();
+    closeCoupangActionModal();
+    document.getElementById("coupangSheetModal").style.display = "flex";
+  }
+
+  function openCoupangItem(url) {
+    if (coupangPartnerEntryDone) {
+      window.open(url, "_blank");
+      return;
+    }
+
+    if (!currentData?.representative_partner_link) {
+      alert("대표 파트너스 링크가 없습니다.");
+      return;
+    }
+
+    pendingCoupangItemUrl = url;
+    coupangContinueStep = 1;
+
+    document.getElementById("coupangContinueTitle").innerText = "1단계";
+    document.getElementById("coupangContinueDesc").innerText =
+    "대표 링크 열기 버튼을 누르면 최초 1회에 한하여 대표 파트너스 링크가 열립니다. 대표링크 페이지를 닫고 이어서 진행해주세요.";
+    document.getElementById("coupangContinueMainBtn").innerText = "대표링크 열기";
+    document.getElementById("coupangContinueFoot").innerText =
+    "대표 링크 열기 버튼을 누르면 최초 1회에 한하여 대표 파트너스 링크가 열립니다. 대표링크 페이지를 닫고 이어서 진행해주세요.";
+
+    document.getElementById("coupangContinueModal").style.display = "flex";
+  }
+
+
+
+  function handleCoupangContinueStep() {
+    if (coupangContinueStep === 1) {
+      openRepresentativePartnerStep();
+      return;
+    }
+
+    if (coupangContinueStep === 2) {
+      continuePendingCoupangItem();
+      return;
+    }
+  }
+
+  function openRepresentativePartnerStep() {
+    if (!currentData?.representative_partner_link) {
+      alert("대표 파트너스 링크가 없습니다.");
+      return;
+    }
+
+    window.open(currentData.representative_partner_link, "_blank");
+
+    coupangContinueStep = 2;
+
+    document.getElementById("coupangContinueTitle").innerText = "2단계";
+    document.getElementById("coupangContinueDesc").innerText =
+    "대표링크 페이지를 닫았다면 아래 버튼을 눌러 선택한 상품을 열어주세요.";
+    document.getElementById("coupangContinueMainBtn").innerText = "이어서 상품 열기";
+    document.getElementById("coupangContinueFoot").innerText =
+    "대표링크 페이지를 먼저 확인한 뒤, 이어서 상품 열기를 눌러 진행해주세요.";
+  }
+
+  function continuePendingCoupangItem() {
+    if (!pendingCoupangItemUrl) {
+      alert("열 상품 정보가 없습니다.");
+      return;
+    }
+
+    coupangPartnerEntryDone = true;
+    window.open(pendingCoupangItemUrl, "_blank");
+    pendingCoupangItemUrl = null;
+    coupangContinueStep = 1;
+    closeCoupangContinueModal();
+  }
+
+  function cancelPendingCoupangItem() {
+    pendingCoupangItemUrl = null;
+    coupangContinueStep = 1;
+    closeCoupangContinueModal();
+  }
+
+  async function openCoupangAll() {
+    if (!currentData || !currentData.top_items) {
+      alert("먼저 발주 추천을 생성해줘.");
+      return;
+    }
+
+    const items = currentData.top_items.filter(item => {
+      const type = Number(item.is_coupang ?? item.is_coupang_type ?? 0);
+      return type === 1;
+    });
+
+    if (!items.length) {
+      alert("쿠팡 품목이 없습니다.");
+      return;
+    }
+
+    alert("일괄 열기는 브라우저 팝업 차단 영향을 받을 수 있어. 가장 안정적인 방법은 '쿠팡 발주표 보기' 후 상품별로 여는 방식이야.");
+
+    const ok = confirm(`쿠팡 상품 ${items.length}개를 열까요?`);
+    if (!ok) return;
+
+    for (const item of items) {
+      const url = buildCoupangSearchUrl(item);
+      window.open(url, "_blank");
+      await new Promise(r => setTimeout(r, 900));
+    }
+  }
+
+  async function openCoupangAllFromModal() {
+    closeCoupangActionModal();
+    await openCoupangAll();
+  }
+
+  function showLoadingModal() {
+    document.getElementById("loadingModal").style.display = "flex";
+  }
+
+  function hideLoadingModal() {
+    document.getElementById("loadingModal").style.display = "none";
+  }
+
+  async function generateOrder() {
+    const loginId = document.getElementById("loginId").value.trim();
+    const loginPw = document.getElementById("loginPw").value.trim();
+    const periodFrom = document.getElementById("periodFrom").value;
+    const periodTo = document.getElementById("periodTo").value;
+    const safetyStock = Number(document.getElementById("safetyStock").value || 0);
+
+    if (!loginId || !loginPw || !periodFrom || !periodTo) {
+      alert("오더퀸 ID, PW, 조회기간을 모두 입력해줘.");
+      return;
+    }
+
+    const payload = {
+      login_id: loginId,
+      login_pw: loginPw,
+      period_from: periodFrom,
+      period_to: periodTo,
+      safety_stock: safetyStock,
+      export_xlsx: true
+    };
+
+    showLoadingModal();
+
+    try {
+      const res = await fetch("/import/orderqueen", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        alert("에러가 발생했어.\n\n" + txt);
+        return;
+      }
+
+      const data = await res.json();
+      currentData = data;
+      coupangPartnerEntryDone = false;
+      pendingCoupangItemUrl = null;
+      coupangContinueStep = 1;
+
+      renderSummary(data);
+      renderTable();
+      addHistoryEntry(data);
+
+      const coupangBtn = document.getElementById("coupangStartBtn");
+      const coupangTopBtn = document.getElementById("coupangStartTopBtn");
+      const excelBtn = document.getElementById("excelDownloadBtn");
+      const icecreamSheetBtn = document.getElementById("icecreamSheetBtn");
+
+      if (data.representative_partner_link) {
+        coupangBtn.disabled = false;
+        coupangTopBtn.disabled = false;
+        coupangBtn.onclick = openCoupangActionModal;
+        coupangTopBtn.onclick = openCoupangActionModal;
+      } else {
+        coupangBtn.disabled = true;
+        coupangTopBtn.disabled = true;
+      }
+
+      icecreamSheetBtn.disabled = false;
+      icecreamSheetBtn.onclick = showIcecreamSheet;
+
+      if (data.job_id) {
+        excelBtn.disabled = false;
+        excelBtn.onclick = () => window.open(`/export/${data.job_id}`, "_blank");
+      } else {
+        excelBtn.disabled = true;
+      }
+
+    } catch (e) {
+      alert("요청 중 오류가 발생했어.\n\n" + e);
+    } finally {
+      hideLoadingModal();
+    }
+  }
+
+  document.getElementById("storeName").addEventListener("input", updatePageTitle);
+
+  document.getElementById("barcodeSearchKeyword").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") {
+      searchBarcode();
+    }
+  });
+
+  window.addEventListener("click", function(e) {
+    const actionModal = document.getElementById("coupangActionModal");
+    const sheetModal = document.getElementById("coupangSheetModal");
+    const icecreamModal = document.getElementById("icecreamSheetModal");
+    const continueModal = document.getElementById("coupangContinueModal");
+
+    if (e.target === actionModal) {
+      closeCoupangActionModal();
+    }
+    if (e.target === sheetModal) {
+      closeCoupangSheetModal();
+    }
+    if (e.target === continueModal) {
+      closeCoupangContinueModal();
+    }
+    if (e.target === icecreamModal) {
+      closeIcecreamSheetModal();
+    }
+  });
+
+  setDefaultDates();
+  loadSettings();
+  renderHistory();
+</script>
+</body>
+</html>
