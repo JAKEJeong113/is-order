@@ -549,7 +549,7 @@
     }
 
 
-    @media (max-width: 768px) {
+    @media (max-width: 960px) {
 
       .grid-4,
       .grid-5,
@@ -560,40 +560,56 @@
         grid-template-columns: 1fr;
       }
 
-      /* 요약카드는 2열 유지 */
       .grid-6 {
         grid-template-columns: repeat(2, 1fr);
       }
 
-      /* 테이블 가로스크롤 허용 */
+      .table-wrap {
+        overflow-x: auto;
+      }
+
       table {
         min-width: 700px;
       }
 
-      /* 모바일에서 중요하지 않은 컬럼 숨김 */
-      th:nth-child(2),
-      td:nth-child(2),
-      th:nth-child(4),
-      td:nth-child(4),
-      th:nth-child(5),
-      td:nth-child(5) {
+      /* 추천 발주표에서만 바코드, 7일예상, 안전재고 숨김 */
+      .order-table th:nth-child(2),
+      .order-table td:nth-child(2),
+      .order-table th:nth-child(4),
+      .order-table td:nth-child(4),
+      .order-table th:nth-child(5),
+      .order-table td:nth-child(5) {
         display: none;
       }
 
-      /* 상단 버튼 영역 */
-      .row-actions {
-        width: 100%;
+      /* 바코드 검색표는 모바일에서도 3개 컬럼 유지 */
+      #barcodeSearchCard table {
+        min-width: 100%;
+        table-layout: fixed;
       }
 
-      .row-actions button {
-        flex: 1;
+      #barcodeSearchCard th,
+      #barcodeSearchCard td {
+        font-size: 13px;
+        padding: 10px 8px;
+        white-space: normal;
+        word-break: break-word;
       }
 
-      /* 카드 간격 조금 더 */
-      .card {
-        margin-bottom: 24px;
+      #barcodeSearchCard th:nth-child(1),
+      #barcodeSearchCard td:nth-child(1) {
+        width: 42%;
       }
 
+      #barcodeSearchCard th:nth-child(2),
+      #barcodeSearchCard td:nth-child(2) {
+        width: 38%;
+      }
+
+      #barcodeSearchCard th:nth-child(3),
+      #barcodeSearchCard td:nth-child(3) {
+        width: 20%;
+      }
     }
   </style>
 </head>
@@ -822,7 +838,7 @@
     </div>
 
     <div class="table-wrap">
-      <table>
+      <table class="order-table">
         <thead>
           <tr>
             <th>품목명</th>
