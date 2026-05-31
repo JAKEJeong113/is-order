@@ -582,7 +582,7 @@
         display: none;
       }
 
-      /* 바코드 검색표는 모바일에서도 3개 컬럼 유지 */
+      /* 바코드 검색표는 3개 컬럼 유지 */
       #barcodeSearchCard table {
         min-width: 100%;
         table-layout: fixed;
@@ -610,6 +610,50 @@
       #barcodeSearchCard td:nth-child(3) {
         width: 20%;
       }
+
+      /* 쿠팡 발주표 모바일 최적화 */
+      .coupang-table {
+        min-width: 100% !important;
+        table-layout: fixed;
+      }
+
+      .coupang-table th,
+      .coupang-table td {
+        font-size: 12px;
+        padding: 10px 6px;
+        white-space: normal !important;
+        word-break: break-word;
+      }
+
+      /* 쿠팡 발주표에서 바코드만 숨김 */
+      .coupang-table th:nth-child(2),
+      .coupang-table td:nth-child(2) {
+        display: none;
+      }
+
+      .coupang-table th:nth-child(1),
+      .coupang-table td:nth-child(1) {
+        width: 45%;
+      }
+
+      .coupang-table th:nth-child(3),
+      .coupang-table td:nth-child(3) {
+        width: 15%;
+        text-align: center;
+      }
+
+      .coupang-table th:nth-child(4),
+      .coupang-table td:nth-child(4) {
+        width: 28%;
+        text-align: center;
+      }
+
+      .coupang-table th:nth-child(5),
+      .coupang-table td:nth-child(5) {
+        width: 12%;
+        text-align: center;
+      }
+
     }
   </style>
 </head>
@@ -927,18 +971,18 @@
     </div>
 
     <div class="table-wrap">
-      <table style="table-layout:fixed; width:100%; min-width:700px;">
+      <table class="coupang-table" style="table-layout:fixed; width:100%; min-width:700px;">
         <thead>
           <tr>
-            <th style="width:32%;">상품명</th>
-            <th style="width:20%;">바코드</th>
-            <th style="width:10%; cursor:pointer;" onclick="sortCoupangSheet('판매수량')">
-              판매수량 ↕
+            <th>품목명</th>
+            <th>바코드</th>
+            <th onclick="sortCoupangSheet('판매수량')" style="cursor:pointer;">
+              판매 ↕
             </th>
-            <th style="width:28%; cursor:pointer;" onclick="sortCoupangSheet('추천발주량')">
-              추천발주량 ↕
+            <th onclick="sortCoupangSheet('추천발주량')" style="cursor:pointer;">
+              발주추천 ↕
             </th>
-            <th style="width:10%;">열기</th>
+            <th>열기</th>
           </tr>
         </thead>
         <tbody id="coupangSheetBody">
