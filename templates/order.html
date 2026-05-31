@@ -654,6 +654,60 @@
         text-align: center;
       }
 
+      /* 아이스크림 발주표 모바일 최적화 */
+      .icecream-table {
+        min-width: 100% !important;
+        table-layout: fixed;
+      }
+
+      .icecream-table th,
+      .icecream-table td {
+        font-size: 12px;
+        padding: 10px 6px;
+        white-space: normal !important;
+        word-break: break-word;
+      }
+
+      /* 모바일에서 숨길 열:
+        2 바코드, 4 7일예상, 5 안전재고, 8 발주구분 */
+      .icecream-table th:nth-child(2),
+      .icecream-table td:nth-child(2),
+      .icecream-table th:nth-child(4),
+      .icecream-table td:nth-child(4),
+      .icecream-table th:nth-child(5),
+      .icecream-table td:nth-child(5),
+      .icecream-table th:nth-child(8),
+      .icecream-table td:nth-child(8) {
+        display: none;
+      }
+
+      /* 품목명 */
+      .icecream-table th:nth-child(1),
+      .icecream-table td:nth-child(1) {
+        width: 45%;
+      }
+
+      /* 판매수량 */
+      .icecream-table th:nth-child(3),
+      .icecream-table td:nth-child(3) {
+        width: 15%;
+        text-align: center;
+      }
+
+      /* 추천발주량 */
+      .icecream-table th:nth-child(6),
+      .icecream-table td:nth-child(6) {
+        width: 20%;
+        text-align: center;
+      }
+
+      /* 포장반영 */
+      .icecream-table th:nth-child(7),
+      .icecream-table td:nth-child(7) {
+        width: 20%;
+        text-align: center;
+      }
+          
     }
   </style>
 </head>
@@ -1008,15 +1062,15 @@
     </div>
 
     <div class="table-wrap">
-      <table style="table-layout:fixed; width:100%; min-width:900px;">
+      <table class="icecream-table" style="table-layout:fixed; width:100%; min-width:900px;">
         <thead>
           <tr>
             <th>품목명</th>
             <th>바코드</th>
-            <th style="cursor:pointer;" onclick="sortIcecreamSheet('판매수량')">판매수량 ↕</th>
-            <th>7일예상수량</th>
+            <th style="cursor:pointer;" onclick="sortIcecreamSheet('판매수량')">판매 ↕</th>
+            <th>7일예상</th>
             <th>안전재고</th>
-            <th>추천발주량</th>
+            <th>추천발주</th>
             <th style="cursor:pointer;" onclick="sortIcecreamSheet('추천박스수')">포장반영 ↕</th>
             <th>발주구분</th>
           </tr>
