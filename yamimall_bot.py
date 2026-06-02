@@ -101,12 +101,14 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
         page = browser.new_page()
 
         try:
-            page.goto(YAMIMALL_URL, wait_until="networkidle")
+            page.goto(YAMIMALL_URL, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(2000)
             close_yamimall_popups(page)
 
             # 로그인 페이지 이동
             page.locator(".hdgnb_login_class").click()
-            page.wait_for_load_state("networkidle")
+            page.wait_for_load_state("domcontentloaded", timeout=30000)
+            page.wait_for_timeout(1000)
 
             # 아이디 / 비밀번호 입력
             page.fill("#login_id", username)
@@ -114,7 +116,8 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
 
             # 로그인 실행
             page.locator(".login_btn").click()
-            page.wait_for_load_state("networkidle")
+            page.wait_for_load_state("domcontentloaded", timeout=30000)
+            page.wait_for_timeout(1000)
 
             # 로그인 후 팝업 다시 닫기
             close_yamimall_popups(page)
@@ -138,7 +141,8 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
                     # 검색
                     page.fill("#sch_str", keyword)
                     page.press("#sch_str", "Enter")
-                    page.wait_for_load_state("networkidle")
+                    page.wait_for_load_state("domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(1500)
 
                     # 검색 결과 첫 상품
                     product_links = page.locator("a[href*='/shop/item.php?code=']")
