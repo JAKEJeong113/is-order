@@ -189,12 +189,7 @@
       gap: 8px;
       flex-wrap: wrap;
     }
-<div class="welcome-banner">
-  <div>
-    <h2>i's Order</h2>
-    <p>스마트 발주 추천 시스템</p>
-  </div>
-</div>
+
     .rep-card{
       background:linear-gradient(
         135deg,
@@ -753,6 +748,16 @@
           <div class="muted" style="margin-bottom:6px;">오더퀸 PW</div>
           <input id="loginPw" type="password" placeholder="오더퀸 PW">
         </div>
+
+        <div>
+          <div class="muted" style="margin-bottom:6px;">야미몰 ID</div>
+          <input id="yamimallId" type="text" placeholder="야미몰 ID">
+        </div>
+
+        <div>
+          <div class="muted" style="margin-bottom:6px;">야미몰 PW</div>
+          <input id="yamimallPw" type="password" placeholder="야미몰 PW">
+        </div>
         <div>
           <div class="muted" style="margin-bottom:6px;">기본 안전재고</div>
           <input id="defaultSafetyStock" type="number" value="0">
@@ -811,6 +816,7 @@
 
       <div class="row-actions" style="margin-top:16px;">
         <button class="btn-dark" id="coupangStartBtn" disabled>쿠팡 발주 시작</button>
+        <button class="btn-primary" id="yamimallCartBtn" disabled onclick="startYamimallCart()">야미몰 장바구니 담기</button>
         <button class="btn-light" id="icecreamSheetBtn" disabled>아이스크림 발주표</button>
         <button class="btn-light" id="excelDownloadBtn" disabled>엑셀 다운로드</button>
       </div>
@@ -1109,6 +1115,15 @@
   </div>
 </div>
 
+<div id="yamimallResultModal" class="modal-overlay" style="z-index:10002;">
+  <div class="modal-card" style="max-width:720px; max-height:85vh; overflow:auto;">
+    <div id="yamimallResultBody"></div>
+    <div class="row-actions" style="margin-top:16px; justify-content:flex-end;">
+      <button class="btn-light" onclick="closeYamimallResultPopup()">닫기</button>
+    </div>
+  </div>
+</div>
+
 <script>
   const STORAGE_KEYS = {
     storeName: "branchOrder.storeName",
@@ -1143,6 +1158,8 @@
     document.getElementById("periodFrom").value = from;
     document.getElementById("periodTo").value = to;
   }
+
+ 
 
   function updatePageTitle() {
     const storeName = document.getElementById("storeName").value.trim();
@@ -1535,6 +1552,124 @@
     }
   }
 
+  async function startYamimallCart() {
+    const username = document.getElementById("yamimallId").value.trim();
+    const password = document.getElementById("yamimallPw").value.trim();
+
+    if (!username || !password) {
+      alert("야미몰 ID와 PW를 입력해줘.");
+      return;
+    }
+
+    const yamimallItems = (currentData?.top_items || []).filter(item => {
+      return Number(item.is_coupang ?? item.is_coupang_type ?? 0) === 2;
+    });
+
+    if (yamimallItems.length === 0) {
+      alert("야미몰 장바구니 대상 품목이 없습니다.");
+      return;
+    }
+
+    const res = await fetch("/api/yamimall/cart", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        username,
+        password,
+        items: yamimallItems
+      })
+    });
+
+    const data = await res.json();
+    showYamimallResultPopup(data);
+  }
+
+  
+  function showYamimallResultPopup(result) {
+    const successList = result.success || [];
+    const failedList = result.failed || [];
+
+    let html = `
+      <div style="font-size:24px; font-weight:800; margin-bottom:10px;">
+        야미몰 자동 장바구니 완료
+      </div>
+
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
+        <span class="status-pill status-ok">성공 ${successList.length}건</span>
+        <span class="status-pill ${failedList.length ? "status-none" : "status-ok"}">
+          실패 ${failedList.length}건
+        </span>
+      </div>
+
+      <div class="row-actions" style="margin-bottom:18px;">
+        <button class="btn-dark" onclick="window.open('https://xn--352blx12s.com/shop/cart.php', '_blank')">
+          장바구니 바로가기
+        </button>
+      </div>
+    `;
+
+    html += `
+      <hr style="border:none; border-top:1px solid #e5e7eb; margin:18px 0;">
+      <h3 style="margin:0 0 10px 0;">성공 품목</h3>
+    `;
+
+    if (successList.length === 0) {
+      html += `<div class="empty-box">성공한 품목이 없습니다.</div>`;
+    } else {
+      html += `<div style="display:grid; gap:10px;">`;
+
+      successList.forEach(item => {
+        html += `
+          <div style="border:1px solid #d1fae5; background:#ecfdf5; border-radius:12px; padding:12px;">
+            <div style="font-weight:800;">${item.name || "-"}</div>
+            <div class="muted" style="margin-top:6px;">
+              판매수량: ${item.sold_qty ?? 0}개 /
+              1타수량: ${item.unit_qty ?? "-"}개 /
+              장바구니수량: ${item.cart_qty ?? "-"}타
+            </div>
+          </div>
+        `;
+      });
+
+      html += `</div>`;
+    }
+
+    html += `
+      <hr style="border:none; border-top:1px solid #e5e7eb; margin:18px 0;">
+      <h3 style="margin:0 0 10px 0;">실패 품목</h3>
+    `;
+
+    if (failedList.length === 0) {
+      html += `<div class="empty-box">실패한 품목이 없습니다.</div>`;
+    } else {
+      html += `<div style="display:grid; gap:10px;">`;
+
+      failedList.forEach(item => {
+        html += `
+          <div style="border:1px solid #fecaca; background:#fef2f2; border-radius:12px; padding:12px;">
+            <div style="font-weight:800; color:#991b1b;">${item.name || "-"}</div>
+            <div class="muted" style="margin-top:6px;">
+              실패사유: ${item.reason || "알 수 없음"}
+            </div>
+          </div>
+        `;
+      });
+
+      html += `</div>`;
+    }
+
+    document.getElementById("yamimallResultBody").innerHTML = html;
+    document.getElementById("yamimallResultModal").style.display = "flex";
+  }
+  
+
+function closeYamimallResultPopup() {
+  document.getElementById("yamimallResultModal").style.display = "none";
+}
+
+
   function clearBarcodeSearch() {
     document.getElementById("barcodeSearchKeyword").value = "";
     document.getElementById("barcodeSearchResultBody").innerHTML =
@@ -1920,6 +2055,7 @@ function hideBarcodeSection() {
     const periodFrom = document.getElementById("periodFrom").value;
     const periodTo = document.getElementById("periodTo").value;
     const safetyStock = Number(document.getElementById("safetyStock").value || 0);
+    
 
     if (!loginId || !loginPw || !periodFrom || !periodTo) {
       alert("오더퀸 ID, PW, 조회기간을 모두 입력해줘.");
@@ -1964,6 +2100,15 @@ function hideBarcodeSection() {
       const coupangTopBtn = document.getElementById("coupangStartTopBtn");
       const excelBtn = document.getElementById("excelDownloadBtn");
       const icecreamSheetBtn = document.getElementById("icecreamSheetBtn");
+      const yamimallCartBtn =
+        document.getElementById("yamimallCartBtn");
+
+      const hasYamimallItems =
+        (data.top_items || []).some(item =>
+          Number(item.is_coupang ?? item.is_coupang_type ?? 0) === 2
+        );
+
+      yamimallCartBtn.disabled = !hasYamimallItems;
 
       if (data.representative_partner_link) {
         coupangBtn.disabled = false;
@@ -2005,6 +2150,7 @@ function hideBarcodeSection() {
     const sheetModal = document.getElementById("coupangSheetModal");
     const icecreamModal = document.getElementById("icecreamSheetModal");
     const continueModal = document.getElementById("coupangContinueModal");
+    const yamimallModal = document.getElementById("yamimallResultModal");
 
     if (e.target === actionModal) {
       closeCoupangActionModal();
@@ -2012,12 +2158,19 @@ function hideBarcodeSection() {
     if (e.target === sheetModal) {
       closeCoupangSheetModal();
     }
+
     if (e.target === continueModal) {
       closeCoupangContinueModal();
     }
+
     if (e.target === icecreamModal) {
       closeIcecreamSheetModal();
     }
+
+    if (e.target === yamimallModal) {
+      closeYamimallResultPopup();
+    }
+
   });
 
   setDefaultDates();

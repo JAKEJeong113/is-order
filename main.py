@@ -27,6 +27,8 @@ from parser import parse_menu_sales_xlsx
 from mapping import load_coupang_catalog_xlsx, select_representative_item
 from db import init_db, get_inventory, upsert_inventory, change_stock
 
+from yamimall_bot import add_yamimall_cart
+
 load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
@@ -149,6 +151,35 @@ class OrderQueenImportResponse(BaseModel):
     export_path: Optional[str] = None
     representative_product: Optional[dict] = None
     representative_partner_link: Optional[str] = None
+
+class YamimallCartRequest(BaseModel):
+    username: str
+    password: str
+    items: list[dict]
+
+
+@app.post("/api/yamimall/cart")
+def yamimall_cart(req: YamimallCartRequest):
+    yamimall_items = [
+        item for item in req.items
+        if int(item.get("is_coupang", item.get("is_coupang_type", 0)) or 0) == 2
+    ]
+
+    if not yamimall_items:
+        return {
+            "ok": False,
+            "message": "야미몰 장바구니 대상 품목이 없습니다.",
+            "success": [],
+            "failed": []
+        }
+
+    result = add_yamimall_cart(
+        username=req.username,
+        password=req.password,
+        items=yamimall_items
+    )
+
+    return result
 
 
 class InventoryUpdateRequest(BaseModel):

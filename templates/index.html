@@ -3,548 +3,380 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="i's cream은 무인 아이스크림 전문점 창업과 운영을 돕는 브랜드입니다. 창업절차, 가맹문의, 발주시스템, 바코드검색, 운영 꿀템 정보를 제공합니다." />
-  <title>i's cream | 무인 아이스크림 전문점 창업 · 운영 플랫폼</title>
+  <meta name="description" content="i's CREAM은 무인 아이스크림 전문점 창업과 운영을 돕는 브랜드입니다." />
+  <title>i's CREAM | 아이스크림, 그 이상의 즐거움</title>
 
   <style>
-    :root {
-      --mint: #14b8a6;
-      --mint-dark: #0f766e;
-      --mint-soft: #ccfbf1;
-      --bg: #f8faf9;
-      --card: #ffffff;
-      --text: #111827;
-      --muted: #6b7280;
-      --line: #e5e7eb;
-      --shadow: 0 12px 30px rgba(15, 118, 110, 0.10);
-      --radius: 24px;
+    :root{
+      --mint:#2fc5b3;
+      --mint-dark:#08796f;
+      --mint-soft:#d9fbf5;
+      --cream:#fff8e8;
+      --ink:#111827;
+      --muted:#64748b;
+      --line:#e6f0ef;
+      --bg:#fbfefe;
+      --shadow:0 18px 45px rgba(15,118,110,.12);
+      --radius:26px;
     }
 
-    * {
-      box-sizing: border-box;
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;
+      font-family:Arial,'Noto Sans KR',sans-serif;
+      color:var(--ink);
+      background:var(--bg);
+      line-height:1.6;
+    }
+    a{text-decoration:none;color:inherit}
+    .container{width:min(1120px,calc(100% - 40px));margin:0 auto}
+
+    .navbar{
+      position:sticky;
+      top:0;
+      z-index:50;
+      background:rgba(255,255,255,.92);
+      backdrop-filter:blur(16px);
+      border-bottom:1px solid var(--line);
+    }
+    .nav-inner{
+      height:86px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:28px;
+    }
+    .logo{display:flex;align-items:center;min-width:150px}
+    .logo img{height:72px;width:auto;display:block}
+    .nav-menu{
+      display:flex;
+      align-items:center;
+      gap:34px;
+      font-size:15px;
+      font-weight:800;
+      color:#111827;
+      white-space:nowrap;
+    }
+    .nav-menu a:hover{color:var(--mint-dark)}
+    .nav-cta{
+      padding:13px 20px;
+      border-radius:12px;
+      color:white!important;
+      background:linear-gradient(135deg,var(--mint),#1bb3a3);
+      box-shadow:0 10px 24px rgba(47,197,179,.25);
     }
 
-    html {
-      scroll-behavior: smooth;
-    }
-
-    body {
-      margin: 0;
-      font-family: Arial, 'Noto Sans KR', sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-    }
-
-    a {
-      color: inherit;
-      text-decoration: none;
-    }
-
-    .container {
-      width: min(1120px, calc(100% - 40px));
-      margin: 0 auto;
-    }
-
-    .navbar {
-      position: sticky;
-      top: 0;
-      z-index: 1000;
-      background: rgba(255, 255, 255, 0.88);
-      backdrop-filter: blur(14px);
-      border-bottom: 1px solid var(--line);
-    }
-
-    .nav-inner {
-      height: 72px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 20px;
-    }
-
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 22px;
-      font-weight: 900;
-      color: var(--mint-dark);
-      white-space: nowrap;
-    }
-
-    .logo-mark {
-      width: 38px;
-      height: 38px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 14px;
-      background: linear-gradient(135deg, var(--mint), #2dd4bf);
-      color: white;
-      box-shadow: 0 8px 20px rgba(20, 184, 166, 0.28);
-    }
-
-    .nav-menu {
-      display: flex;
-      align-items: center;
-      gap: 22px;
-      font-size: 14px;
-      font-weight: 700;
-      color: #374151;
-    }
-
-    .nav-menu a:hover {
-      color: var(--mint-dark);
-    }
-
-    .nav-cta {
-      padding: 10px 16px;
-      border-radius: 999px;
-      background: var(--mint);
-      color: white !important;
-      box-shadow: 0 8px 20px rgba(20, 184, 166, 0.24);
-    }
-
-    .hero {
-      padding: 80px 0 56px;
+    .hero{
+      position:relative;
+      overflow:hidden;
+      padding:64px 0 70px;
       background:
-        radial-gradient(circle at top left, rgba(45, 212, 191, 0.28), transparent 34%),
-        radial-gradient(circle at bottom right, rgba(20, 184, 166, 0.18), transparent 34%);
+        radial-gradient(circle at 53% 0%,rgba(47,197,179,.13) 0 13%,transparent 14%),
+        radial-gradient(circle at 0% 25%,rgba(47,197,179,.24),transparent 34%),
+        linear-gradient(90deg,#ffffff 0%,#f4fffd 52%,#e0f8f3 100%);
+    }
+    .hero::before{
+      content:"";
+      position:absolute;
+      left:7%;
+      bottom:18px;
+      width:20px;
+      height:20px;
+      border-radius:999px;
+      background:#b8f3e9;
+    }
+    .hero-grid{
+      position:relative;
+      display:grid;
+      grid-template-columns:1.2fr 0.8fr;
+      gap:48px;
+      align-items:center;
+    }
+    .hero-logo{
+      width:280px;
+      max-width:100%;
+      display:block;
+      margin:0 0 16px;
+    }
+    .hero h1{
+      margin:0;
+      font-size:clamp(38px,5vw,54px);
+      line-height:1.13;
+      letter-spacing:-2px;
+      font-weight:900;
+    }
+    .hero h1 .mint{color:var(--mint)}
+    .hero p{
+      margin:14px 0 0;
+      font-size:18px;
+      color:#374151;
+    }
+    .hero-actions{display:flex;gap:16px;flex-wrap:wrap;margin-top:30px}
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-height:50px;
+      padding:0 26px;
+      border-radius:10px;
+      border:1px solid transparent;
+      font-weight:900;
+      transition:.16s ease;
+    }
+    .btn:hover{transform:translateY(-2px)}
+    .btn-primary{background:var(--mint);color:white;box-shadow:0 12px 26px rgba(47,197,179,.28)}
+    .btn-light{background:white;color:var(--mint-dark);border-color:var(--mint)}
+
+    .ice-visual{
+      min-height:360px;
+      position:relative;
+      display:flex;
+      align-items:center;
+      justify-content:center;
     }
 
-    .hero-grid {
-      display: grid;
-      grid-template-columns: 1.1fr 0.9fr;
-      gap: 40px;
-      align-items: center;
+    .hero-main-logo{
+      width:620px;
+      max-width:100%;
+      height:auto;
+
+      position:relative;
+      z-index:2;
+
+      filter: drop-shadow(
+        0 20px 40px rgba(0,0,0,0.15)
+      );
     }
 
-    .eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 14px;
-      border-radius: 999px;
-      background: var(--mint-soft);
-      color: var(--mint-dark);
-      font-size: 13px;
-      font-weight: 800;
-      margin-bottom: 18px;
+    .ice-visual::before{
+      content:"";
+      position:absolute;
+
+      width:420px;
+      height:420px;
+
+      border-radius:50%;
+
+      background:
+        radial-gradient(
+          circle,
+          rgba(47,197,179,0.20),
+          rgba(47,197,179,0.05)
+        );
+
+      z-index:1;
     }
 
-    h1 {
-      margin: 0;
-      font-size: clamp(38px, 5vw, 64px);
-      line-height: 1.12;
-      letter-spacing: -1.8px;
+    section{padding:70px 0}
+    .section-head{text-align:center;max-width:720px;margin:0 auto 34px}
+    .section-title{margin:0;font-size:30px;line-height:1.25;letter-spacing:-.8px}
+    .section-desc{margin:10px 0 0;color:var(--muted)}
+    .kicker{font-weight:900;color:var(--mint-dark);font-size:14px;margin-bottom:8px}
+
+    .process{display:grid;grid-template-columns:repeat(5,1fr);gap:18px;align-items:start}
+    .step{text-align:center;position:relative}
+    .step:not(:last-child)::after{
+      content:"";
+      position:absolute;
+      top:38px;
+      left:62%;
+      width:76%;
+      border-top:2px dashed #c9eee8;
+    }
+    .step-icon{
+      width:76px;
+      height:76px;
+      margin:0 auto 16px;
+      border-radius:50%;
+      background:#e8fbf8;
+      border:1px solid #b5eee5;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:var(--mint-dark);
+      font-size:32px;
+      position:relative;
+      z-index:1;
+    }
+    .step b{display:block;font-size:17px;margin-bottom:6px}
+    .step span{font-size:13px;color:#475569}
+
+    .split{
+      display:grid;
+      grid-template-columns:1.25fr .95fr;
+      gap:22px;
+      align-items:stretch;
+    }
+    .order-card,.strength-card{
+      border-radius:var(--radius);
+      padding:30px;
+      box-shadow:0 10px 28px rgba(15,118,110,.08);
+    }
+    .order-card{
+      display:grid;
+      grid-template-columns:.95fr 1.2fr;
+      gap:22px;
+      background:linear-gradient(135deg,#eafffb,#f7fffd);
+    }
+    .order-card h2,.strength-card h2{margin:0 0 12px;font-size:28px;letter-spacing:-.5px}
+    .order-card h2 span{color:var(--mint)}
+    .check{margin:18px 0 0;padding:0;list-style:none;color:#134e4a;font-size:15px}
+    .check li{margin:8px 0}
+    .check li::before{content:"✓";color:var(--mint-dark);font-weight:900;margin-right:8px}
+    .mock-device{
+      min-height:250px;
+      border-radius:20px;
+      background:
+        linear-gradient(160deg,rgba(255,255,255,.85),rgba(255,255,255,.2)),
+        linear-gradient(135deg,#222 0 8%,#f8fafc 8% 84%,#111827 84% 100%);
+      box-shadow:0 18px 38px rgba(15,23,42,.18);
+      transform:perspective(900px) rotateX(8deg) rotateZ(1deg);
+      position:relative;
+      overflow:hidden;
+    }
+    .mock-device::before{
+      content:"";
+      position:absolute;
+      inset:50px 32px 38px;
+      background:
+        linear-gradient(#c7f7ef 0 0) 0 0/45% 12px no-repeat,
+        linear-gradient(#e5e7eb 0 0) 0 28px/82% 9px no-repeat,
+        linear-gradient(#e5e7eb 0 0) 0 50px/70% 9px no-repeat,
+        linear-gradient(#14b8a6 0 0) 0 110px/24px 70px no-repeat,
+        linear-gradient(#99f6e4 0 0) 38px 88px/24px 92px no-repeat,
+        linear-gradient(#5eead4 0 0) 76px 125px/24px 55px no-repeat;
+      border-radius:8px;
+    }
+    .strength-card{background:linear-gradient(135deg,#fff9df,#ffffff)}
+    .strength-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:22px}
+    .strength-item{display:grid;grid-template-columns:48px 1fr;gap:12px;align-items:center}
+    .strength-icon{
+      width:48px;
+      height:48px;
+      border-radius:50%;
+      background:#e8fbf8;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:var(--mint-dark);
+      font-size:24px;
+    }
+    .strength-item b{display:block}
+    .strength-item span{font-size:13px;color:var(--muted)}
+
+    .tools{padding-top:20px}
+    .tool-row{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;align-items:stretch}
+    .tool-card{
+      background:white;
+      border:1px solid var(--line);
+      border-radius:18px;
+      padding:14px;
+      text-align:center;
+      box-shadow:0 8px 18px rgba(15,23,42,.04);
+      transition:.16s ease;
+    }
+    .tool-card:hover{transform:translateY(-4px);box-shadow:var(--shadow)}
+    .tool-img{
+      height:94px;
+      border-radius:14px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:#f8fafc;
+      font-size:48px;
+      margin-bottom:10px;
+    }
+    .tool-card b{display:block;font-size:14px;margin-bottom:8px}
+    .tool-card span{
+      display:inline-flex;
+      border:1px solid var(--mint);
+      color:var(--mint-dark);
+      border-radius:8px;
+      padding:5px 12px;
+      font-size:12px;
+      font-weight:900;
+    }
+    .notice{margin:18px auto 0;max-width:760px;color:#0f766e;font-size:13px;text-align:center}
+
+    .contact-band{
+      background:linear-gradient(135deg,#e8fbf8,#f6fffd);
+      border-radius:24px;
+      padding:34px;
+      display:grid;
+      grid-template-columns:1.3fr .8fr .8fr .8fr;
+      gap:18px;
+      align-items:center;
+    }
+    .contact-band h2{margin:0;font-size:30px;line-height:1.25}
+    .contact-band h2 span{color:var(--mint-dark)}
+    .contact-band p{margin:8px 0 0;color:#475569}
+    .contact-mini{
+      background:white;
+      border-radius:16px;
+      padding:18px;
+      display:flex;
+      align-items:center;
+      gap:12px;
+      min-height:76px;
+    }
+    .contact-mini i{font-style:normal;font-size:28px;color:var(--mint-dark)}
+    .contact-mini b{display:block;font-size:13px}
+    .contact-mini span{font-size:15px}
+
+    .footer{background:#162827;color:#d1d5db;padding:34px 0 20px}
+    .footer-grid{display:grid;grid-template-columns:1.5fr .9fr 1.1fr .9fr;gap:30px;align-items:start}
+    .footer-logo{width:96px;display:block;margin-bottom:10px}
+    .footer h3{margin:0 0 12px;color:white;font-size:15px}
+    .footer a,.footer p{display:block;margin:6px 0;color:#d1d5db;font-size:13px}
+    .footer-bottom{
+      margin-top:24px;
+      padding-top:16px;
+      border-top:1px solid rgba(255,255,255,.08);
+      display:flex;
+      justify-content:space-between;
+      flex-wrap:wrap;
+      gap:12px;
+      color:#94a3b8;
+      font-size:12px;
     }
 
-    .hero p {
-      margin: 20px 0 0;
-      max-width: 620px;
-      color: #4b5563;
-      font-size: 18px;
+    @media(max-width:900px){
+      .nav-inner{height:auto;padding:12px 0;align-items:flex-start;flex-direction:column}
+      .logo img{height:58px}
+      .nav-menu{width:100%;overflow-x:auto;gap:18px;padding-bottom:8px}
+      .hero-grid,.split,.order-card,.contact-band,.footer-grid{grid-template-columns:1fr}
+      .ice-visual{min-height:300px}
+      .process{grid-template-columns:1fr}
+      .step:not(:last-child)::after{display:none}
+      .tool-row{grid-template-columns:repeat(2,1fr)}
     }
-
-    .hero-actions {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-top: 30px;
-    }
-
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 48px;
-      padding: 0 20px;
-      border-radius: 999px;
-      font-weight: 800;
-      border: 1px solid transparent;
-      transition: 0.16s ease;
-    }
-
-    .btn:hover {
-      transform: translateY(-2px);
-    }
-
-    .btn-primary {
-      background: var(--mint);
-      color: white;
-      box-shadow: 0 10px 24px rgba(20, 184, 166, 0.26);
-    }
-
-    .btn-light {
-      background: white;
-      color: #111827;
-      border-color: var(--line);
-    }
-
-    .hero-card {
-      background: white;
-      border: 1px solid #d1fae5;
-      border-radius: 32px;
-      padding: 26px;
-      box-shadow: var(--shadow);
-    }
-
-    .hero-card-top {
-      min-height: 220px;
-      border-radius: 24px;
-      background: linear-gradient(135deg, #ccfbf1, #ffffff);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      padding: 24px;
-    }
-
-    .hero-card-top strong {
-      display: block;
-      font-size: 32px;
-      color: var(--mint-dark);
-      margin-bottom: 8px;
-    }
-
-    .hero-stats {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
-      margin-top: 16px;
-    }
-
-    .hero-stat {
-      background: #f9fafb;
-      border-radius: 18px;
-      padding: 14px;
-      text-align: center;
-    }
-
-    .hero-stat b {
-      display: block;
-      color: var(--mint-dark);
-      font-size: 20px;
-    }
-
-    .hero-stat span {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    section {
-      padding: 72px 0;
-    }
-
-    .section-head {
-      max-width: 720px;
-      margin-bottom: 30px;
-    }
-
-    .section-kicker {
-      color: var(--mint-dark);
-      font-weight: 900;
-      font-size: 14px;
-      margin-bottom: 8px;
-    }
-
-    .section-title {
-      margin: 0;
-      font-size: clamp(28px, 4vw, 42px);
-      line-height: 1.22;
-      letter-spacing: -1px;
-    }
-
-    .section-desc {
-      margin-top: 12px;
-      color: var(--muted);
-      font-size: 16px;
-    }
-
-    .card-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 18px;
-    }
-
-    .card {
-      background: white;
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 24px;
-      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.035);
-    }
-
-    .card-icon {
-      width: 48px;
-      height: 48px;
-      border-radius: 18px;
-      background: var(--mint-soft);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-      margin-bottom: 16px;
-    }
-
-    .card h3 {
-      margin: 0 0 8px;
-      font-size: 20px;
-    }
-
-    .card p {
-      margin: 0;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .process {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 14px;
-    }
-
-    .step {
-      background: white;
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      padding: 22px;
-      position: relative;
-    }
-
-    .step-num {
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      background: var(--mint);
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 900;
-      margin-bottom: 14px;
-    }
-
-    .step b {
-      display: block;
-      margin-bottom: 6px;
-    }
-
-    .step span {
-      font-size: 13px;
-      color: var(--muted);
-    }
-
-    .tool-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-    }
-
-    .tool-card {
-      background: white;
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      padding: 18px;
-      transition: 0.16s ease;
-    }
-
-    .tool-card:hover {
-      transform: translateY(-4px);
-      box-shadow: var(--shadow);
-      border-color: #99f6e4;
-    }
-
-    .tool-thumb {
-      height: 120px;
-      border-radius: 18px;
-      background: linear-gradient(135deg, #f0fdfa, #f9fafb);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 42px;
-      margin-bottom: 14px;
-    }
-
-    .tool-card h3 {
-      margin: 0 0 6px;
-      font-size: 17px;
-    }
-
-    .tool-card p {
-      margin: 0 0 12px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .tool-link {
-      display: inline-flex;
-      font-size: 13px;
-      font-weight: 900;
-      color: var(--mint-dark);
-    }
-
-    .notice {
-      margin-top: 16px;
-      padding: 14px 16px;
-      border-radius: 18px;
-      background: #f0fdfa;
-      border: 1px solid #ccfbf1;
-      color: #0f766e;
-      font-size: 13px;
-    }
-
-    .system-box {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-      align-items: center;
-      background: linear-gradient(135deg, #0f766e, #14b8a6);
-      color: white;
-      border-radius: 34px;
-      padding: 34px;
-      box-shadow: 0 16px 40px rgba(20, 184, 166, 0.24);
-    }
-
-    .system-box p {
-      color: rgba(255,255,255,0.88);
-    }
-
-    .system-panel {
-      background: rgba(255,255,255,0.14);
-      border: 1px solid rgba(255,255,255,0.22);
-      border-radius: 24px;
-      padding: 22px;
-    }
-
-    .system-row {
-      display: flex;
-      justify-content: space-between;
-      padding: 12px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.18);
-      font-size: 14px;
-    }
-
-    .system-row:last-child {
-      border-bottom: 0;
-    }
-
-    .contact-box {
-      background: white;
-      border: 1px solid var(--line);
-      border-radius: 34px;
-      padding: 34px;
-      display: grid;
-      grid-template-columns: 1fr 0.8fr;
-      gap: 24px;
-      align-items: center;
-    }
-
-    .contact-list {
-      display: grid;
-      gap: 10px;
-      color: var(--muted);
-      font-size: 15px;
-    }
-
-    .contact-list b {
-      color: var(--text);
-    }
-
-    .footer {
-      padding: 38px 0;
-      border-top: 1px solid var(--line);
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .footer-inner {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    @media (max-width: 900px) {
-      .nav-inner {
-        height: auto;
-        padding: 14px 0;
-        align-items: flex-start;
-        flex-direction: column;
-      }
-
-      .nav-menu {
-        width: 100%;
-        overflow-x: auto;
-        gap: 14px;
-        padding-bottom: 4px;
-        white-space: nowrap;
-      }
-
-      .hero-grid,
-      .system-box,
-      .contact-box {
-        grid-template-columns: 1fr;
-      }
-
-      .card-grid,
-      .tool-grid {
-        grid-template-columns: 1fr 1fr;
-      }
-
-      .process {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    @media (max-width: 560px) {
-      .container {
-        width: min(100% - 28px, 1120px);
-      }
-
-      .hero {
-        padding: 46px 0 36px;
-      }
-
-      .hero-actions,
-      .hero-stats,
-      .card-grid,
-      .tool-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .hero-actions {
-        display: grid;
-      }
-
-      .btn {
-        width: 100%;
-      }
-
-      section {
-        padding: 52px 0;
-      }
+    @media(max-width:560px){
+      .container{width:min(100% - 28px,1120px)}
+      .hero{padding:38px 0 46px}
+      .hero-logo{width:220px}
+      .hero-actions{display:grid}
+      .btn{width:100%}
+      .tool-row,.strength-grid{grid-template-columns:1fr}
+      .contact-band{padding:24px}
     }
   </style>
 </head>
+
 <body>
   <header class="navbar">
     <div class="container nav-inner">
-      <a class="logo" href="#top" aria-label="i's cream 홈으로 이동">
-        <span class="logo-mark">🍦</span>
-        <span>i's cream</span>
+      <a class="logo" href="#top" aria-label="i's CREAM 홈으로 이동">
+        <img src="./images/logo-header.png" alt="i's CREAM 로고">
       </a>
 
       <nav class="nav-menu" aria-label="상단 메뉴">
         <a href="#brand">브랜드소개</a>
         <a href="#process">창업절차</a>
-        <a href="#system">발주시스템</a>
-        <a href="#barcode">바코드검색</a>
-        <a href="#tools">영업 꿀템</a>
+        <a href="#system">i's ORDER</a>
+        <a href="#tools">영업 꿀템 추천</a>
         <a href="#contact">가맹문의</a>
-        <a class="nav-cta" href="#contact">상담신청</a>
+        <a class="nav-cta" href="#system">발주시스템 바로가기 ↗</a>
       </nav>
     </div>
   </header>
@@ -553,245 +385,197 @@
     <section class="hero">
       <div class="container hero-grid">
         <div>
-          <div class="eyebrow">무인 아이스크림 전문점 창업 · 운영 플랫폼</div>
-          <h1>아이들이 좋아하는 공간,<br />점주는 더 쉽게 운영합니다.</h1>
-          <p>
-            i's cream은 무인 아이스크림 전문점 창업부터 매장 운영, 발주 자동화,
-            운영에 필요한 추천 아이템까지 한 곳에서 연결하는 브랜드입니다.
-          </p>
-
+          
+          <h1>아이들이 좋아하는 공간, <br>
+          <span class="mint">점주는 더 쉽게 운영합니다.</span></h1>
+          <p>무인 아이스크림 창업의 새로운 기준, 성공적인 창업을 함께합니다.</p>
           <div class="hero-actions">
-            <a class="btn btn-primary" href="#contact">가맹 상담 문의</a>
-            <a class="btn btn-light" href="#system">발주시스템 보기</a>
-            <a class="btn btn-light" href="#tools">영업 꿀템 보기</a>
+            <a class="btn btn-primary" href="#contact">창업 상담 신청</a>
+            <a class="btn btn-light" href="#system">i's ORDER 소개</a>
           </div>
         </div>
 
-        <div class="hero-card">
-          <div class="hero-card-top">
-            <div>
-              <strong>i's Order</strong>
-              <div>판매 데이터를 기반으로<br />발주 추천을 더 쉽고 빠르게</div>
-            </div>
-          </div>
-          <div class="hero-stats">
-            <div class="hero-stat">
-              <b>자동</b>
-              <span>판매량 분석</span>
-            </div>
-            <div class="hero-stat">
-              <b>추천</b>
-              <span>발주 수량</span>
-            </div>
-            <div class="hero-stat">
-              <b>연결</b>
-              <span>쿠팡/도매몰</span>
+        <div class="ice-visual" aria-label="아이스크림 메인 이미지">
+          <div class="ice-bowl">
+            <div class="cup">
+              <img src="./images/logo-main.png" alt="i's cream mascot" class="hero-main-logo">
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <section id="brand">
+    <section id="process" style="background:#fff;">
       <div class="container">
         <div class="section-head">
-          <div class="section-kicker">BRAND STORY</div>
-          <h2 class="section-title">i's cream은 아이들을 위한 달콤한 공간을 만듭니다.</h2>
-          <p class="section-desc">
-            i는 아이, 's는 ~의, cream은 크림. i's cream은 아이들의 크림이라는 의미를 담은 무인 아이스크림 전문 브랜드입니다.
-          </p>
-        </div>
-
-        <div class="card-grid">
-          <div class="card">
-            <div class="card-icon">🍦</div>
-            <h3>아이들이 좋아하는 상품</h3>
-            <p>아이스크림, 간식, 음료 등 매장에서 반복 구매가 일어나는 상품 중심으로 구성합니다.</p>
-          </div>
-          <div class="card">
-            <div class="card-icon">🏪</div>
-            <h3>무인 운영에 맞춘 구조</h3>
-            <p>점주가 매장에 오래 머무르지 않아도 운영할 수 있도록 진열, 발주, 관리 흐름을 단순화합니다.</p>
-          </div>
-          <div class="card">
-            <div class="card-icon">📦</div>
-            <h3>운영 데이터 기반 발주</h3>
-            <p>판매 데이터를 기반으로 발주 수량을 추천해 초보 점주도 더 쉽게 매장을 운영할 수 있습니다.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section id="process" style="background:white;">
-      <div class="container">
-        <div class="section-head">
-          <div class="section-kicker">STARTUP PROCESS</div>
           <h2 class="section-title">창업 절차</h2>
-          <p class="section-desc">상담부터 오픈까지 필요한 과정을 단계별로 안내합니다.</p>
+          <p class="section-desc">i's CREAM과 함께하는 간단하고 체계적인 창업 과정</p>
         </div>
 
         <div class="process">
           <div class="step">
-            <div class="step-num">1</div>
-            <b>창업 상담</b>
-            <span>희망 지역, 예산, 운영 형태를 확인합니다.</span>
+            <div class="step-icon">💬</div>
+            <b>1. 상담 신청</b>
+            <span>온라인 또는 전화로 상담을 신청합니다.</span>
           </div>
           <div class="step">
-            <div class="step-num">2</div>
-            <b>상권 검토</b>
-            <span>입지와 주변 수요를 기준으로 매장 가능성을 검토합니다.</span>
+            <div class="step-icon">📋</div>
+            <b>2. 상권 분석</b>
+            <span>전문가가 상권과 입지를 분석해드립니다.</span>
           </div>
           <div class="step">
-            <div class="step-num">3</div>
-            <b>계약 진행</b>
-            <span>계약 조건과 오픈 준비 일정을 확정합니다.</span>
+            <div class="step-icon">🏪</div>
+            <b>3. 계약 체결</b>
+            <span>상호 협의 후 계약을 체결합니다.</span>
           </div>
           <div class="step">
-            <div class="step-num">4</div>
-            <b>인테리어/집기</b>
-            <span>매장 진열, 냉동고, 결제 시스템을 준비합니다.</span>
+            <div class="step-icon">🧑‍🏫</div>
+            <b>4. 교육 진행</b>
+            <span>체계적인 교육으로 운영 노하우를 전수합니다.</span>
           </div>
           <div class="step">
-            <div class="step-num">5</div>
-            <b>오픈/운영</b>
-            <span>오픈 후 발주, 진열, 운영 노하우를 지원합니다.</span>
+            <div class="step-icon">🎉</div>
+            <b>5. 오픈 & 관리</b>
+            <span>성공적인 오픈과 지속적인 사후 관리를 지원합니다.</span>
           </div>
         </div>
       </div>
     </section>
 
     <section id="system">
-      <div class="container">
-        <div class="system-box">
+      <div class="container split">
+        <div class="order-card">
           <div>
-            <div class="section-kicker" style="color:#ccfbf1;">i's ORDER</div>
-            <h2 class="section-title">점주용 스마트 발주 시스템</h2>
-            <p>
-              판매량을 기반으로 아이스크림, 쿠팡 상품, 도매몰 상품의 발주 추천 수량을 확인할 수 있는 운영 보조 시스템입니다.
-            </p>
+            <div class="kicker">스마트한 발주시스템</div>
+            <h2>i's <span>ORDER</span></h2>
+            <p>재고관리부터 발주, 4주 보정까지 사장님의 고민을 덜어드립니다.</p>
+            <ul class="check">
+              <li>실시간 재고 파악</li>
+              <li>자동 발주 추천</li>
+              <li>4주 보정 시스템</li>
+              <li>발주 이력 관리</li>
+            </ul>
             <div class="hero-actions">
-              <a class="btn btn-light" href="https://YOUR-RENDER-URL.onrender.com" target="_blank" rel="noopener">발주시스템 바로가기</a>
+              <a class="btn btn-primary" href="https://YOUR-RENDER-URL.onrender.com" target="_blank" rel="noopener">i's ORDER 바로가기 〉</a>
             </div>
           </div>
+          <div class="mock-device" aria-label="발주시스템 화면 예시"></div>
+        </div>
 
-          <div class="system-panel">
-            <div class="system-row">
-              <span>판매 데이터 조회</span>
-              <b>지원</b>
+        <div class="strength-card" id="brand">
+          <h2>i's CREAM의 강점</h2>
+          <div class="strength-grid">
+            <div class="strength-item">
+              <div class="strength-icon">🏅</div>
+              <div><b>검증된 브랜드</b><span>높은 고객 만족도와 신뢰도</span></div>
             </div>
-            <div class="system-row">
-              <span>추천 발주 수량</span>
-              <b>자동 계산</b>
+            <div class="strength-item">
+              <div class="strength-icon">🍦</div>
+              <div><b>다양한 제품</b><span>트렌디한 아이스크림과 간식</span></div>
             </div>
-            <div class="system-row">
-              <span>쿠팡 발주표</span>
-              <b>지원</b>
+            <div class="strength-item">
+              <div class="strength-icon">📈</div>
+              <div><b>높은 수익성</b><span>효율적인 운영으로 안정적인 수익</span></div>
             </div>
-            <div class="system-row">
-              <span>최근 발주 이력</span>
-              <b>저장</b>
+            <div class="strength-item">
+              <div class="strength-icon">🎧</div>
+              <div><b>체계적인 지원</b><span>창업부터 운영까지 전문 지원</span></div>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <section id="barcode" style="background:white;">
+    <section id="tools" class="tools">
       <div class="container">
         <div class="section-head">
-          <div class="section-kicker">BARCODE SEARCH</div>
-          <h2 class="section-title">상품 바코드 검색</h2>
-          <p class="section-desc">
-            상품명, 바코드, 추천 판매가 정보를 검색할 수 있는 기능입니다. 향후 별도 페이지로 분리해 운영할 예정입니다.
-          </p>
+          <h2 class="section-title">영업 꿀템 추천</h2>
+          <p class="section-desc">매장 운영에 꼭 필요한 꿀템들을 추천해드립니다!</p>
         </div>
-        <div class="card">
-          <h3 style="margin-top:0;">바코드 검색 페이지 준비중</h3>
-          <p style="color:var(--muted); margin-bottom:18px;">
-            현재는 발주시스템 내부 기능으로 운영 중이며, 브랜드페이지 안정화 후 별도 메뉴로 분리할 수 있습니다.
-          </p>
-          <a class="btn btn-primary" href="https://YOUR-RENDER-URL.onrender.com" target="_blank" rel="noopener">발주시스템에서 검색하기</a>
+
+        <div class="tool-row">
+          <a class="tool-card" href="https://www.coupang.com/np/search?q=%EC%95%84%EC%9D%B4%EC%8A%A4%ED%81%AC%EB%A6%BC%20%EB%83%89%EB%8F%99%EA%B3%A0" target="_blank" rel="noopener">
+            <div class="tool-img">🧊</div>
+            <b>아이스크림 디스플레이 냉동고</b>
+            <span>쿠팡에서 보기</span>
+          </a>
+          <a class="tool-card" href="https://www.coupang.com/np/search?q=%EC%95%84%EC%9D%B4%EC%8A%A4%ED%81%AC%EB%A6%BC%20%EC%A2%85%EC%9D%B4%EC%BB%B5" target="_blank" rel="noopener">
+            <div class="tool-img">🥤</div>
+            <b>아이스크림 용기컵</b>
+            <span>쿠팡에서 보기</span>
+          </a>
+          <a class="tool-card" href="https://www.coupang.com/np/search?q=%EC%95%84%EC%9D%B4%EC%8A%A4%ED%81%AC%EB%A6%BC%20%EC%8A%A4%ED%91%BC" target="_blank" rel="noopener">
+            <div class="tool-img">🥄</div>
+            <b>아이스크림 스푼</b>
+            <span>쿠팡에서 보기</span>
+          </a>
+          <a class="tool-card" href="https://www.coupang.com/np/search?q=%EC%95%84%EC%9D%B4%EC%8A%A4%ED%81%AC%EB%A6%BC%20%EC%BD%98" target="_blank" rel="noopener">
+            <div class="tool-img">🍦</div>
+            <b>아이스크림 콘</b>
+            <span>쿠팡에서 보기</span>
+          </a>
+          <a class="tool-card" href="https://www.coupang.com/np/search?q=%ED%86%A0%ED%95%91%20%EC%8B%9C%EB%9F%BD" target="_blank" rel="noopener">
+            <div class="tool-img">🍯</div>
+            <b>토핑 & 시럽</b>
+            <span>쿠팡에서 보기</span>
+          </a>
         </div>
+
+        <p class="notice">* 본 링크를 통하여 구매하실 경우 쿠팡 파트너스 활동의 일환으로 일정액의 수수료를 제공받을 수 있습니다.</p>
       </div>
     </section>
 
-    <section id="tools">
+    <section id="contact">
       <div class="container">
-        <div class="section-head">
-          <div class="section-kicker">STORE ITEMS</div>
-          <h2 class="section-title">무인매장 영업에 필요한 꿀템</h2>
-          <p class="section-desc">
-            진열, 보안, 청결, 운영 효율을 높이는 추천 아이템을 소개합니다. 쿠팡 파트너스 링크를 연결해 수익화 메뉴로 확장할 수 있습니다.
-          </p>
-        </div>
-
-        <div class="tool-grid">
-          <a class="tool-card" href="https://www.coupang.com/np/search?q=%EC%95%84%EC%9D%B4%EC%8A%A4%ED%81%AC%EB%A6%BC%20%EC%A7%84%EC%97%B4%20%ED%8A%B8%EB%A0%88%EC%9D%B4" target="_blank" rel="noopener">
-            <div class="tool-thumb">🧊</div>
-            <h3>진열 트레이</h3>
-            <p>냉동고 안 상품을 보기 좋게 정리하고 보충 시간을 줄이는 데 도움됩니다.</p>
-            <span class="tool-link">쿠팡에서 보기 →</span>
-          </a>
-
-          <a class="tool-card" href="https://www.coupang.com/np/search?q=%ED%99%88%EC%BA%A0%20cctv" target="_blank" rel="noopener">
-            <div class="tool-thumb">📹</div>
-            <h3>홈캠 / CCTV</h3>
-            <p>무인매장 상태 확인, 고객 응대, 사고 예방을 위해 기본적으로 필요한 장비입니다.</p>
-            <span class="tool-link">쿠팡에서 보기 →</span>
-          </a>
-
-          <a class="tool-card" href="https://www.coupang.com/np/search?q=%EB%AC%B4%EC%9D%B8%EB%A7%A4%EC%9E%A5%20%EC%95%88%EB%82%B4%EB%AC%B8" target="_blank" rel="noopener">
-            <div class="tool-thumb">📌</div>
-            <h3>매장 안내문</h3>
-            <p>이용 방법, 결제 안내, 도난 방지 문구 등을 깔끔하게 부착할 수 있습니다.</p>
-            <span class="tool-link">쿠팡에서 보기 →</span>
-          </a>
-
-          <a class="tool-card" href="https://www.coupang.com/np/search?q=%EB%AC%B4%EC%9D%B8%EB%A7%A4%EC%9E%A5%20%EC%B2%AD%EC%86%8C%EC%9A%A9%ED%92%88" target="_blank" rel="noopener">
-            <div class="tool-thumb">🧽</div>
-            <h3>청소/관리용품</h3>
-            <p>매장 청결 관리를 위한 물티슈, 소독제, 빗자루, 쓰레기봉투 등을 준비합니다.</p>
-            <span class="tool-link">쿠팡에서 보기 →</span>
-          </a>
-        </div>
-
-        <div class="notice">
-          * 본 영역의 링크를 통해 구매가 발생할 경우 쿠팡 파트너스 활동의 일환으로 일정액의 수수료를 제공받을 수 있습니다.
-        </div>
-      </div>
-    </section>
-
-    <section id="contact" style="background:white;">
-      <div class="container">
-        <div class="contact-box">
+        <div class="contact-band">
           <div>
-            <div class="section-kicker">CONTACT</div>
-            <h2 class="section-title">가맹 문의</h2>
-            <p class="section-desc">
-              창업 희망 지역, 예산, 운영 경험을 남겨주시면 상담을 통해 적합한 방향을 안내합니다.
-            </p>
-            <div class="hero-actions">
-              <a class="btn btn-primary" href="tel:010-0000-0000">전화 문의</a>
-              <a class="btn btn-light" href="mailto:your-email@example.com">이메일 문의</a>
-            </div>
+            <div class="kicker">가맹문의</div>
+            <h2>함께 성장할 <span>파트너</span>를 기다립니다.</h2>
+            <p>지금 바로 문의하시고 i's CREAM의 가족이 되어보세요!</p>
           </div>
-
-          <div class="contact-list">
-            <div><b>브랜드명</b> i's cream</div>
-            <div><b>운영 시스템</b> i's Order</div>
-            <div><b>문의전화</b> 010-0000-0000</div>
-            <div><b>이메일</b> your-email@example.com</div>
-            <div><b>운영지역</b> 추후 입력</div>
+          <div class="contact-mini">
+            <i>☎</i>
+            <div><b>전화문의</b><span>010-1234-5678</span></div>
           </div>
+          <div class="contact-mini">
+            <i>💬</i>
+            <div><b>카카오톡 상담</b><span>@iscream</span></div>
+          </div>
+          <a class="btn btn-primary" href="tel:010-1234-5678">가맹문의 신청하기 〉</a>
         </div>
       </div>
     </section>
   </main>
 
   <footer class="footer">
-    <div class="container footer-inner">
-      <div>© 2026 i's cream. All rights reserved.</div>
-      <div>무인 아이스크림 전문점 창업 · 운영 플랫폼</div>
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <img class="footer-logo" src="./images/logo-main.png" alt="i's CREAM">
+          <p>아이스크림, 그 이상의 즐거움<br>i's CREAM</p>
+        </div>
+        <div>
+          <h3>메뉴</h3>
+          <a href="#brand">브랜드소개</a>
+          <a href="#process">창업절차</a>
+          <a href="#system">i's ORDER</a>
+        </div>
+        <div>
+          <h3>고객센터</h3>
+          <p>010-1234-5678</p>
+          <p>iscream@contact.com</p>
+          <p>평일 09:00 - 18:00</p>
+        </div>
+        <div>
+          <h3>SNS</h3>
+          <p>Instagram · Kakao · YouTube</p>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>© 2026 i's CREAM. All rights reserved.</div>
+        <div>개인정보처리방침 ㅣ 이용약관</div>
+      </div>
     </div>
   </footer>
 </body>
