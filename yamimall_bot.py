@@ -132,6 +132,10 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
 
                 sold_qty = int(item.get("판매수량", 0) or item.get("sold_qty", 0) or 0)
 
+                print("[YAMIMALL] keyword =", keyword)
+                print("[YAMIMALL] item =", item)
+
+
                 if sold_qty <= 0:
                     continue
 
