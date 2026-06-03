@@ -79,6 +79,7 @@
 
     .grid-2 {
       grid-template-columns: 1.2fr 1fr;
+      align-items:start;
     }
 
     .grid-3 {
@@ -197,6 +198,13 @@
         #ffffff 100%
       );
       border:1px solid #99f6e4;
+
+      border-radius:18px;
+      padding:20px;
+
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
     }
 
     .rep-top {
@@ -735,7 +743,7 @@
   <div class="grid grid-2">
     <div class="card">
       <div class="section-title">지점 정보 / 자동 로그인</div>
-      <div class="grid grid-4">
+      <div class="grid grid-3">
         <div>
           <div class="muted" style="margin-bottom:6px;">지점명</div>
           <input id="storeName" type="text" placeholder="예: 아이즈크림 오산세교">
@@ -1132,7 +1140,9 @@
     autoLoginEnabled: "branchOrder.autoLoginEnabled",
     saveStoreName: "branchOrder.saveStoreName",
     defaultSafetyStock: "branchOrder.defaultSafetyStock",
-    orderHistory: "branchOrder.orderHistory"
+    orderHistory: "branchOrder.orderHistory",
+    yamimallId: "branchOrder.yamimallId",
+    yamimallPw: "branchOrder.yamimallPw",
   };
 
   let currentData = null;
@@ -1176,6 +1186,12 @@
     const saveStoreName = localStorage.getItem(STORAGE_KEYS.saveStoreName);
     const defaultSafetyStock = localStorage.getItem(STORAGE_KEYS.defaultSafetyStock);
 
+    const yamimallId = localStorage.getItem(STORAGE_KEYS.yamimallId) || "";
+    const yamimallPw = localStorage.getItem(STORAGE_KEYS.yamimallPw) || "";
+
+    document.getElementById("yamimallId").value = yamimallId;
+    document.getElementById("yamimallPw").value = yamimallPw;
+
     document.getElementById("storeName").value = storeName;
     document.getElementById("loginId").value = loginId;
     document.getElementById("loginPw").value = loginPw;
@@ -1194,6 +1210,10 @@
     const autoLoginEnabled = document.getElementById("autoLoginEnabled").checked;
     const saveStoreName = document.getElementById("saveStoreName").checked;
     const defaultSafetyStock = document.getElementById("defaultSafetyStock").value || "0";
+    const yamimallId = document.getElementById("yamimallId").value.trim();
+    const yamimallPw = document.getElementById("yamimallPw").value.trim();
+
+
 
     if (saveStoreName) {
       localStorage.setItem(STORAGE_KEYS.storeName, storeName);
@@ -1212,6 +1232,10 @@
     localStorage.setItem(STORAGE_KEYS.autoLoginEnabled, String(autoLoginEnabled));
     localStorage.setItem(STORAGE_KEYS.saveStoreName, String(saveStoreName));
     localStorage.setItem(STORAGE_KEYS.defaultSafetyStock, String(defaultSafetyStock));
+    localStorage.setItem(STORAGE_KEYS.yamimallId, yamimallId);
+    localStorage.setItem(STORAGE_KEYS.yamimallPw, yamimallPw);
+
+
 
     document.getElementById("safetyStock").value = defaultSafetyStock;
     updatePageTitle();
@@ -1225,7 +1249,11 @@
     localStorage.removeItem(STORAGE_KEYS.autoLoginEnabled);
     localStorage.removeItem(STORAGE_KEYS.saveStoreName);
     localStorage.removeItem(STORAGE_KEYS.defaultSafetyStock);
+    localStorage.removeItem(STORAGE_KEYS.yamimallId);
+    localStorage.removeItem(STORAGE_KEYS.yamimallPw);
 
+    document.getElementById("yamimallId").value = "";
+    document.getElementById("yamimallPw").value = "";
     document.getElementById("storeName").value = "";
     document.getElementById("loginId").value = "";
     document.getElementById("loginPw").value = "";
@@ -1553,39 +1581,58 @@
   }
 
   async function startYamimallCart() {
-    const username = document.getElementById("yamimallId").value.trim();
-    const password = document.getElementById("yamimallPw").value.trim();
+    const btn = document.getElementById("yamimallCartBtn");
+    btn.disabled = true;
+    btn.innerText = "야미몰 장바구니 담는 중...";
 
-    if (!username || !password) {
-      alert("야미몰 ID와 PW를 입력해줘.");
-      return;
-    }
+    try {
+      const username = document.getElementById("yamimallId").value.trim();
+      const password = document.getElementById("yamimallPw").value.trim();
 
-    const yamimallItems = (currentData?.top_items || []).filter(item => {
-      return Number(item.is_coupang ?? item.is_coupang_type ?? 0) === 2;
-    });
+      if (!username || !password) {
+        alert("야미몰 ID와 PW를 입력해줘.");
+        return;
+      }
 
-    if (yamimallItems.length === 0) {
-      alert("야미몰 장바구니 대상 품목이 없습니다.");
-      return;
-    }
+      const yamimallItems = (currentData?.top_items || []).filter(item => {
+        return Number(item.is_coupang ?? item.is_coupang_type ?? 0) === 2;
+      });
 
-    const res = await fetch("/api/yamimall/cart", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        username,
-        password,
-        items: yamimallItems
-      })
-    });
+      if (yamimallItems.length === 0) {
+        alert("야미몰 장바구니 대상 품목이 없습니다.");
+        return;
+      }
 
-    const data = await res.json();
-    showYamimallResultPopup(data);
+      console.log("[YAMIMALL FRONT] request start", yamimallItems.length);
+
+      const res = await fetch("/api/yamimall/cart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          username,
+          password,
+          items: yamimallItems
+        })
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        alert("야미몰 장바구니 처리 중 서버 오류가 발생했습니다.\n\n" + text);
+        return;
+      }
+
+      const data = await res.json();
+      showYamimallResultPopup(data);
+
+    } catch (e) {
+      alert("야미몰 장바구니 요청 중 오류가 발생했습니다.\n\n" + e);
+    } finally {
+      btn.disabled = false;
+      btn.innerText = "야미몰 장바구니 담기";
   }
-
+}
   
   function showYamimallResultPopup(result) {
     const successList = result.success || [];
@@ -1663,7 +1710,7 @@
     document.getElementById("yamimallResultBody").innerHTML = html;
     document.getElementById("yamimallResultModal").style.display = "flex";
   }
-  
+
 
 function closeYamimallResultPopup() {
   document.getElementById("yamimallResultModal").style.display = "none";
