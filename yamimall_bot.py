@@ -282,14 +282,24 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
 
                     # 확인 클릭
                     print("[YAMIMALL] confirm button count =", page.locator("button.ui-button:has-text('확인')").count())
-                    page.locator("button.ui-button:has-text('확인')").click(timeout=3000)
+                    confirm_btn = page.locator("button.ui-button:has-text('확인')").last
+
+                    try:
+                        confirm_btn.click(timeout=3000, force=True)
+                    except Exception:
+                        confirm_btn.evaluate("(el) => el.click()")
 
                     print("[YAMIMALL] confirm clicked")
                     page.wait_for_timeout(700)
 
                     # 계속쇼핑 클릭
                     print("[YAMIMALL] continue shopping count =", page.locator("button.ui-button:has-text('계속쇼핑')").count())
-                    page.locator("button.ui-button:has-text('계속쇼핑')").click(timeout=3000)
+                    continue_btn = page.locator("button.ui-button:has-text('계속쇼핑')").last
+
+                    try:
+                        continue_btn.click(timeout=3000, force=True)
+                    except Exception:
+                        continue_btn.evaluate("(el) => el.click()")
 
                     print("[YAMIMALL] continue shopping clicked")
                     page.wait_for_timeout(700)
