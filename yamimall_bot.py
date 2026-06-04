@@ -152,7 +152,7 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
                     page.fill("#sch_str", "")
                     page.fill("#sch_str", keyword)
                     
-                    page.locator("#sch_submit").click(force=True)
+                    page.locator("#sch_submit").evaluate("(el) => el.click()")
 
                     page.wait_for_timeout(4000)
 
