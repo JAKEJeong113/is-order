@@ -151,10 +151,17 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
                     # 검색
                     page.fill("#sch_str", "")
                     page.fill("#sch_str", keyword)
-                    
-                    page.locator("#sch_submit").evaluate("(el) => el.click()")
 
-                    page.wait_for_timeout(4000)
+                    page.locator("#sch_submit").dispatch_event("click")
+
+                    print(
+                        page.locator("#sch_submit").evaluate(
+                            "(el) => el.parentElement.outerHTML"
+                        )
+                    )
+
+                    page.wait_for_timeout(3000)
+                    
 
                     print("[YAMIMALL] current url =", page.url)
                     # 검색 결과 첫 상품
