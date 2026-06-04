@@ -106,7 +106,7 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
             ],
         )
 
-    page = browser.new_page()
+        page = browser.new_page()
 
         try:
             page.goto(YAMIMALL_URL, wait_until="domcontentloaded", timeout=60000)
