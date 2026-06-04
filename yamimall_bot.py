@@ -96,9 +96,17 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
     failed = []
 
     with sync_playwright() as p:
-        # 테스트 중에는 headless=False, slow_mo=300 추천
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-setuid-sandbox",
+            ],
+        )
+
+    page = browser.new_page()
 
         try:
             page.goto(YAMIMALL_URL, wait_until="domcontentloaded", timeout=60000)

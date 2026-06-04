@@ -172,7 +172,12 @@ def yamimall_cart(req: YamimallCartRequest):
             "success": [],
             "failed": []
         }
+    print(f"[YAMIMALL API] filtered items = {len(yamimall_items)}")
 
+    yamimall_items = yamimall_items[:10]
+
+    print(f"[YAMIMALL API] test items = {len(yamimall_items)}")
+    
     result = add_yamimall_cart(
         username=req.username,
         password=req.password,
