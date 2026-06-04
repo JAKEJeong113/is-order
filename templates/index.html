@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="i's CREAM은 무인 아이스크림 전문점 창업과 운영을 돕는 브랜드입니다." />
   <title>i's CREAM | 아이스크림, 그 이상의 즐거움</title>
-
+  <link rel="stylesheet"
+  href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <style>
     :root{
       --mint:#2fc5b3;
@@ -24,7 +25,7 @@
     html{scroll-behavior:smooth}
     body{
       margin:0;
-      font-family:Arial,'Noto Sans KR',sans-serif;
+      font-family:'Pretendard',sans-serif;
       color:var(--ink);
       background:var(--bg);
       line-height:1.6;
@@ -54,7 +55,7 @@
       align-items:center;
       gap:34px;
       font-size:15px;
-      font-weight:800;
+      font-weight:600;
       color:#111827;
       white-space:nowrap;
     }
@@ -62,9 +63,28 @@
     .nav-cta{
       padding:13px 20px;
       border-radius:12px;
+      font-weight:700;
       color:white!important;
       background:linear-gradient(135deg,var(--mint),#1bb3a3);
       box-shadow:0 10px 24px rgba(47,197,179,.25);
+    }
+
+    .kakao-box{
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+
+    .kakao-qr{
+      width:80px;
+      height:80px;
+      border-radius:8px;
+      border:1px solid #e5e7eb;
+      background:#fff;
+      flex-shrink:0;
+    }
+    .kakao-box{
+        align-items:center;
     }
 
     .hero{
@@ -376,7 +396,7 @@
         <a href="#system">i's ORDER</a>
         <a href="#tools">영업 꿀템 추천</a>
         <a href="#contact">가맹문의</a>
-        <a class="nav-cta" href="#system">발주시스템 바로가기 ↗</a>
+        <a class="nav-cta" href="https://is-order.onrender.com" target="_blank" rel="noopener noreferrer">발주시스템 바로가기 ↗</a>
       </nav>
     </div>
   </header>
@@ -535,13 +555,17 @@
           </div>
           <div class="contact-mini">
             <i>☎</i>
-            <div><b>전화문의</b><span>010-1234-5678</span></div>
+            <div><b>전화문의</b><span>010-8498-7595</span></div>
           </div>
-          <div class="contact-mini">
-            <i>💬</i>
-            <div><b>카카오톡 상담</b><span>@iscream</span></div>
+          <div class="contact-mini kakao-box">
+            <img src="./images/kakao-qr.png" alt="카카오톡 상담 QR" class="kakao-qr">
+
+            <div>
+              <b>카카오톡 상담</b>
+              <span>QR코드를 스캔하세요</span>
+            </div>
           </div>
-          <a class="btn btn-primary" href="tel:010-1234-5678">가맹문의 신청하기 〉</a>
+          <a class="btn btn-primary" href="tel:010-8498-7595">가맹문의 신청하기 〉</a>
         </div>
       </div>
     </section>
@@ -562,8 +586,8 @@
         </div>
         <div>
           <h3>고객센터</h3>
-          <p>010-1234-5678</p>
-          <p>iscream@contact.com</p>
+          <p>010-8498-7595</p>
+          <p>lottotto0404@naver.com</p>
           <p>평일 09:00 - 18:00</p>
         </div>
         <div>
