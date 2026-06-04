@@ -149,12 +149,20 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
 
                 try:
                     # 검색
+                    page.fill("#sch_str", "")
                     page.fill("#sch_str", keyword)
-                    page.press("#sch_str", "Enter")
-                    page.wait_for_timeout(1500)
+                    
+                    page.locator("#sch_submit").click(force=True)
 
+                    page.wait_for_timeout(4000)
+
+                    print("[YAMIMALL] current url =", page.url)
                     # 검색 결과 첫 상품
                     product_links = page.locator("a[href*='/shop/item.php?code=']")
+                    print(
+                        "[YAMIMALL] page text sample =",
+                        page.locator("body").inner_text()[:500]
+                    )
 
                     if product_links.count() == 0:
                         failed.append({
