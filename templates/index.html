@@ -86,6 +86,9 @@
     .kakao-box{
         align-items:center;
     }
+    .contact-mini.kakao-box{
+        height:76px;
+    }
 
     .hero{
       position:relative;
@@ -324,21 +327,23 @@
       border-radius:24px;
       padding:34px;
       display:grid;
-      grid-template-columns:1.3fr .8fr .8fr .8fr;
+      grid-template-columns:1.6fr 1.15fr 1.15fr 1fr;
       gap:18px;
       align-items:center;
     }
-    .contact-band h2{margin:0;font-size:30px;line-height:1.25}
+
+    
+    .contact-band h2{margin:0;font-size:30px;line-height:1.25;white-space:nowrap;}
     .contact-band h2 span{color:var(--mint-dark)}
     .contact-band p{margin:8px 0 0;color:#475569}
     .contact-mini{
       background:white;
       border-radius:16px;
-      padding:18px;
+      padding:20px 24px;
       display:flex;
       align-items:center;
       gap:12px;
-      min-height:76px;
+      min-height:86px;
     }
     .contact-mini i{font-style:normal;font-size:28px;color:var(--mint-dark)}
     .contact-mini b{display:block;font-size:13px}
@@ -402,7 +407,7 @@
   </header>
 
   <main id="top">
-    <section class="hero">
+    <section class="hero" id="brand">
       <div class="container hero-grid">
         <div>
           
@@ -482,7 +487,7 @@
           <div class="mock-device" aria-label="발주시스템 화면 예시"></div>
         </div>
 
-        <div class="strength-card" id="brand">
+        <div class="strength-card">
           <h2>i's CREAM의 강점</h2>
           <div class="strength-grid">
             <div class="strength-item">
