@@ -129,12 +129,19 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
             close_yamimall_popups(page)
 
             for item in items:
-                name = item.get("메뉴명") or item.get("품목명") or item.get("menu_name") or ""
+                name = (
+                    item.get("catalog_menu_name")
+                    or item.get("메뉴명")
+                    or item.get("품목명")
+                    or item.get("menu_name")
+                    or ""
+                )
 
                 keyword = (
                     item.get("wholesale_search_keyword")
-                    or item.get("search_keyword")
                     or item.get("catalog_search_keyword")
+                    or item.get("search_keyword")
+                    or item.get("catalog_menu_name")
                     or name
                 )
 
