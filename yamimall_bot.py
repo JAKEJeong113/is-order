@@ -74,6 +74,67 @@ def keyword_match_score(keyword: str, product_text: str) -> int:
 
     return score
 
+def find_best_yamimall_product(page, keyword: str, max_pages: int = 5):
+    best_product = None
+    best_text = ""
+    best_score = -1
+    best_index = -1
+    best_page = 1
+
+    for page_no in range(1, max_pages + 1):
+        page.wait_for_timeout(1000)
+
+        product_links = page.locator("a[href*='/shop/item.php?code=']")
+        count = product_links.count()
+
+        print(f"[YAMIMALL] search page {page_no}, product link count =", count)
+
+        for i in range(count):
+            link = product_links.nth(i)
+            text = link.evaluate("(el) => el.innerText || el.textContent || ''").strip()
+
+            print(f"[YAMIMALL] page {page_no} candidate {i} =", repr(text))
+
+            if not text:
+                continue
+
+            if "SOLD OUT" in text.upper() or "품절" in text:
+                continue
+
+            unit_qty_temp = extract_wholesale_unit_qty(text)
+            if not unit_qty_temp:
+                continue
+
+            score = keyword_match_score(keyword, text)
+
+            print(f"[YAMIMALL] page {page_no} candidate {i} score =", score)
+
+            if score > best_score:
+                best_score = score
+                best_product = link
+                best_text = text
+                best_index = i
+                best_page = page_no
+
+        if best_product is not None and best_score > 0:
+            return best_product, best_text, best_score, best_index, best_page
+
+        # 다음 페이지 버튼 클릭
+        next_page_no = page_no + 1
+        next_page_link = page.locator(f"a:has-text('{next_page_no}')").first
+
+        if next_page_link.count() == 0:
+            print(f"[YAMIMALL] page {next_page_no} link not found")
+            break
+
+        try:
+            next_page_link.click(timeout=3000, force=True)
+        except Exception:
+            next_page_link.dispatch_event("click")
+
+        page.wait_for_timeout(2500)
+
+    return best_product, best_text, best_score, best_index, best_page
 
 def calc_yamimall_cart_qty(sold_qty: int, unit_qty: int) -> int:
     """
@@ -161,24 +222,25 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
 
                     page.locator("#sch_submit").dispatch_event("click")
 
-                    print(
-                        page.locator("#sch_submit").evaluate(
-                            "(el) => el.parentElement.outerHTML"
-                        )
-                    )
+                    
 
                     page.wait_for_timeout(3000)
                     
 
                     print("[YAMIMALL] current url =", page.url)
                     # 검색 결과 첫 상품
-                    product_links = page.locator("a[href*='/shop/item.php?code=']")
                     print(
                         "[YAMIMALL] page text sample =",
                         page.locator("body").inner_text()[:500]
                     )
 
-                    if product_links.count() == 0:
+                    first_product, product_text, best_score, best_index, best_page = find_best_yamimall_product(
+                        page=page,
+                        keyword=keyword,
+                        max_pages=5
+                    )
+
+                    if first_product is None:
                         failed.append({
                             "name": name,
                             "keyword": keyword,
@@ -187,52 +249,12 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
                         })
                         continue
 
-                    first_product = None
-                    product_text = ""
-                    best_score = -1
-                    best_index = -1
-
-                    for i in range(product_links.count()):
-                        link = product_links.nth(i)
-                        text = link.evaluate("(el) => el.innerText || el.textContent || ''").strip()
-
-                        print(f"[YAMIMALL] candidate {i} =", repr(text))
-
-                        if not text:
-                            continue
-
-                        if "SOLD OUT" in text.upper() or "품절" in text:
-                            continue
-
-                        unit_qty_temp = extract_wholesale_unit_qty(text)
-                        if not unit_qty_temp:
-                            continue
-
-                        score = keyword_match_score(keyword, text)
-
-                        print(f"[YAMIMALL] candidate {i} score =", score)
-
-                        if score > best_score:
-                            best_score = score
-                            first_product = link
-                            product_text = text
-                            best_index = i
-
-                    if first_product is None or best_score <= 0:
+                    if best_score <= 0:
                         failed.append({
                             "name": name,
                             "keyword": keyword,
                             "sold_qty": sold_qty,
                             "reason": "검색어와 일치하는 적합한 상품을 찾지 못함"
-                        })
-                        continue
-
-                    if first_product is None:
-                        failed.append({
-                            "name": name,
-                            "keyword": keyword,
-                            "sold_qty": sold_qty,
-                            "reason": "검색 결과에서 1타 수량 포함 상품을 찾지 못함"
                         })
                         continue
 
@@ -286,14 +308,20 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
                         })
                         continue
 
+                    print("[YAMIMALL] selected page =", best_page)
                     print("[YAMIMALL] selected index =", best_index)
                     print("[YAMIMALL] cart button count =", cart_buttons.count())
-                    print("[YAMIMALL] click cart button index =", best_index // 5)
-                    
+                    cart_index = max(0, best_index // 5)
+
+                    if cart_index >= cart_buttons.count():
+                        cart_index = cart_buttons.count() - 1
+
+                    print("[YAMIMALL] click cart button index =", cart_index)
+
                     try:
-                        cart_buttons.nth(best_index // 5).click(timeout=3000, force=True)
-                    except Exception:
-                        cart_buttons.nth(best_index // 5).evaluate("(el) => el.click()")
+                        cart_buttons.nth(cart_index).click(timeout=3000, force=True)
+                    except Exception:       
+                        cart_buttons.nth(cart_index).dispatch_event("click")
 
                     page.wait_for_timeout(1000)
 
