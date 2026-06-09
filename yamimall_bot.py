@@ -116,8 +116,7 @@ def find_best_yamimall_product(page, keyword: str, max_pages: int = 5):
                 best_index = i
                 best_page = page_no
 
-        if best_product is not None and best_score > 0:
-            return best_product, best_text, best_score, best_index, best_page
+        
 
         # 다음 페이지 버튼 클릭
         # 다음 페이지 버튼 클릭
@@ -243,7 +242,7 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
 
                     
 
-                    page.wait_for_timeout(3000)
+                    page.wait_for_timeout(5000)
                     
 
                     print("[YAMIMALL] current url =", page.url)

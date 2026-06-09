@@ -174,7 +174,7 @@ def yamimall_cart(req: YamimallCartRequest):
         }
     print(f"[YAMIMALL API] filtered items = {len(yamimall_items)}")
 
-    yamimall_items = yamimall_items[:10]
+    yamimall_items = yamimall_items[:30]
 
     print(f"[YAMIMALL API] test items = {len(yamimall_items)}")
     
