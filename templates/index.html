@@ -383,8 +383,10 @@
       .tool-row{
         display:flex;
         gap:16px;
+        flex-wrap:nowrap;      /* 핵심 */
         overflow:hidden;
         scroll-behavior:smooth;
+
       }
 
       .tool-card{
@@ -417,9 +419,10 @@
       }
 
       .tool-img img{
-        max-width:100%;
-        max-height:100%;
+        width:70px;
+        height:70px;
         object-fit:contain;
+        display:block;
       }
     }
     @media(max-width:560px){

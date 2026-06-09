@@ -264,7 +264,7 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
                             "name": name,
                             "keyword": keyword,
                             "sold_qty": sold_qty,
-                            "reason": "검색 결과 없음"
+                            "reason": "검색 결과 없음",
                             "searched_pages": 5
                         })
                         continue
