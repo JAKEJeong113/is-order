@@ -374,7 +374,53 @@
       .ice-visual{min-height:300px}
       .process{grid-template-columns:1fr}
       .step:not(:last-child)::after{display:none}
-      .tool-row{grid-template-columns:repeat(2,1fr)}
+      .tool-slider-wrap{
+        position:relative;
+        margin-top:34px;
+        padding:0 56px;
+      }
+
+      .tool-row{
+        display:flex;
+        gap:16px;
+        overflow:hidden;
+        scroll-behavior:smooth;
+      }
+
+      .tool-card{
+        flex:0 0 calc((100% - 64px) / 5);
+      }
+
+      .tool-arrow{
+        position:absolute;
+        top:50%;
+        transform:translateY(-50%);
+        width:44px;
+        height:44px;
+        border-radius:50%;
+        border:1px solid var(--line);
+        background:white;
+        box-shadow:0 8px 18px rgba(15,23,42,.12);
+        cursor:pointer;
+        font-size:28px;
+        font-weight:900;
+        color:var(--mint-dark);
+        z-index:10;
+      }
+
+      .tool-arrow.left{
+        left:0;
+      }
+
+      .tool-arrow.right{
+        right:0;
+      }
+
+      .tool-img img{
+        max-width:100%;
+        max-height:100%;
+        object-fit:contain;
+      }
     }
     @media(max-width:560px){
       .container{width:min(100% - 28px,1120px)}
@@ -518,32 +564,106 @@
           <p class="section-desc">매장 운영에 꼭 필요한 꿀템들을 추천해드립니다!</p>
         </div>
 
-        <div class="tool-row">
-          <a class="tool-card" href="https://www.coupang.com/np/search?q=%EC%95%84%EC%9D%B4%EC%8A%A4%ED%81%AC%EB%A6%BC%20%EB%83%89%EB%8F%99%EA%B3%A0" target="_blank" rel="noopener">
-            <div class="tool-img">🧊</div>
-            <b>아이스크림 디스플레이 냉동고</b>
-            <span>쿠팡에서 보기</span>
-          </a>
-          <a class="tool-card" href="https://www.coupang.com/np/search?q=%EC%95%84%EC%9D%B4%EC%8A%A4%ED%81%AC%EB%A6%BC%20%EC%A2%85%EC%9D%B4%EC%BB%B5" target="_blank" rel="noopener">
-            <div class="tool-img">🥤</div>
-            <b>아이스크림 용기컵</b>
-            <span>쿠팡에서 보기</span>
-          </a>
-          <a class="tool-card" href="https://www.coupang.com/np/search?q=%EC%95%84%EC%9D%B4%EC%8A%A4%ED%81%AC%EB%A6%BC%20%EC%8A%A4%ED%91%BC" target="_blank" rel="noopener">
-            <div class="tool-img">🥄</div>
-            <b>아이스크림 스푼</b>
-            <span>쿠팡에서 보기</span>
-          </a>
-          <a class="tool-card" href="https://www.coupang.com/np/search?q=%EC%95%84%EC%9D%B4%EC%8A%A4%ED%81%AC%EB%A6%BC%20%EC%BD%98" target="_blank" rel="noopener">
-            <div class="tool-img">🍦</div>
-            <b>아이스크림 콘</b>
-            <span>쿠팡에서 보기</span>
-          </a>
-          <a class="tool-card" href="https://www.coupang.com/np/search?q=%ED%86%A0%ED%95%91%20%EC%8B%9C%EB%9F%BD" target="_blank" rel="noopener">
-            <div class="tool-img">🍯</div>
-            <b>토핑 & 시럽</b>
-            <span>쿠팡에서 보기</span>
-          </a>
+        <div class="tool-slider-wrap">
+
+          <button class="tool-arrow left" type="button" onclick="moveTools(-1)">‹</button>
+
+          <div class="tool-row" id="toolRow">
+
+            <!-- 1 -->
+            <a class="tool-card" href="https://www.coupang.com/np/search?q=아이스크림 냉동고" target="_blank" rel="noopener">
+              <div class="tool-img">🧊
+                <img src="./images/tool-freezer.png">
+              </div>
+              <b>아이스크림 디스플레이 냉동고</b>
+              <span>쿠팡에서 보기</span>
+            </a>
+
+            <!-- 2 -->
+            <a class="tool-card" href="https://www.coupang.com/np/search?q=아이스크림 종이컵" target="_blank" rel="noopener">
+              <div class="tool-img">🥤
+                <img src="./images/tool-cup.png">
+              </div>
+              <b>아이스크림 용기컵</b>
+              <span>쿠팡에서 보기</span>
+            </a>
+
+            <!-- 3 -->  
+            <a class="tool-card" href="https://www.coupang.com/np/search?q=아이스크림 스푼" target="_blank" rel="noopener">
+              <div class="tool-img">🥄
+                <img src="./images/tool-spoon.png">
+              </div>
+              <b>아이스크림 스푼</b>
+              <span>쿠팡에서 보기</span>
+            </a>
+
+            <!-- 4 -->
+            <a class="tool-card" href="https://www.coupang.com/np/search?q=아이스크림 콘" target="_blank" rel="noopener">
+              <div class="tool-img">🍦
+                <img src="./images/tool-cone.png">
+              </div>
+              <b>아이스크림 콘</b>
+              <span>쿠팡에서 보기</span>
+            </a>
+
+            <!-- 5 -->
+            <a class="tool-card" href="https://www.coupang.com/np/search?q=토핑 시럽" target="_blank" rel="noopener">
+              <div class="tool-img">🍯
+                <img src="./images/tool-syrup.png">
+              </div>
+              <b>토핑 & 시럽</b>
+              <span>쿠팡에서 보기</span>
+            </a>
+
+            <!-- 6 -->
+            <a class="tool-card" href="#" target="_blank" rel="noopener">
+              <div class="tool-img">📷
+                <img src="./images/tool-homecam.png">
+              </div>
+              <b>매장 홈캠</b>
+              <span>쿠팡에서 보기</span>
+            </a>
+
+            <!-- 7 -->
+            <a class="tool-card" href="#" target="_blank" rel="noopener">
+              <div class="tool-img">🧺
+                <img src="./images/tool-display.png">
+              </div>
+              <b>진열 바구니</b>
+              <span>쿠팡에서 보기</span>
+            </a>
+
+            <!-- 8 -->
+            <a class="tool-card" href="#" target="_blank" rel="noopener">
+              <div class="tool-img">🏷️
+                <img src="./images/tool-label.png">
+              </div>
+              <b>가격표 라벨</b>
+              <span>쿠팡에서 보기</span>
+            </a>
+
+            <!-- 9 -->
+            <a class="tool-card" href="#" target="_blank" rel="noopener">
+              <div class="tool-img">🧼
+                <img src="./images/tool-cleaning.png">
+              </div>
+              <b>청소용품</b>
+              <span>쿠팡에서 보기</span>
+            </a>
+
+            <!-- 10 -->
+            <a class="tool-card" href="#" target="_blank" rel="noopener">
+              <div class="tool-img">💡
+                <img src="./images/tool-lighting.png">
+              </div>
+              <b>LED 간판 조명</b>
+              <span>쿠팡에서 보기</span>
+            </a>
+
+          </div>
+
+          <button class="tool-arrow right" type="button" onclick="moveTools(1)">›</button>
+
         </div>
 
         <p class="notice">* 본 링크를 통하여 구매하실 경우 쿠팡 파트너스 활동의 일환으로 일정액의 수수료를 제공받을 수 있습니다.</p>
@@ -607,5 +727,21 @@
       </div>
     </div>
   </footer>
+
+  <script>
+  function moveTools(direction){
+    const row = document.getElementById("toolRow");
+    const card = row.querySelector(".tool-card");
+
+    if(!card) return;
+
+    const moveWidth = card.offsetWidth + 16;
+
+    row.scrollBy({
+      left: direction * moveWidth,
+      behavior: "smooth"
+    });
+  }
+  </script>
 </body>
 </html>

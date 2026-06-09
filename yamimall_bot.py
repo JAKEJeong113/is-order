@@ -120,10 +120,28 @@ def find_best_yamimall_product(page, keyword: str, max_pages: int = 5):
             return best_product, best_text, best_score, best_index, best_page
 
         # 다음 페이지 버튼 클릭
+        # 다음 페이지 버튼 클릭
         next_page_no = page_no + 1
-        next_page_link = page.locator(f"a:has-text('{next_page_no}')").first
+        next_page_link = None
 
-        if next_page_link.count() == 0:
+        links = page.locator("a")
+        link_count = links.count()
+
+        for j in range(link_count):
+            link = links.nth(j)
+
+            try:
+                link_text = link.inner_text(timeout=500).strip()
+                href = link.get_attribute("href") or ""
+
+                # '20개' 같은 상품 텍스트가 아니라, 정확히 페이지 번호 '2'만 잡기
+                if link_text == str(next_page_no) and ("page=" in href or "search.php" in href):
+                    next_page_link = link
+                    break
+            except Exception:
+                continue
+
+        if next_page_link is None:
             print(f"[YAMIMALL] page {next_page_no} link not found")
             break
 
@@ -132,7 +150,8 @@ def find_best_yamimall_product(page, keyword: str, max_pages: int = 5):
         except Exception:
             next_page_link.dispatch_event("click")
 
-        page.wait_for_timeout(2500)
+        page.wait_for_timeout(3000)
+        print(f"[YAMIMALL] moved to page {next_page_no}, url =", page.url)
 
     return best_product, best_text, best_score, best_index, best_page
 
@@ -246,6 +265,7 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
                             "keyword": keyword,
                             "sold_qty": sold_qty,
                             "reason": "검색 결과 없음"
+                            "searched_pages": 5
                         })
                         continue
 
