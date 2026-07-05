@@ -15,8 +15,7 @@ from urllib.parse import quote
 
 import pandas as pd
 import requests
-from fastapi import FastAPI, Query
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
