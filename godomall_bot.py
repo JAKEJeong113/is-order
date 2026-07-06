@@ -216,9 +216,20 @@ def add_to_cart(base_url: str, login_id: str, login_pwd: str, goods_no: str, qty
             if qty_input.count() > 0:
                 qty_input.fill(str(qty))
 
-            cart_btn = page.locator("button.btn_basket_cart, a.btn_basket_cart").first
+            # 상세페이지의 실제 담기 버튼은 #cartBtn. (.btn_basket_cart는 상세페이지 하단
+            # '함께 보면 좋은 상품' 추천 위젯용이라 다른 상품 goods_no를 가리킴 - 사용 금지)
+            cart_btn = page.locator("#cartBtn")
+            if cart_btn.count() == 0:
+                return {"ok": False, "goods_no": goods_no, "qty": qty, "reason": "담기 버튼(#cartBtn)을 찾지 못함"}
+
             cart_btn.click(timeout=5000)
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(1500)
+
+            # "상품이 장바구니에 담겼습니다" 확인 팝업 닫기 (취소 = 현재 페이지 유지)
+            close_btn = page.locator("button:has-text('취소'), button:has-text('확인')")
+            if close_btn.count() > 0:
+                close_btn.first.click(timeout=3000)
+                page.wait_for_timeout(500)
 
             return {"ok": True, "goods_no": goods_no, "qty": qty}
         except Exception as e:

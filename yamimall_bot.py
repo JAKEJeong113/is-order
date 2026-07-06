@@ -375,6 +375,59 @@ def _parse_price(text: str) -> int | None:
     return int(digits) if digits else None
 
 
+def add_to_cart(username: str, password: str, product_url: str, qty: int = 1) -> dict:
+    """상품 상세페이지에서 실제로 장바구니에 담는다. product_url은 item.php?code=... 형태."""
+    code_match = re.search(r"code=(\d+)", product_url or "")
+    if not code_match:
+        return {"ok": False, "reason": f"상품 코드 추출 실패: {product_url}"}
+    item_code = code_match.group(1)
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"],
+        )
+        page = browser.new_page()
+
+        try:
+            login_yamimall(page, username, password)
+            page.goto(
+                f"{YAMIMALL_URL}:443/shop/item.php?code={item_code}",
+                wait_until="domcontentloaded",
+                timeout=30000,
+            )
+            page.wait_for_timeout(1200)
+
+            plus_button = page.locator(".add_qty_class").first
+            if plus_button.count() == 0:
+                return {"ok": False, "reason": "수량 조절 버튼을 찾지 못함 (품절이거나 페이지 구조 변경)"}
+
+            for _ in range(max(qty, 1) - 1):
+                plus_button.click(timeout=1000)
+                page.wait_for_timeout(150)
+
+            cart_btn = page.locator("#sit_btn_cart")
+            if cart_btn.count() == 0:
+                return {"ok": False, "reason": "장바구니 버튼을 찾지 못함"}
+
+            cart_btn.click(timeout=5000)
+            page.wait_for_timeout(1500)
+
+            # 담기 확인 팝업 처리 (있으면 닫기)
+            dialog_btn = page.locator(".ui-dialog-buttonpane button").first
+            if dialog_btn.count() > 0:
+                try:
+                    dialog_btn.click(timeout=2000)
+                except Exception:
+                    pass
+
+            return {"ok": True, "item_code": item_code, "qty": qty}
+        except Exception as e:
+            return {"ok": False, "reason": str(e)}
+        finally:
+            browser.close()
+
+
 def add_yamimall_cart(username: str, password: str, items: list[dict]):
     success = []
     failed = []

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import re
 import uuid
 import hmac
 import hashlib
@@ -31,8 +32,11 @@ from db import init_db, get_inventory, upsert_inventory, change_stock
 from yamimall_bot import add_yamimall_cart
 import catalog_cache
 import catalog_crawler
+import godomall_bot
+import popularity
 import vendors
 import price_compare
+import yamimall_bot
 
 load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
@@ -57,6 +61,7 @@ templates = Jinja2Templates(directory="templates")
 init_db()
 vendors.init_vendor_table()
 catalog_cache.init_catalog_table()
+popularity.init_popularity_table()
 
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 scheduler.add_job(
@@ -268,6 +273,54 @@ def api_catalog_status():
 def api_catalog_refresh(background_tasks: BackgroundTasks):
     background_tasks.add_task(catalog_crawler.crawl_all_enabled)
     return {"ok": True, "message": "백그라운드에서 크롤링을 시작했습니다. /api/catalog/status로 진행상황을 확인하세요."}
+
+
+class CartAddRequest(BaseModel):
+    vendor_id: str
+    product_url: str
+    qty: int = Field(1, ge=1, le=99)
+    store_id: str = "unknown"
+    item_name: str = ""
+    item_key: str = ""
+
+
+@app.post("/api/cart-add")
+def api_cart_add(req: CartAddRequest):
+    creds = vendors.get_vendor_credentials(req.vendor_id)
+    if not creds:
+        return {"ok": False, "reason": "저장된 계정이 없습니다."}
+    login_id, login_pwd = creds
+
+    if req.vendor_id == "yamimall":
+        result = yamimall_bot.add_to_cart(login_id, login_pwd, req.product_url, req.qty)
+    elif req.vendor_id in ("ccdome", "3bong"):
+        base_url = vendors.VENDORS[req.vendor_id]["base_url"]
+        goods_no_match = re.search(r"goodsNo=(\d+)", req.product_url or "")
+        if not goods_no_match:
+            return {"ok": False, "reason": f"상품 번호 추출 실패: {req.product_url}"}
+        result = godomall_bot.add_to_cart(base_url, login_id, login_pwd, goods_no_match.group(1), req.qty)
+    else:
+        return {"ok": False, "reason": f"{req.vendor_id}는 아직 자동 담기를 지원하지 않습니다."}
+
+    if result.get("ok"):
+        popularity.log_event(
+            req.store_id, "wholesale",
+            req.item_key or req.product_url, req.item_name, req.qty,
+        )
+
+    return result
+
+
+@app.get("/popular", response_class=HTMLResponse)
+def popular_page(request: Request):
+    return templates.TemplateResponse("popular.html", {"request": request})
+
+
+@app.get("/api/popular")
+def api_popular(category: str = Query(...), limit: int = Query(30, ge=1, le=100)):
+    if category not in popularity.CATEGORIES:
+        return {"items": []}
+    return {"items": popularity.get_top_items(category, limit=limit)}
 
 
 class InventoryUpdateRequest(BaseModel):
@@ -666,6 +719,18 @@ def import_from_orderqueen(req: OrderQueenImportRequest):
     summary["쿠팡품목수"] = int(sum(1 for x in top_items if x.get("is_coupang") == 1))
     summary["도매몰품목수"] = int(sum(1 for x in top_items if x.get("is_coupang") == 2))
     summary["문구완구품목수"] = int(sum(1 for x in top_items if x.get("is_coupang") == 3))
+
+    # 인기상품 집계용 이력 기록 (전 가맹점 합산 TOP30 계산에 사용)
+    for item in top_items:
+        qty = int(item.get("판매수량", 0) or 0)
+        if qty <= 0:
+            continue
+        barcode = str(item.get("바코드번호", "") or "").strip()
+        name = str(item.get("메뉴명", "") or "")
+        if item.get("is_coupang") == 0:
+            popularity.log_event(req.login_id, "icecream", barcode or name, name, qty)
+        elif item.get("is_coupang") == 1:
+            popularity.log_event(req.login_id, "coupang", barcode or name, name, qty)
 
     # 7) 엑셀 생성
     export_path = None

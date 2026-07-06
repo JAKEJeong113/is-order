@@ -100,10 +100,31 @@
     .offer-row.cheapest .offer-name { }
     .offer-price { font-weight: 800; font-size: 15px; text-align: right; }
     section-title { display: block; font-size: 15px; margin: 20px 0 10px; font-weight: 700; }
+
+    .store-row { display: flex; gap: 8px; margin-bottom: 10px; }
+    .store-row input {
+      flex: 1; padding: 8px 10px; border: 1px solid var(--line);
+      border-radius: 8px; font-size: 13px;
+    }
+    .offer-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .qty-input {
+      width: 48px; padding: 6px; border: 1px solid var(--line);
+      border-radius: 6px; text-align: center; font-size: 13px;
+    }
+    .cart-btn {
+      padding: 6px 12px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 700; cursor: pointer; background: var(--text); color: white;
+    }
+    .offer-row.cheapest .cart-btn { background: white; color: var(--mint-text); }
+    .cart-btn:disabled { opacity: 0.6; cursor: default; }
+    .cart-status { font-size: 11px; margin-top: 4px; }
   </style>
 </head>
 <body>
   <h1>도매처 가격비교</h1>
+  <div class="store-row">
+    <input id="storeId" type="text" placeholder="지점명을 입력하세요 (인기상품 집계에 사용됩니다)" />
+  </div>
   <div class="search-row">
     <input id="keyword" type="text" placeholder="상품명을 검색하세요 (예: 젤리)" />
     <button id="searchBtn">비교</button>
@@ -114,6 +135,12 @@
     const input = document.getElementById("keyword");
     const btn = document.getElementById("searchBtn");
     const resultsEl = document.getElementById("results");
+    const storeInput = document.getElementById("storeId");
+
+    storeInput.value = localStorage.getItem("compare_store_id") || "";
+    storeInput.addEventListener("change", () => {
+      localStorage.setItem("compare_store_id", storeInput.value.trim());
+    });
 
     const VENDOR_COLORS = {
       yamimall: "#f97316",
@@ -121,6 +148,41 @@
       "3bong": "#8b5cf6",
       samwon: "#ec4899",
     };
+
+    const CART_SUPPORTED_VENDORS = ["yamimall", "ccdome", "3bong"];
+
+    async function addToCart(vendorId, productUrl, itemName, itemKey, btnEl) {
+      const storeId = storeInput.value.trim();
+      if (!storeId) {
+        alert("지점명을 먼저 입력해주세요.");
+        storeInput.focus();
+        return;
+      }
+
+      const row = btnEl.closest(".offer-row");
+      const qty = parseInt(row.querySelector(".qty-input").value, 10) || 1;
+      const statusEl = row.querySelector(".cart-status");
+
+      btnEl.disabled = true;
+      statusEl.textContent = "담는 중...";
+
+      try {
+        const res = await fetch("/api/cart-add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            vendor_id: vendorId, product_url: productUrl, qty,
+            store_id: storeId, item_name: itemName, item_key: itemKey,
+          }),
+        });
+        const data = await res.json();
+        statusEl.textContent = data.ok ? "담기 완료" : `실패: ${data.reason || ""}`;
+      } catch (e) {
+        statusEl.textContent = "담기 중 오류 발생";
+      } finally {
+        btnEl.disabled = false;
+      }
+    }
 
     async function runCompare() {
       const keyword = input.value.trim();
@@ -160,22 +222,33 @@
       const confidencePct = Math.round((o.match_score ?? 0) * 100);
       const rowClass = o.is_cheapest ? "offer-row cheapest" : "offer-row";
       const dotColor = VENDOR_COLORS[o.vendor_id] || "#94a3b8";
+      const nameText = (o.name || "").trim();
+
+      const nameHtml = o.product_url
+        ? `<a class="product-link" href="${o.product_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${nameText}</a>`
+        : nameText;
+
+      const cartHtml = CART_SUPPORTED_VENDORS.includes(o.vendor_id) && o.product_url ? `
+        <div class="offer-actions" onclick="event.stopPropagation()">
+          <input type="number" class="qty-input" value="1" min="1" max="99">
+          <button class="cart-btn" onclick="addToCart('${o.vendor_id}', '${o.product_url}', '${nameText.replace(/'/g, "\\'")}', '${o.goods_no || o.product_url}', this)">담기</button>
+          <span class="cart-status"></span>
+        </div>
+      ` : "";
 
       const inner = `
-        <div>
+        <div style="flex:1;">
           <span class="vendor-tag" style="background:${dotColor};"></span>
           <span class="offer-vendor">${o.vendor_name}</span>
           ${o.is_cheapest ? '<span class="badge">최저가</span>' : ""}
-          <div class="offer-name">${(o.name || "").trim()}</div>
+          <div class="offer-name">${nameHtml}</div>
           <div class="offer-name">${shipText} · 일치도 ${confidencePct}%</div>
+          ${cartHtml}
         </div>
         <div class="offer-price">${priceText}</div>
       `;
 
-      if (o.product_url) {
-        return `<a class="product-link" href="${o.product_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()"><div class="${rowClass}">${inner}</div></a>`;
-      }
-      return `<div class="${rowClass}">${inner}</div>`;
+      return `<div class="${rowClass}" onclick="event.stopPropagation()">${inner}</div>`;
     }
 
     function renderGroupCard(g, idx) {
