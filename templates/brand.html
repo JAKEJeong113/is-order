@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>i'S CREAM | 브랜드소개</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+
+<style>
+:root{
+  --mint:#2fc5b3;
+  --mint-dark:#08796f;
+  --mint-light:#e8fbf8;
+  --dark:#111827;
+  --muted:#64748b;
+  --line:#e6f0ef;
+  --shadow:0 18px 45px rgba(15,118,110,.12);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:'Pretendard',sans-serif;
+  color:var(--dark);
+  background:#fff;
+}
+a{text-decoration:none;color:inherit}
+.container{width:min(1120px,calc(100% - 40px));margin:0 auto}
+
+.advantage-container{
+  width:min(1500px,calc(100% - 80px));
+  margin:0 auto;
+}
+
+.navbar{
+  position:sticky;
+  top:0;
+  z-index:50;
+  background:rgba(255,255,255,.94);
+  backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--line);
+}
+.nav-inner{
+  height:86px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:28px;
+}
+.logo img{height:72px;width:auto;display:block}
+.nav-menu{
+  display:flex;
+  align-items:center;
+  gap:34px;
+  font-size:15px;
+  font-weight:700;
+  white-space:nowrap;
+}
+.nav-menu a:hover{color:var(--mint-dark)}
+.nav-cta{
+  padding:13px 20px;
+  border-radius:12px;
+  color:white!important;
+  background:linear-gradient(135deg,var(--mint),#1bb3a3);
+  box-shadow:0 10px 24px rgba(47,197,179,.25);
+}
+.nav-dropdown{position:relative}
+.dropdown-menu{
+  position:absolute;
+  top:100%;
+  left:50%;
+  transform:translateX(-50%);
+  min-width:170px;
+  background:white;
+  border:1px solid var(--line);
+  border-radius:14px;
+  box-shadow:0 12px 28px rgba(15,23,42,.12);
+  padding:12px;
+  display:none;
+}
+.nav-dropdown:hover .dropdown-menu{display:block}
+.dropdown-menu a{
+  display:block;
+  padding:10px 14px;
+  font-size:14px;
+  border-radius:10px;
+}
+.dropdown-menu a:hover{background:var(--mint-light)}
+
+section{padding:80px 0}
+.section-head{text-align:center;margin-bottom:54px}
+.kicker{color:var(--mint-dark);font-weight:900;margin-bottom:10px}
+.section-title{font-size:42px;margin:0 0 14px;line-height:1.25}
+.section-desc{color:var(--muted);line-height:1.8}
+
+.intro-block{
+  max-width:1200px;
+  margin:0 auto 46px;
+  text-align:center;
+}
+.intro-label{
+  color:var(--mint-dark);
+  font-weight:900;
+  font-size:40px;
+  margin-bottom:18px;
+}
+.intro-block h2{
+  margin:0 0 24px;
+  font-size:42px;
+  line-height:1.35;
+  letter-spacing:-1.2px;
+}
+.intro-block p{
+  margin:0 auto;
+  color:#475569;
+  font-size:22px;
+  line-height:1.9;
+}
+
+.intro-block h2 span{
+  color:var(--mint-dark);
+  position:relative;
+}
+
+.intro-block h2 span::after{
+  content:"";
+  position:absolute;
+  left:0;
+  bottom:6px;
+  width:100%;
+  height:14px;
+  background:rgba(47,197,179,.18);
+  z-index:-1;
+  border-radius:8px;
+}
+
+.benefit-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:22px;
+}
+.benefit-card{
+  background:white;
+  border:1px solid var(--line);
+  border-radius:26px;
+  padding:34px 28px;
+  text-align:center;
+  box-shadow:0 14px 34px rgba(15,118,110,.08);
+}
+.benefit-card strong{
+  display:block;
+  font-size:42px;
+  color:var(--mint);
+  margin-bottom:14px;
+}
+.benefit-card b{
+  display:block;
+  font-size:21px;
+  margin-bottom:12px;
+}
+.benefit-card p{
+  color:#64748b;
+  font-size:19px;
+  line-height:1.7;
+  margin:0;
+}
+
+.advantage{
+  background:#f8fffd;
+}
+.advantage-grid{
+  display:grid;
+  grid-template-columns:1.45fr 1.25fr;
+  gap:60px;
+  align-items:center;
+
+}
+.advantage-images{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:18px;
+}
+.advantage-images img{
+  width:100%;
+  height:450px;
+  object-fit:cover;
+  border-radius:28px;
+  box-shadow:0 20px 45px rgba(15,23,42,.10);
+}
+.advantage-content .label{
+  color:var(--mint-dark);
+  font-weight:900;
+  margin-bottom:12px;
+  font-size:40px;
+}
+.advantage-content h2{
+  font-size:40px;
+  line-height:1.25;
+  margin:0 0 22px;
+  letter-spacing:-1px;
+}
+.advantage-content h2 span{
+  color:var(--mint-dark);
+  position:relative;
+  z-index:1;
+}
+
+.advantage-content h2 span::after{
+  content:"";
+  position:absolute;
+  left:0;
+  bottom:8px;
+  width:100%;
+  height:14px;
+  background:rgba(47,197,179,.18);
+  border-radius:8px;
+  z-index:-1;
+}
+
+
+.advantage-content p{
+  color:#475569;
+  font-size:20px;
+  line-height:1.9;
+  margin:0 0 14px;
+}
+.advantage-points{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:14px;
+  margin-top:26px;
+}
+.point-card{
+  background:white;
+  border:1px solid var(--line);
+  border-radius:18px;
+  padding:20px;
+  text-align:center;
+}
+.point-card strong{
+  display:block;
+  color:var(--mint-dark);
+  font-size:18px;
+  margin-bottom:6px;
+}
+.point-card span{
+  font-size:13px;
+  color:#64748b;
+}
+
+
+.display-gallery{
+  margin-top:70px;
+}
+
+.gallery-head{
+  text-align:center;
+  margin-bottom:30px;
+  font-size:40px;
+}
+
+.gallery-head .label{
+  color:var(--mint-dark);
+  font-weight:900;
+  
+  margin-bottom:8px;
+}
+
+.gallery-head h3{
+  margin:0 0 10px;
+  font-size:40px;
+}
+
+.gallery-head p{
+  margin:0;
+  color:#64748b;
+  font-size:22px;
+}
+
+.gallery-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:18px;
+}
+
+.gallery-grid img{
+  width:100%;
+  aspect-ratio:4/3;
+
+  object-fit:cover;
+  border-radius:20px;
+  box-shadow:0 12px 28px rgba(15,23,42,.10);
+}
+
+.layout-section{
+  margin-top:90px;
+  margin-bottom:90px;
+}
+
+.layout-content{
+  display:grid;
+  grid-template-columns:1fr 1.3fr;
+  gap:60px;
+  align-items:center;
+  max-width:1400px;
+  margin:0 auto;
+}
+
+.layout-text .label{
+  color:var(--mint-dark);
+  font-weight:900;
+  margin-bottom:10px;
+  font-size:40px;
+}
+
+.layout-text h2{
+  font-size:42px;
+  line-height:1.3;
+  margin:0 0 24px;
+}
+
+.layout-text p{
+  color:#475569;
+  line-height:1.9;
+  font-size:20px;
+  margin-bottom:16px;
+}
+
+.layout-images{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:18px;
+}
+
+.layout-images img{
+  width:100%;
+  height:380px;
+  object-fit:cover;
+  border-radius:24px;
+  box-shadow:0 15px 35px rgba(15,23,42,.10);
+}
+
+.layout-text h2 span{
+    color:var(--mint-dark);
+    position:relative;
+    z-index:1;
+}
+
+.layout-text h2 span::after{
+    content:"";
+    position:absolute;
+    left:0;
+    bottom:8px;
+    width:100%;
+    height:14px;
+    background:rgba(47,197,179,.18);
+    border-radius:8px;
+    z-index:-1;
+}
+
+@media(max-width:900px){
+  .nav-inner{height:auto;padding:12px 0;align-items:flex-start;flex-direction:column}
+  .logo img{height:58px}
+  .nav-menu{width:100%;overflow-x:auto;gap:18px;padding-bottom:8px}
+  .benefit-grid,
+  .advantage-grid,
+  .advantage-points{
+    grid-template-columns:1fr;
+  }
+  .advantage-images{
+    grid-template-columns:1fr;
+  }
+  .section-title,
+  .intro-block h2,
+  .advantage-content h2{
+    font-size:32px;
+  }
+  .layout-content,
+  .layout-images,
+  .gallery-grid{
+    grid-template-columns:1fr;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<header class="navbar">
+  <div class="container nav-inner">
+    <a class="logo" href="./index.html">
+      <img src="./images/logo-header.png" alt="i'S CREAM 로고">
+    </a>
+
+    <nav class="nav-menu">
+      <div class="nav-dropdown">
+        <a href="./brand.html">브랜드소개 ▾</a>
+        <div class="dropdown-menu">
+          <a href="./brand.html">브랜드소개</a>
+          <a href="./logo.html">로고</a>
+        </div>
+      </div>
+
+      <div class="nav-dropdown">
+        <a href="./index.html#startup-cost">창업안내 ▾</a>
+        <div class="dropdown-menu">
+          <a href="./index.html#startup-cost">창업 비용</a>
+          <a href="./index.html#process">창업 절차</a>
+          <a href="./index.html#contact">창업 문의</a>
+        </div>
+      </div>
+
+      <a href="./index.html#system">i'S ORDER</a>
+      <a href="./index.html#tools">영업 꿀템 추천</a>
+      <a href="./index.html#contact">가맹문의</a>
+      <a class="nav-cta" href="https://is-order.onrender.com" target="_blank" rel="noopener">발주시스템 바로가기 ↗</a>
+    </nav>
+  </div>
+</header>
+
+<section>
+  <div class="container">
+    <div class="intro-block">
+      <div class="intro-label">Introduction</div>
+
+      <h2>
+        점주님께 <span>더 쉬운 운영</span>과<br>
+        <span>안정적인 매장 환경</span>을 제공합니다.
+      </h2>
+
+      <p>
+        i'S CREAM은 무인 아이스크림 매장을 운영하는 점주의 부담을 줄이고,<br>
+        아이들에게는 즐거운 간식 공간을 제공하기 위해 시작되었습니다.
+      </p>
+    </div>
+
+    <div class="benefit-grid">
+      <div class="benefit-card">
+        <strong>無</strong>
+        <b>가맹비 부담 완화</b>
+        <p>초기 창업 부담을 줄이고 <br>시작하기 쉬운 구조를 지향합니다.</p>
+      </div>
+
+      <div class="benefit-card">
+        <strong>24H</strong>
+        <b>무인 운영</b>
+        <p>인건비 부담을 줄이고 효율적인 <br>매장 운영이 가능합니다.</p>
+      </div>
+
+      <div class="benefit-card">
+        <strong>ORDER</strong>
+        <b>발주 시스템</b>
+        <p>판매 데이터를 기반으로 <br>더 쉽게 발주할 수 있도록 돕습니다.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="advantage">
+  <div class="advantage-container">
+    <div class="advantage-grid">
+
+      <div class="advantage-images">
+        <img src="./images/store-front1.JPG" alt="i'S CREAM 매장 외관 사진1">
+        <img src="./images/store-front2.JPG" alt="i'S CREAM 매장 외관 사진2">
+      </div>
+
+      <div class="advantage-content">
+        <div class="label">OUR ADVANTAGE</div>
+
+        <h2>
+          문구까지 함께,<br>
+          <span>더 높은 수익 구조</span>를 만듭니다.
+        </h2>
+
+        <p>
+          i'S CREAM은 단순한 무인 아이스크림 매장이 아닙니다.
+        </p>
+
+        <p>
+          i'S CREAM은 상권 특성에 따라 문구돌이 무인 문구 브랜드 또는
+          <br>천원빵 판매를 함께 구성할 수 있는 복합 무인 매장 모델을 제공합니다.
+        </p>
+
+        <p>
+            학교·학원가 상권에서는 문구류를, 유동 인구가 많은 상권에서는
+            <br>천원빵과 간식류를 함께 판매하여 추가 구매를 유도할 수 있습니다.
+        </p>
+
+        <p>
+            아이스크림, 과자, 문구, 베이커리, 간식의 교차 구매 효과를 통해
+            <br>점주의 수익성을 극대화하는 것을 목표로 합니다.
+        </p>
+
+        <div class="advantage-points">
+          <div class="point-card">
+            <strong>2개 브랜드</strong>
+            <span>i'S CREAM + 문구돌이</span>
+          </div>
+
+          <div class="point-card">
+            <strong>복합 매장</strong>
+            <span>아이스크림 + 문구 + 천원빵</span>
+          </div>
+
+          <div class="point-card">
+            <strong>추가 매출</strong>
+            <span>교차 구매 효과</span>
+          </div>
+
+          
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+<div class="layout-section">
+    <div class="advantage-container">
+        <div class="layout-content">
+
+            <div class="layout-text">
+
+                <div class="label">LAYOUT SOLUTION</div>
+
+                <h2>
+                    좁은 매장도,<br>
+                    <span>효율적으로 운영</span>할 수 있습니다.
+                </h2>
+
+                <p>
+                    i'S CREAM은 다양한 매장 규모와 상권에 맞춘
+                    <br>레이아웃 구성을 제공합니다.
+                </p>
+
+                <p>
+                    아이스크림 냉동고, 문구 진열대, 과자 및 간식 코너를
+                    효율적으로 배치하여 <br>작은 평수에서도 높은 상품 구성력을
+                    확보할 수 있습니다.
+                </p>
+
+                <p>
+                    8평 이하 소형 매장부터 복합 매장까지
+                    다양한 운영 사례를 바탕으로 <br>최적의 매장 구성을 제안합니다.
+                </p>
+
+                </div>
+
+            <div class="layout-images">
+                <img src="./images/layout-01.jpg" alt="매장 레이아웃 예시 1">
+                <img src="./images/layout-02.jpg" alt="매장 레이아웃 예시 2">
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+  <div class="display-gallery">
+    <div class="gallery-head">
+        <div class="label">STORE DISPLAY</div>
+        <h3>매장 진열 사진</h3>
+        <p>아이스크림, 과자, 문구류를 함께 구성한 복합 무인 매장 진열 예시입니다.</p>
+    </div>
+
+    <div class="gallery-grid">
+        <img src="./images/display-01.jpg" alt="매장 진열 사진 1">
+        <img src="./images/display-02.jpg" alt="매장 진열 사진 2">
+        <img src="./images/display-03.jpg" alt="매장 진열 사진 3">
+        <img src="./images/display-04.jpg" alt="매장 진열 사진 4">
+        <img src="./images/display-05.jpg" alt="매장 진열 사진 5">
+        <img src="./images/display-06.jpg" alt="매장 진열 사진 6">
+  </div>
+</div>
+
+
+
+</section>
+
+</body>
+</html>

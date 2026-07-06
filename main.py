@@ -24,6 +24,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Req
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
@@ -63,6 +64,7 @@ CP_PATH = "/v2/providers/affiliate_open_api/apis/openapi/deeplink"
 
 app = FastAPI(title="OrderQueen Sales Importer", version="0.6.0")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+app.mount("/images", StaticFiles(directory=str(BASE_DIR / "templates" / "images")), name="images")
 
 admin_security = HTTPBasic()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
@@ -579,8 +581,26 @@ def load_coupang_catalog_for_search() -> pd.DataFrame:
     return df
 
 @app.get("/", response_class=HTMLResponse)
+@app.get("/index.html", response_class=HTMLResponse)
+def landing_page(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/brand.html", response_class=HTMLResponse)
+def brand_page(request: Request):
+    return templates.TemplateResponse("brand.html", {"request": request})
+
+
+@app.get("/logo.html", response_class=HTMLResponse)
+def logo_page(request: Request):
+    return templates.TemplateResponse("logo.html", {"request": request})
+
+
+@app.get("/order", response_class=HTMLResponse)
 def order_page(request: Request):
-    return templates.TemplateResponse("order.html", {"request": request})
+    if not get_current_web_user(request):
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("order.html", {"request": request, "active_page": "order"})
 
 @app.get("/api/products/search")
 def search_products(q: str = Query(..., min_length=1)):

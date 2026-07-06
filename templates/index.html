@@ -69,6 +69,71 @@
       box-shadow:0 10px 24px rgba(47,197,179,.25);
     }
 
+    .nav-dropdown{
+      position:relative;
+      display:flex;
+      align-items:center;
+    }
+
+    .dropdown-menu{
+      position:absolute;
+      top:100%;
+      left:50%;
+      transform:translateX(-50%);
+      min-width:170px;
+      background:white;
+      border:1px solid var(--line);
+      border-radius:14px;
+      box-shadow:0 12px 28px rgba(15,23,42,.12);
+      padding:12px;
+      display:none;
+      z-index:100;
+    }
+
+    .nav-dropdown:hover .dropdown-menu{
+      display:block;
+    }
+
+    .dropdown-menu a{
+      display:block;
+      padding:10px 14px;
+      font-size:14px;
+      border-radius:10px;
+      white-space:nowrap;
+    }
+
+    .dropdown-menu a:hover{
+      background:#e8fbf8;
+      color:var(--mint-dark);
+    }
+
+    .cost-grid{
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:18px;
+    }
+
+    .cost-card{
+      background:white;
+      border:1px solid var(--line);
+      border-radius:20px;
+      padding:26px 18px;
+      text-align:center;
+      box-shadow:0 8px 18px rgba(15,23,42,.04);
+    }
+
+    .cost-card b{
+      display:block;
+      margin-bottom:10px;
+      font-size:16px;
+    }
+
+    .cost-card strong{
+      display:block;
+      color:var(--mint-dark);
+      font-size:20px;
+    }
+
     .kakao-box{
       display:flex;
       align-items:center;
@@ -373,6 +438,9 @@
       .ice-visual{min-height:300px}
       .process{grid-template-columns:1fr}
       .step:not(:last-child)::after{display:none}
+      .cost-grid{
+        grid-template-columns:1fr;
+      }
       
     }
 
@@ -426,6 +494,66 @@
         object-fit:contain;
         display:block;
       }
+
+      .startup-cost-table{
+        margin-top:40px;
+        overflow-x:auto;
+      }
+
+      .startup-cost-table table{
+        width:100%;
+        border-collapse:collapse;
+        background:white;
+        border-radius:20px;
+        overflow:hidden;
+        box-shadow:0 10px 28px rgba(15,118,110,.08);
+      }
+
+      .startup-cost-table th{
+        background:#e8fbf8;
+        color:#08796f;
+        padding:18px;
+        font-size:16px;
+      }
+
+      .startup-cost-table td{
+        padding:18px;
+        border-bottom:1px solid #eef2f7;
+      }
+
+      .startup-cost-table td:first-child{
+        font-weight:700;
+        width:160px;
+      }
+
+      .startup-cost-table td:last-child{
+        font-weight:700;
+        text-align:center;
+        white-space:nowrap;
+      }
+
+      .free{
+        color:#ef4444;
+      }
+
+      .total-row td{
+        background:#e8fbf8;
+        color:#08796f;
+        font-weight:900;
+        font-size:22px;
+      }
+
+      .total-row td:last-child{
+        color:rgb(32, 32, 32);
+        font-size:38px;
+      }
+
+      .cost-note-row td{
+        margin-top:14px;
+        text-align:center;
+        font-size:13px;
+        color:#64748b;
+      }
     
     @media(max-width:560px){
       .container{width:min(100% - 28px,1120px)}
@@ -447,12 +575,25 @@
       </a>
 
       <nav class="nav-menu" aria-label="상단 메뉴">
-        <a href="#brand">브랜드소개</a>
-        <a href="#process">창업절차</a>
+        <div class="nav-dropdown">
+          <a href="./brand.html">브랜드소개 ▾</a>
+          <div class="dropdown-menu">
+            <a href="./brand.html">브랜드소개</a>
+            <a href="./logo.html">로고</a>
+          </div>
+        </div>
+        <div class="nav-dropdown">
+          <a href="#startup-guide">창업안내 ▾</a>
+          <div class="dropdown-menu">
+            <a href="#startup-cost">창업 비용</a>
+            <a href="#process">창업 절차</a>
+            <a href="#contact">창업 문의</a>
+          </div>
+        </div>
         <a href="#system">i'S ORDER</a>
         <a href="#tools">영업 꿀템 추천</a>
         <a href="#contact">가맹문의</a>
-        <a class="nav-cta" href="https://is-order.onrender.com" target="_blank" rel="noopener noreferrer">발주시스템 바로가기 ↗</a>
+        <a class="nav-cta" href="/order">발주시스템 바로가기 ↗</a>
       </nav>
     </div>
   </header>
@@ -477,6 +618,136 @@
               <img src="./images/logo-main.png" alt="i's cream mascot" class="hero-main-logo">
             </div>
           </div>
+        </div>
+      </div>
+    </section>
+
+   
+
+    <section id="startup-cost" style="background:#fff;">
+      <div class="container">
+        <div class="section-head">
+          <div class="kicker">창업안내</div>
+          <h2 class="section-title">창업 비용</h2>
+          <p class="section-desc">i'S CREAM 창업에 필요한 주요 비용을 한눈에 확인하세요.</p>
+        </div>
+
+        <div class="startup-cost-table">
+
+          <table>
+            <thead>
+              <tr>
+                <th>항목</th>
+                <th>내용</th>
+                <th>비용(VAT 별도)</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr>
+                <td>가맹비</td>
+                <td>상표 사용권 부여, 상권조사 및 영업권 보장</td>
+                <td class="free">면제</td>
+              </tr>
+
+              <tr>
+                <td>교육비</td>
+                <td>점포 운영 교육 및 현장 실습 교육</td>
+                <td class="free">면제</td>
+              </tr>
+
+              <tr>
+                <td>로열티</td>
+                <td>가맹 관련 로열티</td>
+                <td class="free">면제</td>
+              </tr>
+
+              <tr>
+                <td>냉동고</td>
+                <td>매장 평수에 맞는 냉동고 무상 렌탈</td>
+                <td class="free">무상 렌탈</td>
+              </tr>
+
+              <tr>
+                <td>전기 공사</td>
+                <td>신규 배선 및 차단기 분리 작업, 조명공사</td>
+                <td>1,200,000원~</td>
+              </tr>
+
+              <tr>
+                <td>간판 · 시트</td>
+                <td>메인 간판 + 전면 유리 시트 + 냉장고 시트지</td>
+                <td>1,500,000원~</td>
+              </tr>
+
+              <tr>
+                <td>진열대</td>
+                <td>선반 5단, 후크, 배송 및 설치비 포함</td>
+                <td>2,500,000원~</td>
+              </tr>
+
+              <tr>
+                <td>계산대</td>
+                <td>3단 진열대, 수납장, 배송 및 설치비 포함</td>
+                <td>450,000원</td>
+              </tr>
+
+              <tr>
+                <td>키오스크</td>
+                <td>현금 겸용</td>
+                <td>3,200,000원</td>
+              </tr>
+
+              <tr>
+                <td>매장 보안</td>
+                <td>CCTV 8채널</td>
+                <td>1,500,000원</td>
+              </tr>
+
+              <tr>
+                <td>초도 진열</td>
+                <td>초도 세팅 및 매장 진열(지방권 추가 10만원)</td>
+                <td>300,000원</td>
+              </tr>
+
+              <tr>
+                <td>기타 비용</td>
+                <td>무인 할인점 오픈에 필요한 기타 물품</td>
+                <td>직접 구매 안내</td>
+              </tr>
+
+              
+              <tr>
+                <td>추가 인테리어</td>
+                <td>매장 상황에 따라 변동(철거, 가벽 등)</td>
+                <td>별도</td>
+              </tr>
+
+              <tr>
+                <td>물품비용</td>
+                <td>초도 물품(아이스크림, 과자, 문구완구류 등)</td>
+                <td>별도</td>
+              </tr>
+
+
+              <tr class="total-row">
+                <td colspan="2">
+                  예상 창업 비용
+                </td>
+                <td>
+                  1,065만원~
+                </td>
+              </tr>
+
+              <tr class="cost-note-row">
+                <td colspan="3">
+                  ※ 상기 비용은 10평 기준 예상 창업 비용으로, 점포 상황 및 선택 옵션에 따라 일부 차이가 발생할 수 있습니다.
+                </td>
+              </tr>
+
+            </tbody>
+          </table>
+
         </div>
       </div>
     </section>
@@ -532,7 +803,7 @@
               <li>발주 이력 관리</li>
             </ul>
             <div class="hero-actions">
-              <a class="btn btn-primary" href="https://is-order.onrender.com" target="_blank" rel="noopener">i'S ORDER 바로가기 〉</a>
+              <a class="btn btn-primary" href="/order">i'S ORDER 바로가기 〉</a>
             </div>
           </div>
           <div class="mock-device" aria-label="발주시스템 화면 예시"></div>
