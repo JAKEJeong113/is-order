@@ -8,6 +8,15 @@ import vendors
 CANDIDATES_PER_VENDOR = 8
 
 
+def _unit_price(offer: dict) -> float:
+    """1개(1타/1개입 등)당 가격. unit_qty를 모르면 비교 기준으로 표시가(1박스/1봉 가격)를 그대로 쓴다."""
+    price = offer.get("price")
+    if not price:
+        return float("inf")
+    unit_qty = offer.get("unit_qty")
+    return price / unit_qty if unit_qty and unit_qty > 0 else float(price)
+
+
 def _fetch_one(vendor_id: str, keyword: str) -> dict:
     meta = vendors.VENDORS[vendor_id]
     base = {
@@ -54,7 +63,7 @@ def compare(keyword: str) -> dict:
         for vid, cand in g["members"].items():
             offers.append({"vendor_id": vid, **_vendor_meta(vid, results_by_id), **cand})
 
-        priced = sorted((o for o in offers if o.get("price")), key=lambda o: o["price"])
+        priced = sorted((o for o in offers if o.get("price")), key=_unit_price)
         unpriced = [o for o in offers if not o.get("price")]
         for i, o in enumerate(priced):
             o["is_cheapest"] = (i == 0)

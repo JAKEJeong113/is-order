@@ -1,6 +1,7 @@
 # telegram_bot.py
 """텔레그램 발주봇: 발주리스트 수신 -> 캐시로 즉시 가격비교 -> 확인 답장 시 실제 담기."""
 import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -89,14 +90,14 @@ def _format_comparison(matched: list[dict], not_found: list[str]) -> str:
 
 
 def _pick_best_offer(offers: list[dict], preferred_vendor: str | None) -> dict | None:
-    """CART_SUPPORTED_VENDORS 중 담을 수 있는 후보만 놓고, 최저가 동률이면 주거래처를 우선한다."""
+    """CART_SUPPORTED_VENDORS 중 담을 수 있는 후보만 놓고, 개당 최저가가 동률이면 주거래처를 우선한다."""
     candidates = [o for o in offers if o["vendor_id"] in CART_SUPPORTED_VENDORS and o.get("product_url")]
     if not candidates:
         return None
 
-    # offers는 이미 가격 오름차순 정렬되어 있음 (price_compare.compare 참고)
-    lowest_price = candidates[0].get("price")
-    tied = [o for o in candidates if o.get("price") == lowest_price]
+    # offers는 이미 개당 가격 오름차순 정렬되어 있음 (price_compare.compare 참고)
+    lowest_unit_price = price_compare._unit_price(candidates[0])
+    tied = [o for o in candidates if price_compare._unit_price(o) == lowest_unit_price]
 
     if preferred_vendor:
         for o in tied:
@@ -229,35 +230,52 @@ def _handle_disambiguation_reply(chat_id: str, state: dict, text: str) -> None:
     _ask_next_disambiguation(chat_id, state)
 
 
+ITEM_CART_ADD_TIMEOUT_SECONDS = 90
+
+
+def _add_single_item_to_cart(store_id: str, item: dict) -> dict:
+    creds = vendors.get_store_vendor_credentials(store_id, item["vendor_id"])
+    if not creds:
+        return {
+            "ok": False,
+            "reason": "계정 미등록 ('계정등록'이라고 보내서 먼저 등록해주세요)",
+        }
+
+    login_id, login_pwd = creds
+    if item["vendor_id"] == "yamimall":
+        return yamimall_bot.add_to_cart(login_id, login_pwd, item["product_url"], item["qty"])
+
+    base_url = vendors.VENDORS[item["vendor_id"]]["base_url"]
+    return godomall_bot.add_to_cart(base_url, login_id, login_pwd, item["item_key"], item["qty"])
+
+
 def _execute_cart_adds(chat_id, store_id: str, items: list[dict]) -> None:
+    """도매처마다 실제 브라우저를 띄우는 작업이라 한 상품이 응답 없이 멈추면 전체가
+    영원히 멈출 수 있다. 상품당 시간 제한을 걸어 하나가 멈춰도 나머지는 계속 진행하고,
+    무슨 일이 있어도 최종 결과 메시지는 반드시 보낸다."""
     results = []
-    for item in items:
-        creds = vendors.get_store_vendor_credentials(store_id, item["vendor_id"])
-        if not creds:
-            results.append(
-                f"✗ {item['item_name']} - {item['vendor_name']} 계정 미등록 "
-                f"('계정등록'이라고 보내서 먼저 등록해주세요)"
-            )
-            continue
+    try:
+        for item in items:
+            pool = ThreadPoolExecutor(max_workers=1)
+            try:
+                future = pool.submit(_add_single_item_to_cart, store_id, item)
+                result = future.result(timeout=ITEM_CART_ADD_TIMEOUT_SECONDS)
+            except FutureTimeoutError:
+                result = {"ok": False, "reason": f"{ITEM_CART_ADD_TIMEOUT_SECONDS}초 넘게 응답이 없어 건너뜀. 직접 확인해주세요."}
+            except Exception as e:
+                result = {"ok": False, "reason": str(e)}
+            finally:
+                pool.shutdown(wait=False)
 
-        login_id, login_pwd = creds
-        try:
-            if item["vendor_id"] == "yamimall":
-                result = yamimall_bot.add_to_cart(login_id, login_pwd, item["product_url"], item["qty"])
+            if result.get("ok"):
+                results.append(f"✓ {item['item_name']} - {item['vendor_name']} 담기 완료")
+                popularity.log_event(store_id, "wholesale", item["item_key"], item["item_name"], item["qty"])
             else:
-                base_url = vendors.VENDORS[item["vendor_id"]]["base_url"]
-                goods_no = item["item_key"]
-                result = godomall_bot.add_to_cart(base_url, login_id, login_pwd, goods_no, item["qty"])
-        except Exception as e:
-            result = {"ok": False, "reason": str(e)}
-
-        if result.get("ok"):
-            results.append(f"✓ {item['item_name']} - {item['vendor_name']} 담기 완료")
-            popularity.log_event(store_id, "wholesale", item["item_key"], item["item_name"], item["qty"])
-        else:
-            results.append(f"✗ {item['item_name']} - {item['vendor_name']} 실패: {result.get('reason', '')}")
-
-    send_message(chat_id, "담기 결과:\n\n" + "\n".join(results))
+                results.append(f"✗ {item['item_name']} - {item['vendor_name']} 실패: {result.get('reason', '')}")
+    except Exception as e:
+        results.append(f"(처리 중 예상치 못한 오류로 중단됨: {e})")
+    finally:
+        send_message(chat_id, "담기 결과:\n\n" + "\n".join(results))
 
 
 REGISTRATION_PROMPTS = {
