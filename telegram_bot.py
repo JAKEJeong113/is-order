@@ -1,6 +1,7 @@
 # telegram_bot.py
 """텔레그램 발주봇: 발주리스트 수신 -> 캐시로 즉시 가격비교 -> 확인 답장 시 실제 담기."""
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 import requests
@@ -32,6 +33,7 @@ HELP_TEXT = """사용 가능한 명령어입니다:
 상품명을 줄바꿈으로 여러 개 보내면 최저가로 자동 비교해드려요.
 비교 결과가 오면 '확인'(담기) 또는 '취소'로 답장해주세요.
 '하리보'처럼 여러 상품이 잡히면 번호로 골라달라고 먼저 물어봐요.
+여러 개를 고르려면 쉼표로 (예: 2,4), 수량은 상품명 뒤에 숫자로 (예: 하리보 골드베렌 4).
 
 [계정등록]
 도매처(야미몰/과자생각/삼봉몰) 아이디·비밀번호를 등록합니다.
@@ -74,7 +76,8 @@ def _format_comparison(matched: list[dict], not_found: list[str]) -> str:
     lines = ["아래 상품으로 최저가 담기를 준비했습니다:\n"]
     for m in matched:
         price_text = f"{m['price']:,}원" if m.get("price") else "가격 확인 필요"
-        lines.append(f"• {m['item_name']} → {m['vendor_name']} {price_text}")
+        qty_text = f" x{m['qty']}개" if m.get("qty", 1) != 1 else ""
+        lines.append(f"• {m['item_name']}{qty_text} → {m['vendor_name']} {price_text}")
 
     if not_found:
         lines.append("\n찾지 못한 상품 (직접 확인 필요):")
@@ -107,7 +110,7 @@ def _pick_best_offer(offers: list[dict], preferred_vendor: str | None) -> dict |
     return candidates[0]
 
 
-def _offer_to_item(item_name: str, best_offer: dict) -> dict:
+def _offer_to_item(item_name: str, best_offer: dict, qty: int = 1) -> dict:
     return {
         "item_name": item_name,
         "vendor_id": best_offer["vendor_id"],
@@ -115,7 +118,7 @@ def _offer_to_item(item_name: str, best_offer: dict) -> dict:
         "product_url": best_offer["product_url"],
         "item_key": best_offer.get("goods_no") or best_offer["product_url"],
         "price": best_offer.get("price"),
-        "qty": 1,
+        "qty": qty,
     }
 
 
@@ -124,24 +127,38 @@ def _store_prefs(chat_id: str) -> tuple[set, str | None]:
     return set(reg.get("disabled_vendors") or []), reg.get("preferred_vendor")
 
 
+# 상품명 뒤에 공백 + 순수 숫자(1~99)만 오면 수량으로 해석한다. "80g", "500ml"처럼
+# 숫자에 단위가 바로 붙어 있으면(공백으로 안 떨어져 있으면) 매칭되지 않아 용량과 헷갈리지 않는다.
+QTY_SUFFIX_RE = re.compile(r"^(.*\S)\s+(\d{1,2})$")
+
+
+def _parse_item_line(line: str) -> tuple[str, int]:
+    """'하리보 골드베렌 4' -> ('하리보 골드베렌', 4). 수량 표기가 없으면 1개로 취급."""
+    m = QTY_SUFFIX_RE.match(line.strip())
+    if m and 1 <= int(m.group(2)) <= 99:
+        return m.group(1).strip(), int(m.group(2))
+    return line.strip(), 1
+
+
 def _classify_order_list(text: str, chat_id: str) -> dict:
     """줄바꿈으로 구분된 상품명을 분류한다.
     - matched: 후보가 하나뿐이라 바로 확정된 항목
-    - ambiguous: 서로 다른 상품이 여러 개 잡혀서 사용자가 골라야 하는 키워드
+    - ambiguous: 서로 다른 상품이 여러 개 잡혀서 사용자가 골라야 하는 항목 ({"keyword","qty"})
     - not_found: 아예 후보를 찾지 못한 키워드"""
     disabled_vendors, preferred_vendor = _store_prefs(chat_id)
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     matched, not_found, ambiguous = [], [], []
 
-    for keyword in lines:
+    for line in lines:
+        keyword, qty = _parse_item_line(line)
         groups = price_compare.compare(keyword).get("groups", [])
         if not groups:
             not_found.append(keyword)
             continue
 
         if len(groups) > 1:
-            ambiguous.append(keyword)
+            ambiguous.append({"keyword": keyword, "qty": qty})
             continue
 
         offers = [o for o in groups[0]["offers"] if o["vendor_id"] not in disabled_vendors]
@@ -150,7 +167,8 @@ def _classify_order_list(text: str, chat_id: str) -> dict:
             not_found.append(keyword)
             continue
 
-        matched.append(_offer_to_item(keyword, best_offer))
+        display_name = (best_offer.get("name") or keyword).strip()
+        matched.append(_offer_to_item(display_name, best_offer, qty))
 
     return {"matched": matched, "not_found": not_found, "ambiguous": ambiguous}
 
@@ -163,7 +181,8 @@ def _format_disambig_prompt(keyword: str, groups: list[dict]) -> str:
         lines.append(f"{i}. {g['representative_name'].strip()} ({g['best_vendor_name']} {price_text})")
     if len(groups) > len(shown):
         lines.append(f"\n(그 외 {len(groups) - len(shown)}개 더 있어요. 상품명을 더 구체적으로 적어주시면 좁혀져요.)")
-    lines.append("\n해당하는 상품이 없으면 '스킵'이라고 답장해주세요.")
+    lines.append("\n여러 개를 담으려면 쉼표로 구분해서 답장해주세요. (예: 2,4)")
+    lines.append("해당하는 상품이 없으면 '스킵'이라고 답장해주세요.")
     return "\n".join(lines)
 
 
@@ -178,7 +197,8 @@ def _ask_next_disambiguation(chat_id: str, state: dict) -> None:
         send_message(chat_id, _format_comparison(matched, not_found))
         return
 
-    keyword = state["queue"][0]
+    entry = state["queue"][0]
+    keyword = entry["keyword"]
     groups = price_compare.compare(keyword).get("groups", [])
 
     if not groups:
@@ -195,7 +215,8 @@ def _ask_next_disambiguation(chat_id: str, state: dict) -> None:
 
 def _handle_disambiguation_reply(chat_id: str, state: dict, text: str) -> None:
     stripped = text.strip()
-    keyword = state["current"]
+    entry = state["queue"][0]
+    keyword, qty = entry["keyword"], entry["qty"]
 
     if stripped.lower() in CANCEL_WORDS:
         telegram_store.set_disambig_state(chat_id, None)
@@ -211,21 +232,31 @@ def _handle_disambiguation_reply(chat_id: str, state: dict, text: str) -> None:
 
     groups = price_compare.compare(keyword).get("groups", [])
 
-    if not stripped.isdigit() or not (1 <= int(stripped) <= len(groups)):
-        send_message(chat_id, f"1~{len(groups)} 사이의 번호로 답장해주세요. (해당 상품이 없으면 '스킵')")
+    # "2" 또는 "2,4" 처럼 쉼표(또는 공백)로 구분된 여러 번호를 한 번에 선택할 수 있다.
+    raw_parts = [p for p in re.split(r"[,\s]+", stripped) if p]
+    if not raw_parts or not all(p.isdigit() for p in raw_parts):
+        send_message(chat_id, f"1~{len(groups)} 사이의 번호로 답장해주세요. 여러 개는 쉼표로 (예: 2,4) (해당 상품이 없으면 '스킵')")
+        return
+
+    indices = [int(p) - 1 for p in raw_parts]
+    if any(i < 0 or i >= len(groups) for i in indices):
+        send_message(chat_id, f"1~{len(groups)} 사이의 번호로 답장해주세요.")
         return
 
     disabled_vendors, preferred_vendor = _store_prefs(chat_id)
-    chosen_group = groups[int(stripped) - 1]
-    offers = [o for o in chosen_group["offers"] if o["vendor_id"] not in disabled_vendors]
-    best_offer = _pick_best_offer(offers, preferred_vendor)
+    added_any = False
+    for idx in dict.fromkeys(indices):  # 중복 번호 제거, 순서는 유지
+        offers = [o for o in groups[idx]["offers"] if o["vendor_id"] not in disabled_vendors]
+        best_offer = _pick_best_offer(offers, preferred_vendor)
+        if best_offer:
+            display_name = (best_offer.get("name") or keyword).strip()
+            state["resolved"].append(_offer_to_item(display_name, best_offer, qty))
+            added_any = True
 
-    state["queue"].pop(0)
-    if best_offer:
-        state["resolved"].append(_offer_to_item(keyword, best_offer))
-    else:
+    if not added_any:
         state["not_found"].append(keyword)
 
+    state["queue"].pop(0)
     state["current"] = None
     _ask_next_disambiguation(chat_id, state)
 

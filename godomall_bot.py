@@ -236,11 +236,17 @@ def add_to_cart(base_url: str, login_id: str, login_pwd: str, goods_no: str, qty
             cart_btn.click(timeout=5000)
             page.wait_for_timeout(1500)
 
-            # "상품이 장바구니에 담겼습니다" 확인 팝업 닫기 (취소 = 현재 페이지 유지)
-            close_btn = page.locator("button:has-text('취소'), button:has-text('확인')")
-            if close_btn.count() > 0:
-                close_btn.first.click(timeout=3000)
-                page.wait_for_timeout(500)
+            # "상품이 장바구니에 담겼습니다" 확인 팝업 닫기 (취소 = 현재 페이지 유지).
+            # 이 시점엔 이미 담기 자체는 끝난 뒤라, 팝업이 다른 위젯의 숨겨진 버튼과
+            # 텍스트가 겹쳐 클릭에 실패하더라도(관찰된 사례: 비밀번호 변경 팝업의
+            # 숨겨진 버튼과 매칭) 담기 성공 자체를 실패로 보고하면 안 된다.
+            try:
+                close_btn = page.locator("button:has-text('취소'), button:has-text('확인')")
+                if close_btn.count() > 0:
+                    close_btn.first.click(timeout=3000)
+                    page.wait_for_timeout(500)
+            except Exception:
+                pass
 
             return {"ok": True, "goods_no": goods_no, "qty": qty}
         except Exception as e:
