@@ -1,5 +1,6 @@
 # telegram_store.py
 """텔레그램으로 발주하는 가맹점 승인 관리 + 확인 대기중인 담기 목록 저장."""
+import json
 import os
 import sqlite3
 from datetime import datetime
@@ -33,7 +34,7 @@ def init_telegram_tables():
     new_columns = [
         "phone TEXT", "business_number TEXT", "registration_step TEXT",
         "cred_vendor TEXT", "cred_step TEXT", "cred_temp_id TEXT",
-        "preferred_vendor TEXT", "disabled_vendors TEXT",
+        "preferred_vendor TEXT", "disabled_vendors TEXT", "disambig_state TEXT",
     ]
     for col_def in new_columns:
         col_name = col_def.split()[0]
@@ -84,6 +85,28 @@ def set_preferred_vendor(chat_id: str, vendor_id: str | None) -> None:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("UPDATE telegram_stores SET preferred_vendor = ? WHERE chat_id = ?", (vendor_id, chat_id))
+    conn.commit()
+    conn.close()
+
+
+def get_disambig_state(chat_id: str) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT disambig_state FROM telegram_stores WHERE chat_id = ?", (chat_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row or not row[0]:
+        return None
+    return json.loads(row[0])
+
+
+def set_disambig_state(chat_id: str, state: dict | None) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE telegram_stores SET disambig_state = ? WHERE chat_id = ?",
+        (json.dumps(state, ensure_ascii=False) if state else None, chat_id),
+    )
     conn.commit()
     conn.close()
 
