@@ -1,9 +1,18 @@
 # catalog_crawler.py
 """활성화된 도매처의 전체상품을 크롤링해서 catalog_cache에 저장한다."""
+import threading
+
 import catalog_cache
 import godomall_bot
 import vendors
 import yamimall_bot
+
+_crawl_lock = threading.Lock()
+_is_crawling = False
+
+
+def is_crawl_running() -> bool:
+    return _is_crawling
 
 
 def crawl_vendor(vendor_id: str) -> dict:
@@ -32,5 +41,15 @@ def crawl_vendor(vendor_id: str) -> dict:
 
 
 def crawl_all_enabled() -> list[dict]:
-    enabled_ids = vendors.get_enabled_vendor_ids()
-    return [crawl_vendor(vid) for vid in enabled_ids]
+    global _is_crawling
+    if not _crawl_lock.acquire(blocking=False):
+        print("[CATALOG_CRAWLER] 이미 크롤링이 진행 중이라 이번 실행은 건너뜁니다.")
+        return []
+
+    try:
+        _is_crawling = True
+        enabled_ids = vendors.get_enabled_vendor_ids()
+        return [crawl_vendor(vid) for vid in enabled_ids]
+    finally:
+        _is_crawling = False
+        _crawl_lock.release()
