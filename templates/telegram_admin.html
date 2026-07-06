@@ -64,17 +64,21 @@
           <div class="store-head">
             <div>
               <span class="store-name">${s.store_name || s.display_name}</span>
-              <span class="badge ${s.approved ? "" : "pending"}">${s.approved ? "승인됨" : "대기중"}</span>
+              <span class="badge ${s.approved ? "" : "pending"}">${s.approved ? "승인됨" : (s.registration_step ? "입력중" : "대기중")}</span>
             </div>
           </div>
-          <div class="chat-id">chat_id: ${s.chat_id} · 요청: ${s.requested_at}</div>
+          <div class="chat-id">
+            텔레그램 이름: ${s.display_name || "-"} · chat_id: ${s.chat_id}<br>
+            연락처: ${s.phone || "-"} · 사업자번호: ${s.business_number || "-"}<br>
+            요청: ${s.requested_at}
+          </div>
           ${s.approved ? `
             <div class="approve-row">
               <button class="revoke-btn" onclick="revoke('${s.chat_id}')">승인 취소</button>
             </div>
           ` : `
             <div class="approve-row">
-              <input type="text" placeholder="지점명 입력" id="name-${s.chat_id}" value="${s.display_name || ""}">
+              <input type="text" placeholder="지점명 입력" id="name-${s.chat_id}" value="${s.store_name || s.display_name || ""}">
               <button class="approve-btn" onclick="approve('${s.chat_id}')">승인</button>
             </div>
           `}

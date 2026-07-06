@@ -27,6 +27,14 @@ def init_telegram_tables():
         approved_at TEXT
     )
     """)
+
+    # 기존에 만들어진 테이블에 새 컬럼을 안전하게 추가 (마이그레이션)
+    existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(telegram_stores)").fetchall()}
+    for col_def in ["phone TEXT", "business_number TEXT", "registration_step TEXT"]:
+        col_name = col_def.split()[0]
+        if col_name not in existing_cols:
+            cur.execute(f"ALTER TABLE telegram_stores ADD COLUMN {col_def}")
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS telegram_pending_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,17 +53,51 @@ def init_telegram_tables():
     conn.close()
 
 
-def register_request(chat_id: str, display_name: str) -> None:
+def get_registration(chat_id: str) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT chat_id, store_name, display_name, phone, business_number, registration_step, approved
+    FROM telegram_stores WHERE chat_id = ?
+    """, (chat_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "chat_id": row[0], "store_name": row[1], "display_name": row[2],
+        "phone": row[3], "business_number": row[4],
+        "registration_step": row[5], "approved": bool(row[6]),
+    }
+
+
+def start_registration(chat_id: str, display_name: str) -> None:
     now = datetime.now().isoformat(timespec="seconds")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    INSERT INTO telegram_stores (chat_id, display_name, approved, requested_at)
-    VALUES (?, ?, 0, ?)
+    INSERT INTO telegram_stores (chat_id, display_name, registration_step, approved, requested_at)
+    VALUES (?, ?, 'store_name', 0, ?)
     ON CONFLICT(chat_id) DO NOTHING
     """, (chat_id, display_name, now))
     conn.commit()
     conn.close()
+
+
+def save_registration_field(chat_id: str, field: str, value: str, next_step: str | None) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE telegram_stores SET {field} = ?, registration_step = ? WHERE chat_id = ?",
+        (value, next_step, chat_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def register_request(chat_id: str, display_name: str) -> None:
+    """하위호환용: 등록 절차 없이 바로 대기 상태로만 남기고 싶을 때."""
+    start_registration(chat_id, display_name)
 
 
 def is_approved(chat_id: str) -> tuple[bool, str | None]:
@@ -73,13 +115,17 @@ def list_stores() -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT chat_id, store_name, display_name, approved, requested_at
+    SELECT chat_id, store_name, display_name, phone, business_number, registration_step, approved, requested_at
     FROM telegram_stores ORDER BY requested_at DESC
     """)
     rows = cur.fetchall()
     conn.close()
     return [
-        {"chat_id": r[0], "store_name": r[1], "display_name": r[2], "approved": bool(r[3]), "requested_at": r[4]}
+        {
+            "chat_id": r[0], "store_name": r[1], "display_name": r[2],
+            "phone": r[3], "business_number": r[4], "registration_step": r[5],
+            "approved": bool(r[6]), "requested_at": r[7],
+        }
         for r in rows
     ]
 

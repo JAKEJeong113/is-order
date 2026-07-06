@@ -112,6 +112,28 @@ def _execute_cart_adds(chat_id, store_name: str, items: list[dict]) -> None:
     send_message(chat_id, "담기 결과:\n\n" + "\n".join(results))
 
 
+REGISTRATION_PROMPTS = {
+    "store_name": ("store_name", "phone", "연락처(전화번호)를 입력해주세요."),
+    "phone": ("phone", "business_number", "사업자등록번호를 입력해주세요."),
+    "business_number": ("business_number", None, None),
+}
+
+
+def _handle_registration(chat_id: str, reg: dict, text: str) -> None:
+    step = reg["registration_step"]
+    field, next_step, next_prompt = REGISTRATION_PROMPTS[step]
+    telegram_store.save_registration_field(chat_id, field, text, next_step)
+
+    if next_step:
+        send_message(chat_id, next_prompt)
+    else:
+        send_message(
+            chat_id,
+            "등록 신청이 완료되었습니다. 대표님 승인을 기다려주세요.\n"
+            f"(내 chat_id: {chat_id})",
+        )
+
+
 def handle_update(update: dict) -> None:
     message = update.get("message") or {}
     chat = message.get("chat") or {}
@@ -121,18 +143,26 @@ def handle_update(update: dict) -> None:
     if not chat_id or not text:
         return
 
-    approved, store_name = telegram_store.is_approved(chat_id)
+    reg = telegram_store.get_registration(chat_id)
 
-    if not approved:
+    if reg is None:
         display_name = chat.get("first_name") or chat.get("username") or chat_id
-        telegram_store.register_request(chat_id, display_name)
-        send_message(
-            chat_id,
-            "아직 승인되지 않은 사용자입니다. 대표님께 승인을 요청해주세요.\n"
-            f"(내 chat_id: {chat_id})",
-        )
+        telegram_store.start_registration(chat_id, display_name)
+        send_message(chat_id, "가맹점 등록을 시작할게요.\n지점명을 입력해주세요.")
         return
 
+    if not reg["approved"]:
+        if reg["registration_step"]:
+            _handle_registration(chat_id, reg, text)
+        else:
+            send_message(
+                chat_id,
+                "등록은 완료됐고 대표님 승인을 기다리는 중입니다.\n"
+                f"(내 chat_id: {chat_id})",
+            )
+        return
+
+    store_name = reg["store_name"]
     normalized = text.lower()
 
     if normalized in CANCEL_WORDS:

@@ -18,9 +18,12 @@ import pandas as pd
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import BackgroundTasks, FastAPI, Query, Request
+import secrets
+
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
@@ -59,6 +62,19 @@ CP_PATH = "/v2/providers/affiliate_open_api/apis/openapi/deeplink"
 
 app = FastAPI(title="OrderQueen Sales Importer", version="0.6.0")
 templates = Jinja2Templates(directory="templates")
+
+admin_security = HTTPBasic()
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+
+
+def require_admin(credentials: HTTPBasicCredentials = Depends(admin_security)):
+    if not ADMIN_PASSWORD or not secrets.compare_digest(credentials.password, ADMIN_PASSWORD):
+        raise HTTPException(
+            status_code=401,
+            detail="비밀번호가 올바르지 않습니다.",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return True
 
 init_db()
 vendors.init_vendor_table()
@@ -336,12 +352,12 @@ def telegram_webhook(update: dict):
 
 
 @app.get("/telegram/admin", response_class=HTMLResponse)
-def telegram_admin_page(request: Request):
+def telegram_admin_page(request: Request, _: bool = Depends(require_admin)):
     return templates.TemplateResponse("telegram_admin.html", {"request": request})
 
 
 @app.get("/api/telegram/stores")
-def api_telegram_stores():
+def api_telegram_stores(_: bool = Depends(require_admin)):
     return {"stores": telegram_store.list_stores()}
 
 
@@ -350,13 +366,13 @@ class TelegramApproveRequest(BaseModel):
 
 
 @app.post("/api/telegram/stores/{chat_id}/approve")
-def api_telegram_approve(chat_id: str, req: TelegramApproveRequest):
+def api_telegram_approve(chat_id: str, req: TelegramApproveRequest, _: bool = Depends(require_admin)):
     telegram_store.approve_store(chat_id, req.store_name)
     return {"ok": True}
 
 
 @app.post("/api/telegram/stores/{chat_id}/revoke")
-def api_telegram_revoke(chat_id: str):
+def api_telegram_revoke(chat_id: str, _: bool = Depends(require_admin)):
     telegram_store.revoke_store(chat_id)
     return {"ok": True}
 
