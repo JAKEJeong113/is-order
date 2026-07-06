@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>웹 회원 - 지점 연결</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 16px; }
+    .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+    .user-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 14px 16px; margin-bottom: 10px;
+    }
+    .user-name { font-weight: 700; font-size: 15px; }
+    .user-email { font-size: 12px; color: var(--muted); }
+    .badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 999px;
+      background: var(--mint-soft); color: #0f766e; margin-left: 8px;
+    }
+    .link-row { display: flex; gap: 8px; margin-top: 10px; }
+    select, button {
+      padding: 8px 10px; border-radius: 8px; font-size: 13px;
+    }
+    select { flex: 1; border: 1px solid var(--line); background: white; }
+    button {
+      border: none; background: var(--mint); color: white; font-weight: 700; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>웹 회원 - 가맹점 연결</h1>
+  <div class="hint-text">가맹점으로 연결된 계정만 가격비교 화면에서 "담기"를 쓸 수 있습니다.</div>
+  <div id="list"></div>
+
+  <script>
+    let approvedStores = [];
+
+    async function loadUsers() {
+      const res = await fetch("/api/admin/web-users");
+      const data = await res.json();
+      approvedStores = data.approved_stores || [];
+      const listEl = document.getElementById("list");
+
+      if (!data.users || data.users.length === 0) {
+        listEl.innerHTML = '<div class="hint-text">가입한 회원이 없습니다.</div>';
+        return;
+      }
+
+      const options = ['<option value="">연결 안 함</option>']
+        .concat(approvedStores.map((s) => `<option value="${s}">${s}</option>`))
+        .join("");
+
+      listEl.innerHTML = data.users.map((u) => `
+        <div class="user-card">
+          <div>
+            <span class="user-name">${u.display_name}</span>
+            ${u.linked_store_name ? `<span class="badge">${u.linked_store_name} 연결됨</span>` : ""}
+          </div>
+          <div class="user-email">${u.email} · 가입: ${u.created_at}</div>
+          <div class="link-row">
+            <select id="store-${u.id}">${options}</select>
+            <button onclick="linkStore(${u.id})">저장</button>
+          </div>
+        </div>
+      `).join("");
+
+      data.users.forEach((u) => {
+        const sel = document.getElementById(`store-${u.id}`);
+        if (u.linked_store_name) sel.value = u.linked_store_name;
+      });
+    }
+
+    async function linkStore(userId) {
+      const sel = document.getElementById(`store-${userId}`);
+      await fetch(`/api/admin/web-users/${userId}/link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ store_name: sel.value || null }),
+      });
+      loadUsers();
+    }
+
+    loadUsers();
+  </script>
+</body>
+</html>

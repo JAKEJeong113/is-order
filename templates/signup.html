@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>회원가입</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280; --line: #e5e7eb; --mint: #14b8a6; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px;
+    }
+    .box { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px; width: 100%; max-width: 360px; }
+    h1 { font-size: 19px; margin: 0 0 20px; text-align: center; }
+    input {
+      width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 8px;
+      font-size: 14px; margin-bottom: 10px;
+    }
+    button {
+      width: 100%; padding: 12px; border: none; border-radius: 8px;
+      background: var(--mint); color: white; font-weight: 700; font-size: 15px; cursor: pointer;
+    }
+    .error-text { color: #b91c1c; font-size: 13px; margin-bottom: 10px; min-height: 16px; }
+    .switch-link { text-align: center; margin-top: 16px; font-size: 13px; color: var(--muted); }
+    .switch-link a { color: var(--mint); text-decoration: none; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>무료 회원가입</h1>
+    <div class="error-text" id="error"></div>
+    <input id="name" type="text" placeholder="이름 또는 상호명">
+    <input id="email" type="email" placeholder="이메일" autocomplete="username">
+    <input id="password" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="new-password">
+    <button id="signupBtn">가입하기</button>
+    <div class="switch-link">이미 계정이 있으신가요? <a href="/login">로그인</a></div>
+  </div>
+
+  <script>
+    async function signup() {
+      const name = document.getElementById("name").value.trim();
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+      const errorEl = document.getElementById("error");
+      errorEl.textContent = "";
+
+      if (!name || !email || !password) {
+        errorEl.textContent = "모든 항목을 입력해주세요.";
+        return;
+      }
+
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, display_name: name }),
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        window.location.href = "/compare";
+      } else {
+        errorEl.textContent = data.message || "가입에 실패했습니다.";
+      }
+    }
+
+    document.getElementById("signupBtn").addEventListener("click", signup);
+  </script>
+</body>
+</html>

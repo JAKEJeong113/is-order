@@ -20,9 +20,9 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import secrets
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -41,6 +41,7 @@ import telegram_bot
 import telegram_store
 import vendors
 import price_compare
+import web_auth
 import yamimall_bot
 
 load_dotenv()
@@ -76,12 +77,25 @@ def require_admin(credentials: HTTPBasicCredentials = Depends(admin_security)):
         )
     return True
 
+
+def get_current_web_user(request: Request) -> dict | None:
+    token = request.cookies.get(web_auth.SESSION_COOKIE_NAME)
+    return web_auth.get_user_from_session(token)
+
+
+def require_web_user(request: Request) -> dict:
+    user = get_current_web_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+    return user
+
 init_db()
 vendors.init_vendor_table()
 catalog_cache.init_catalog_table()
 popularity.init_popularity_table()
 telegram_store.init_telegram_tables()
 vendors.init_store_vendor_table()
+web_auth.init_web_auth_tables()
 
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 scheduler.add_job(
@@ -265,17 +279,86 @@ def api_toggle_vendor(vendor_id: str, req: VendorEnabledRequest):
     return {"ok": True}
 
 
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    display_name: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.get("/signup", response_class=HTMLResponse)
+def signup_page(request: Request):
+    return templates.TemplateResponse("signup.html", {"request": request})
+
+
+@app.post("/api/auth/signup")
+def api_signup(req: SignupRequest, response: Response):
+    ok, message = web_auth.signup(req.email, req.password, req.display_name)
+    if not ok:
+        return {"ok": False, "message": message}
+
+    user_id = web_auth.verify_login(req.email, req.password)
+    token = web_auth.create_session(user_id)
+    response.set_cookie(
+        web_auth.SESSION_COOKIE_NAME, token,
+        max_age=web_auth.SESSION_TTL_DAYS * 86400, httponly=True, samesite="lax",
+    )
+    return {"ok": True}
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.post("/api/auth/login")
+def api_login(req: LoginRequest, response: Response):
+    user_id = web_auth.verify_login(req.email, req.password)
+    if not user_id:
+        return {"ok": False, "message": "이메일 또는 비밀번호가 올바르지 않습니다."}
+
+    token = web_auth.create_session(user_id)
+    response.set_cookie(
+        web_auth.SESSION_COOKIE_NAME, token,
+        max_age=web_auth.SESSION_TTL_DAYS * 86400, httponly=True, samesite="lax",
+    )
+    return {"ok": True}
+
+
+@app.post("/api/auth/logout")
+def api_logout(request: Request, response: Response):
+    token = request.cookies.get(web_auth.SESSION_COOKIE_NAME)
+    if token:
+        web_auth.destroy_session(token)
+    response.delete_cookie(web_auth.SESSION_COOKIE_NAME)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def api_me(request: Request):
+    user = get_current_web_user(request)
+    if not user:
+        return {"logged_in": False}
+    return {"logged_in": True, **user}
+
+
 class PriceCompareRequest(BaseModel):
     keyword: str
 
 
 @app.get("/compare", response_class=HTMLResponse)
 def compare_page(request: Request):
+    if not get_current_web_user(request):
+        return RedirectResponse(url="/login")
     return templates.TemplateResponse("compare.html", {"request": request})
 
 
 @app.post("/api/price-compare")
-def api_price_compare(req: PriceCompareRequest):
+def api_price_compare(req: PriceCompareRequest, _: dict = Depends(require_web_user)):
     keyword = req.keyword.strip()
     if not keyword:
         return {"keyword": "", "vendors": [], "groups": []}
@@ -299,26 +382,19 @@ class CartAddRequest(BaseModel):
     vendor_id: str
     product_url: str
     qty: int = Field(1, ge=1, le=99)
-    store_id: str
     item_name: str = ""
     item_key: str = ""
 
 
-@app.get("/api/telegram/approved-stores")
-def api_approved_stores():
-    stores = [s for s in telegram_store.list_stores() if s["approved"]]
-    return {"stores": [{"store_name": s["store_name"]} for s in stores]}
-
-
 @app.post("/api/cart-add")
-def api_cart_add(req: CartAddRequest):
-    approved_names = {s["store_name"] for s in telegram_store.list_stores() if s["approved"]}
-    if req.store_id not in approved_names:
-        return {"ok": False, "reason": "승인된 지점이 아닙니다. 지점을 다시 선택해주세요."}
+def api_cart_add(req: CartAddRequest, user: dict = Depends(require_web_user)):
+    store_id = user.get("linked_store_name")
+    if not store_id:
+        return {"ok": False, "reason": "이 계정은 가맹점으로 연결되어 있지 않습니다. 대표님께 연결을 요청해주세요."}
 
-    creds = vendors.get_store_vendor_credentials(req.store_id, req.vendor_id)
+    creds = vendors.get_store_vendor_credentials(store_id, req.vendor_id)
     if not creds:
-        return {"ok": False, "reason": f"{req.store_id}에 등록된 계정이 없습니다. 텔레그램 봇에 '계정등록'으로 먼저 등록해주세요."}
+        return {"ok": False, "reason": f"{store_id}에 등록된 계정이 없습니다. 텔레그램 봇에 '계정등록'으로 먼저 등록해주세요."}
     login_id, login_pwd = creds
 
     if req.vendor_id == "yamimall":
@@ -334,7 +410,7 @@ def api_cart_add(req: CartAddRequest):
 
     if result.get("ok"):
         popularity.log_event(
-            req.store_id, "wholesale",
+            store_id, "wholesale",
             req.item_key or req.product_url, req.item_name, req.qty,
         )
 
@@ -385,6 +461,27 @@ def api_telegram_approve(chat_id: str, req: TelegramApproveRequest, _: bool = De
 @app.post("/api/telegram/stores/{chat_id}/revoke")
 def api_telegram_revoke(chat_id: str, _: bool = Depends(require_admin)):
     telegram_store.revoke_store(chat_id)
+    return {"ok": True}
+
+
+@app.get("/admin/users", response_class=HTMLResponse)
+def admin_users_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("admin_users.html", {"request": request})
+
+
+@app.get("/api/admin/web-users")
+def api_admin_web_users(_: bool = Depends(require_admin)):
+    approved_stores = [s["store_name"] for s in telegram_store.list_stores() if s["approved"]]
+    return {"users": web_auth.list_users(), "approved_stores": approved_stores}
+
+
+class LinkStoreRequest(BaseModel):
+    store_name: str | None = None
+
+
+@app.post("/api/admin/web-users/{user_id}/link")
+def api_admin_link_store(user_id: int, req: LinkStoreRequest, _: bool = Depends(require_admin)):
+    web_auth.link_store(user_id, req.store_name)
     return {"ok": True}
 
 
