@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>텔레그램 가맹점 승인</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 16px; }
+    .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+    .store-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 14px 16px; margin-bottom: 10px;
+    }
+    .store-head { display: flex; justify-content: space-between; align-items: center; }
+    .store-name { font-weight: 700; font-size: 15px; }
+    .chat-id { font-size: 11px; color: var(--muted); }
+    .badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 999px;
+      background: var(--mint-soft); color: #0f766e;
+    }
+    .badge.pending { background: #fef3c7; color: #92400e; }
+    .approve-row { display: flex; gap: 8px; margin-top: 10px; }
+    .approve-row input {
+      flex: 1; padding: 8px 10px; border: 1px solid var(--line);
+      border-radius: 8px; font-size: 13px;
+    }
+    button {
+      padding: 8px 14px; border: none; border-radius: 8px;
+      font-weight: 700; font-size: 13px; cursor: pointer;
+    }
+    .approve-btn { background: var(--mint); color: white; }
+    .revoke-btn { background: #fee2e2; color: #b91c1c; }
+    .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
+  </style>
+</head>
+<body>
+  <h1>텔레그램 가맹점 승인 관리</h1>
+  <div class="hint-text">가맹점이 봇에게 아무 메시지나 한 번 보내면 여기에 대기 요청으로 나타납니다.</div>
+  <div id="list"></div>
+
+  <script>
+    async function loadStores() {
+      const res = await fetch("/api/telegram/stores");
+      const data = await res.json();
+      const listEl = document.getElementById("list");
+
+      if (!data.stores || data.stores.length === 0) {
+        listEl.innerHTML = '<div class="empty-text">아직 요청이 없습니다.</div>';
+        return;
+      }
+
+      listEl.innerHTML = data.stores.map((s) => `
+        <div class="store-card">
+          <div class="store-head">
+            <div>
+              <span class="store-name">${s.store_name || s.display_name}</span>
+              <span class="badge ${s.approved ? "" : "pending"}">${s.approved ? "승인됨" : "대기중"}</span>
+            </div>
+          </div>
+          <div class="chat-id">chat_id: ${s.chat_id} · 요청: ${s.requested_at}</div>
+          ${s.approved ? `
+            <div class="approve-row">
+              <button class="revoke-btn" onclick="revoke('${s.chat_id}')">승인 취소</button>
+            </div>
+          ` : `
+            <div class="approve-row">
+              <input type="text" placeholder="지점명 입력" id="name-${s.chat_id}" value="${s.display_name || ""}">
+              <button class="approve-btn" onclick="approve('${s.chat_id}')">승인</button>
+            </div>
+          `}
+        </div>
+      `).join("");
+    }
+
+    async function approve(chatId) {
+      const input = document.getElementById(`name-${chatId}`);
+      const storeName = input.value.trim();
+      if (!storeName) {
+        alert("지점명을 입력해주세요.");
+        return;
+      }
+      await fetch(`/api/telegram/stores/${chatId}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ store_name: storeName }),
+      });
+      loadStores();
+    }
+
+    async function revoke(chatId) {
+      await fetch(`/api/telegram/stores/${chatId}/revoke`, { method: "POST" });
+      loadStores();
+    }
+
+    loadStores();
+  </script>
+</body>
+</html>

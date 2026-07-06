@@ -34,6 +34,8 @@ import catalog_cache
 import catalog_crawler
 import godomall_bot
 import popularity
+import telegram_bot
+import telegram_store
 import vendors
 import price_compare
 import yamimall_bot
@@ -62,6 +64,7 @@ init_db()
 vendors.init_vendor_table()
 catalog_cache.init_catalog_table()
 popularity.init_popularity_table()
+telegram_store.init_telegram_tables()
 
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 scheduler.add_job(
@@ -321,6 +324,41 @@ def api_popular(category: str = Query(...), limit: int = Query(30, ge=1, le=100)
     if category not in popularity.CATEGORIES:
         return {"items": []}
     return {"items": popularity.get_top_items(category, limit=limit)}
+
+
+@app.post("/telegram/webhook")
+def telegram_webhook(update: dict):
+    try:
+        telegram_bot.handle_update(update)
+    except Exception as e:
+        print("[TELEGRAM] webhook 처리 실패:", e)
+    return {"ok": True}
+
+
+@app.get("/telegram/admin", response_class=HTMLResponse)
+def telegram_admin_page(request: Request):
+    return templates.TemplateResponse("telegram_admin.html", {"request": request})
+
+
+@app.get("/api/telegram/stores")
+def api_telegram_stores():
+    return {"stores": telegram_store.list_stores()}
+
+
+class TelegramApproveRequest(BaseModel):
+    store_name: str
+
+
+@app.post("/api/telegram/stores/{chat_id}/approve")
+def api_telegram_approve(chat_id: str, req: TelegramApproveRequest):
+    telegram_store.approve_store(chat_id, req.store_name)
+    return {"ok": True}
+
+
+@app.post("/api/telegram/stores/{chat_id}/revoke")
+def api_telegram_revoke(chat_id: str):
+    telegram_store.revoke_store(chat_id)
+    return {"ok": True}
 
 
 class InventoryUpdateRequest(BaseModel):
