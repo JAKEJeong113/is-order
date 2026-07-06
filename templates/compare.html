@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>도매처 가격비교</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9;
+      --card: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --mint: #14b8a6;
+      --mint-soft: #ccfbf1;
+      --mint-text: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 16px; }
+    .search-row { display: flex; gap: 8px; margin-bottom: 20px; }
+    .search-row input {
+      flex: 1; padding: 12px 14px; border: 1px solid var(--line);
+      border-radius: 10px; font-size: 15px;
+    }
+    .search-row button {
+      padding: 12px 20px; border: none; border-radius: 10px;
+      background: var(--mint); color: white; font-weight: 700; font-size: 15px; cursor: pointer;
+    }
+    .search-row button:disabled { background: #a7f3d0; }
+    .result-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px; margin-bottom: 10px; display: flex; justify-content: space-between;
+      align-items: center; gap: 12px;
+    }
+    .result-card.cheapest { border-color: var(--mint); background: var(--mint-soft); }
+    .vendor-name { font-weight: 700; font-size: 15px; }
+    .product-name { font-size: 13px; color: var(--muted); margin-top: 2px; white-space: pre-line; }
+    .price { font-size: 20px; font-weight: 800; text-align: right; }
+    .price-sub { font-size: 12px; color: var(--muted); text-align: right; margin-top: 2px; }
+    .badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 999px;
+      background: var(--mint); color: white; margin-left: 8px;
+    }
+    .error-badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 999px;
+      background: #fee2e2; color: #b91c1c; margin-left: 8px;
+    }
+    .empty-text, .loading-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
+    a.product-link { color: inherit; text-decoration: none; }
+    .alt-list { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
+    .alt-item {
+      display: flex; justify-content: space-between; font-size: 12px;
+      color: var(--muted); padding: 2px 0;
+    }
+    .alt-item .alt-price { font-weight: 600; color: var(--text); }
+    .hint-text { font-size: 12px; color: var(--muted); margin: -4px 0 14px; }
+
+    .group-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      margin-bottom: 10px; overflow: hidden; cursor: pointer;
+    }
+    .group-head {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 12px; padding: 16px;
+    }
+    .group-count { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .chevron { color: var(--muted); font-size: 12px; transition: transform .15s; }
+    .group-card.open .chevron { transform: rotate(180deg); }
+    .group-detail { display: none; border-top: 1px solid var(--line); padding: 10px 16px 14px; }
+    .group-card.open .group-detail { display: block; }
+    .offer-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid var(--line);
+    }
+    .offer-row:last-child { border-bottom: none; }
+    .offer-row.cheapest { background: var(--mint-soft); margin: 0 -16px; padding: 10px 16px; }
+    .offer-vendor { font-weight: 700; font-size: 14px; }
+    .offer-name { font-size: 12px; color: var(--muted); white-space: pre-line; margin-top: 2px; }
+    .offer-price { font-weight: 800; font-size: 16px; text-align: right; }
+    section-title { display: block; font-size: 15px; margin: 20px 0 10px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>도매처 가격비교</h1>
+  <div class="search-row">
+    <input id="keyword" type="text" placeholder="상품명을 검색하세요 (예: 젤리)" />
+    <button id="searchBtn">비교</button>
+  </div>
+  <div id="results"></div>
+
+  <script>
+    const input = document.getElementById("keyword");
+    const btn = document.getElementById("searchBtn");
+    const resultsEl = document.getElementById("results");
+
+    async function runCompare() {
+      const keyword = input.value.trim();
+      if (!keyword) return;
+
+      btn.disabled = true;
+      resultsEl.innerHTML = '<div class="loading-text">가격 조회 중입니다 (도매처별로 실제 로그인해서 확인하는 중이라 최대 1~2분 걸릴 수 있어요)...</div>';
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+      try {
+        const res = await fetch("/api/price-compare", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keyword }),
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        renderResults(data.groups || [], data.vendors || []);
+      } catch (e) {
+        const msg = e.name === "AbortError"
+          ? "2분 넘게 응답이 없어 중단했습니다. 도매처 로그인 상태를 확인해주세요."
+          : "조회 중 오류가 발생했습니다.";
+        resultsEl.innerHTML = `<div class="empty-text">${msg}</div>`;
+      } finally {
+        clearTimeout(timeoutId);
+        btn.disabled = false;
+      }
+    }
+
+    function renderOfferRow(o) {
+      const priceText = o.price ? `${o.price.toLocaleString()}원` : "가격 확인 필요";
+      const shipText = o.free_shipping_threshold
+        ? `무료배송 ${o.free_shipping_threshold.toLocaleString()}원 이상`
+        : "무료배송 기준 미입력";
+      const confidencePct = Math.round((o.match_score ?? 0) * 100);
+      const rowClass = o.is_cheapest ? "offer-row cheapest" : "offer-row";
+
+      const inner = `
+        <div>
+          <span class="offer-vendor">${o.vendor_name}</span>
+          ${o.is_cheapest ? '<span class="badge">최저가</span>' : ""}
+          <div class="offer-name">${(o.name || "").trim()}</div>
+          <div class="offer-name">${shipText} · 일치도 ${confidencePct}%</div>
+        </div>
+        <div class="offer-price">${priceText}</div>
+      `;
+
+      if (o.product_url) {
+        return `<a class="product-link" href="${o.product_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()"><div class="${rowClass}">${inner}</div></a>`;
+      }
+      return `<div class="${rowClass}">${inner}</div>`;
+    }
+
+    function renderGroupCard(g, idx) {
+      const priceText = g.best_price ? `${g.best_price.toLocaleString()}원` : "가격 확인 필요";
+      const compareText = g.vendor_count > 1
+        ? `${g.vendor_count}개 도매처 비교 · ${g.best_vendor_name} 최저가`
+        : `${g.best_vendor_name}에서만 발견`;
+
+      const offersHtml = g.offers.map(renderOfferRow).join("");
+
+      return `
+        <div class="group-card" id="group-${idx}" onclick="toggleGroup(${idx})">
+          <div class="group-head">
+            <div>
+              <div class="vendor-name">${(g.representative_name || "").trim()}</div>
+              <div class="group-count">${compareText}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div class="price">${priceText}</div>
+              <span class="chevron">▼</span>
+            </div>
+          </div>
+          <div class="group-detail">${offersHtml}</div>
+        </div>
+      `;
+    }
+
+    function toggleGroup(idx) {
+      document.getElementById(`group-${idx}`).classList.toggle("open");
+    }
+
+    function renderVendorDetail(r) {
+      if (!r.candidates || r.candidates.length === 0) {
+        return `
+          <div class="result-card">
+            <div>
+              <span class="vendor-name">${r.vendor_name}</span>
+              <span class="error-badge">${r.error || "조회 실패"}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      const rows = r.candidates.map((c) => `
+        <div class="alt-item">
+          <span>${(c.name || "").trim()}</span>
+          <span class="alt-price">${c.price ? c.price.toLocaleString() + "원" : "-"}</span>
+        </div>
+      `).join("");
+
+      return `
+        <div class="result-card">
+          <div style="flex:1;">
+            <span class="vendor-name">${r.vendor_name}</span>
+            <div class="alt-list" style="margin-top:6px;">${rows}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderResults(groups, vendorResults) {
+      if (groups.length === 0 && vendorResults.length === 0) {
+        resultsEl.innerHTML = '<div class="empty-text">검색 결과가 없습니다. 켜져 있는 도매처(/vendors)가 있는지 확인해주세요.</div>';
+        return;
+      }
+
+      let html = `<div class="hint-text">상품을 클릭하면 도매처별 가격을 비교해서 보여줍니다. 같은 이름이어도 실제로는 다른 상품일 수 있으니 상품명을 확인해주세요.</div>`;
+
+      if (groups.length > 0) {
+        html += groups.map(renderGroupCard).join("");
+      } else {
+        html += `<div class="empty-text">검색 결과를 찾지 못했습니다. 아래 도매처별 검색결과를 직접 확인해주세요.</div>`;
+      }
+
+      if (vendorResults.length > 0) {
+        html += `<h2 style="font-size:15px;margin:20px 0 10px;">도매처별 검색결과 원본</h2>`;
+        html += vendorResults.map(renderVendorDetail).join("");
+      }
+
+      resultsEl.innerHTML = html;
+    }
+
+    btn.addEventListener("click", runCompare);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") runCompare();
+    });
+  </script>
+</body>
+</html>

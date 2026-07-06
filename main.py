@@ -15,7 +15,9 @@ from urllib.parse import quote
 
 import pandas as pd
 import requests
-from fastapi import FastAPI, Query, Request
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from fastapi import BackgroundTasks, FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -27,6 +29,10 @@ from mapping import load_coupang_catalog_xlsx, select_representative_item
 from db import init_db, get_inventory, upsert_inventory, change_stock
 
 from yamimall_bot import add_yamimall_cart
+import catalog_cache
+import catalog_crawler
+import vendors
+import price_compare
 
 load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
@@ -49,6 +55,17 @@ app = FastAPI(title="OrderQueen Sales Importer", version="0.6.0")
 templates = Jinja2Templates(directory="templates")
 
 init_db()
+vendors.init_vendor_table()
+catalog_cache.init_catalog_table()
+
+scheduler = BackgroundScheduler(timezone="Asia/Seoul")
+scheduler.add_job(
+    catalog_crawler.crawl_all_enabled,
+    trigger=CronTrigger(hour=4, minute=0),
+    id="daily_catalog_refresh",
+    replace_existing=True,
+)
+scheduler.start()
 
 app.add_middleware(
     CORSMiddleware,
@@ -184,6 +201,73 @@ def yamimall_cart(req: YamimallCartRequest):
     )
 
     return result
+
+
+class VendorCredentialsRequest(BaseModel):
+    login_id: str
+    login_pwd: str
+
+
+class VendorEnabledRequest(BaseModel):
+    enabled: bool
+
+
+@app.get("/vendors", response_class=HTMLResponse)
+def vendors_page(request: Request):
+    return templates.TemplateResponse("vendors.html", {"request": request})
+
+
+@app.get("/api/vendors")
+def api_list_vendors():
+    return {"vendors": vendors.list_vendors()}
+
+
+@app.post("/api/vendors/{vendor_id}/credentials")
+def api_set_vendor_credentials(vendor_id: str, req: VendorCredentialsRequest):
+    try:
+        vendors.set_vendor_credentials(vendor_id, req.login_id, req.login_pwd)
+    except ValueError as e:
+        return {"ok": False, "message": str(e)}
+    return {"ok": True}
+
+
+@app.post("/api/vendors/{vendor_id}/toggle")
+def api_toggle_vendor(vendor_id: str, req: VendorEnabledRequest):
+    try:
+        vendors.set_vendor_enabled(vendor_id, req.enabled)
+    except ValueError as e:
+        return {"ok": False, "message": str(e)}
+    return {"ok": True}
+
+
+class PriceCompareRequest(BaseModel):
+    keyword: str
+
+
+@app.get("/compare", response_class=HTMLResponse)
+def compare_page(request: Request):
+    return templates.TemplateResponse("compare.html", {"request": request})
+
+
+@app.post("/api/price-compare")
+def api_price_compare(req: PriceCompareRequest):
+    keyword = req.keyword.strip()
+    if not keyword:
+        return {"keyword": "", "vendors": [], "groups": []}
+
+    result = price_compare.compare(keyword)
+    return {"keyword": keyword, **result}
+
+
+@app.get("/api/catalog/status")
+def api_catalog_status():
+    return {"status": catalog_cache.get_refresh_status()}
+
+
+@app.post("/api/catalog/refresh")
+def api_catalog_refresh(background_tasks: BackgroundTasks):
+    background_tasks.add_task(catalog_crawler.crawl_all_enabled)
+    return {"ok": True, "message": "백그라운드에서 크롤링을 시작했습니다. /api/catalog/status로 진행상황을 확인하세요."}
 
 
 class InventoryUpdateRequest(BaseModel):

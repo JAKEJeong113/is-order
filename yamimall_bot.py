@@ -1,9 +1,22 @@
 import math
 import re
+from urllib.parse import quote
+
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 
 YAMIMALL_URL = "https://xn--352blx12s.com"
+
+
+def run_yamimall_search(page, keyword: str) -> None:
+    """검색창 버튼(#sch_submit)은 아이콘폰트라 실제 클릭이 안 먹는 경우가 있어
+    검색 폼이 실제로 이동하는 GET URL로 직접 이동한다."""
+    page.goto(
+        f"{YAMIMALL_URL}/shop/search.php?skey={quote(keyword)}",
+        wait_until="domcontentloaded",
+        timeout=30000,
+    )
+    page.wait_for_timeout(1500)
 
 
 def close_yamimall_popups(page):
@@ -154,6 +167,158 @@ def find_best_yamimall_product(page, keyword: str, max_pages: int = 5):
 
     return best_product, best_text, best_score, best_index, best_page
 
+def find_top_yamimall_products(page, keyword: str, top_n: int = 3, max_pages: int = 1):
+    """가격비교용: 검색어 일치도 상위 top_n개 후보(이름/가격/1타수량)를 반환. (장바구니 담지 않음)"""
+    scored = []
+
+    for page_no in range(1, max_pages + 1):
+        page.wait_for_timeout(1000)
+
+        product_links = page.locator("a[href*='/shop/item.php?code=']")
+        count = product_links.count()
+
+        for i in range(count):
+            link = product_links.nth(i)
+            try:
+                text = link.evaluate("(el) => el.innerText || el.textContent || ''").strip()
+            except Exception:
+                continue
+
+            if not text or "SOLD OUT" in text.upper() or "품절" in text:
+                continue
+
+            unit_qty = extract_wholesale_unit_qty(text)
+            if not unit_qty:
+                continue
+
+            score = keyword_match_score(keyword, text)
+            if score <= 0:
+                continue
+
+            try:
+                container = link.locator("xpath=ancestor::li[1]")
+                price_input = container.locator("input[name='ct_price']")
+                price = None
+                if price_input.count() > 0:
+                    price = _parse_price(price_input.first.get_attribute("value") or "")
+                href = link.get_attribute("href")
+            except Exception:
+                price = None
+                href = None
+
+            scored.append({
+                "name": text,
+                "price": price,
+                "unit_qty": unit_qty,
+                "product_url": href,
+                "score": score,
+            })
+
+    deduped = {}
+    for r in scored:
+        key = (r["name"], r["price"])
+        if key not in deduped:
+            deduped[key] = r
+
+    result = sorted(deduped.values(), key=lambda r: r["score"], reverse=True)
+    return result[:top_n]
+
+
+# "전체상품"(001000000)은 이름과 달리 일부(추천/인기)만 보여주는 화면이라
+# 실제 전체 수집을 위해서는 카테고리별 "전체보기" 코드를 각각 순회해야 한다.
+# list.php는 포트를 명시한 URL(:443)로 접속해야 카테고리 필터가 정상 적용된다.
+FULL_CATALOG_CATEGORY_CODES = [
+    "001001001",  # 국산과자
+    "001002002",  # 세계과자
+    "001003001",  # 젤리/마쉬멜로
+    "001004001",  # 초콜릿
+    "001005001",  # 사탕/껌
+    "001006001",  # 안주
+    "001007001",  # 식자재
+    "001008001",  # 음료
+    "001011001",  # 중국식품
+    "001012001",  # 문구완구
+    "001013001",  # 기타
+    "001014001",  # 라면
+]
+
+
+def _extract_list_page_items(page) -> list[dict]:
+    product_links = page.locator("a[href*='/shop/item.php?code=']")
+    count = product_links.count()
+    items = []
+
+    for i in range(count):
+        link = product_links.nth(i)
+        try:
+            text = link.evaluate("(el) => el.innerText || el.textContent || ''").strip()
+        except Exception:
+            continue
+
+        if not text or "SOLD OUT" in text.upper() or "품절" in text:
+            continue
+
+        unit_qty = extract_wholesale_unit_qty(text)
+
+        try:
+            container = link.locator("xpath=ancestor::li[1]")
+            price_input = container.locator("input[name='ct_price']")
+            price = None
+            if price_input.count() > 0:
+                price = _parse_price(price_input.first.get_attribute("value") or "")
+            href = link.get_attribute("href")
+        except Exception:
+            price = None
+            href = None
+
+        items.append({
+            "name": text,
+            "price": price,
+            "unit_qty": unit_qty,
+            "product_url": href,
+            "goods_no": None,
+            "_key": href or text,
+        })
+
+    return items
+
+
+def crawl_full_catalog(username: str, password: str) -> list[dict]:
+    """카테고리별 '전체보기' 코드를 모두 순회해서 전체 상품을 수집한다."""
+    products: dict[str, dict] = {}
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"],
+        )
+        page = browser.new_page()
+
+        try:
+            login_yamimall(page, username, password)
+
+            for code in FULL_CATALOG_CATEGORY_CODES:
+                try:
+                    page.goto(
+                        f"https://xn--352blx12s.com:443/shop/list.php?code={code}",
+                        wait_until="domcontentloaded",
+                        timeout=30000,
+                    )
+                    page.wait_for_timeout(1200)
+                except Exception as e:
+                    print(f"[YAMIMALL] 카테고리 {code} 로딩 실패:", e)
+                    continue
+
+                for item in _extract_list_page_items(page):
+                    key = item.pop("_key")
+                    if key not in products:
+                        products[key] = item
+        finally:
+            browser.close()
+
+    return list(products.values())
+
+
 def calc_yamimall_cart_qty(sold_qty: int, unit_qty: int) -> int:
     """
     판매수량 / 1타수량을 50% 기준 반올림.
@@ -168,6 +333,46 @@ def calc_yamimall_cart_qty(sold_qty: int, unit_qty: int) -> int:
         cart_qty = 1
 
     return cart_qty
+
+
+def login_yamimall(page, username: str, password: str) -> None:
+    page.goto(YAMIMALL_URL, wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_timeout(2000)
+    close_yamimall_popups(page)
+
+    page.locator(".hdgnb_login_class").click()
+    page.wait_for_timeout(1000)
+
+    page.fill("#login_id", username)
+    page.fill("#login_pw", password)
+
+    page.locator(".login_btn").click()
+    page.wait_for_timeout(1000)
+
+    close_yamimall_popups(page)
+
+
+def fetch_candidates(username: str, password: str, keyword: str, top_n: int = 3) -> list[dict]:
+    """검색어 일치도 상위 top_n개 후보(이름/가격/1타수량)를 조회 (장바구니 담지 않음)."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"],
+        )
+        page = browser.new_page()
+
+        try:
+            login_yamimall(page, username, password)
+            run_yamimall_search(page, keyword)
+
+            return find_top_yamimall_products(page, keyword, top_n=top_n, max_pages=4)
+        finally:
+            browser.close()
+
+
+def _parse_price(text: str) -> int | None:
+    digits = re.sub(r"[^\d]", "", text or "")
+    return int(digits) if digits else None
 
 
 def add_yamimall_cart(username: str, password: str, items: list[dict]):
@@ -188,24 +393,7 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
         page = browser.new_page()
 
         try:
-            page.goto(YAMIMALL_URL, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(2000)
-            close_yamimall_popups(page)
-
-            # 로그인 페이지 이동
-            page.locator(".hdgnb_login_class").click()
-            page.wait_for_timeout(1000)
-
-            # 아이디 / 비밀번호 입력
-            page.fill("#login_id", username)
-            page.fill("#login_pw", password)
-
-            # 로그인 실행
-            page.locator(".login_btn").click()
-            page.wait_for_timeout(1000)
-
-            # 로그인 후 팝업 다시 닫기
-            close_yamimall_popups(page)
+            login_yamimall(page, username, password)
 
             for item in items:
                 name = (
@@ -235,15 +423,7 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
 
                 try:
                     # 검색
-                    page.fill("#sch_str", "")
-                    page.fill("#sch_str", keyword)
-
-                    page.locator("#sch_submit").dispatch_event("click")
-
-                    
-
-                    page.wait_for_timeout(5000)
-                    
+                    run_yamimall_search(page, keyword)
 
                     print("[YAMIMALL] current url =", page.url)
                     # 검색 결과 첫 상품
