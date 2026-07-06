@@ -1,12 +1,14 @@
 # catalog_cache.py
 """도매처 전체상품을 미리 크롤링해서 저장해두는 로컬 캐시.
 가격비교 검색은 이 캐시만 조회하므로 즉시 응답한다."""
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "inventory.db"
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
+DB_PATH = DATA_DIR / "inventory.db"
 
 
 def get_conn():

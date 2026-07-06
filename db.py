@@ -1,9 +1,11 @@
+import os
 import sqlite3
 from pathlib import Path
 from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "inventory.db"
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
+DB_PATH = DATA_DIR / "inventory.db"
 
 
 def get_conn():

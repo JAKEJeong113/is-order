@@ -7,7 +7,8 @@ from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "inventory.db"
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
+DB_PATH = DATA_DIR / "inventory.db"
 
 VENDORS = {
     "yamimall": {"name": "야미몰", "base_url": "https://xn--352blx12s.com", "free_shipping_threshold": 150000},
