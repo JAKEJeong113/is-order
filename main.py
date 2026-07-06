@@ -373,8 +373,10 @@ def api_catalog_status():
 
 
 @app.post("/api/catalog/refresh")
-def api_catalog_refresh(background_tasks: BackgroundTasks):
-    background_tasks.add_task(catalog_crawler.crawl_all_enabled)
+def api_catalog_refresh():
+    # FastAPI BackgroundTasks가 Playwright 호출 도중 조용히 멈추는 문제가 있어(텔레그램 봇에서도
+    # 동일 증상 확인), 이미 안정적으로 동작 중인 APScheduler 스레드로 즉시 실행 작업을 넘긴다.
+    scheduler.add_job(catalog_crawler.crawl_all_enabled, id="manual_catalog_refresh", replace_existing=True)
     return {"ok": True, "message": "백그라운드에서 크롤링을 시작했습니다. /api/catalog/status로 진행상황을 확인하세요."}
 
 
