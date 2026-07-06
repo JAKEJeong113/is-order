@@ -6,9 +6,14 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+import product_match
+
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
 DB_PATH = DATA_DIR / "inventory.db"
+
+MIN_SEARCH_SCORE = 0.5
+EXACT_SEARCH_SCORE = 0.999
 
 
 def get_conn():
@@ -118,25 +123,33 @@ def get_refresh_status() -> list[dict]:
     ]
 
 
-def search_cached_products(vendor_id: str, keyword_tokens: list[str], limit: int = 30) -> list[dict]:
-    """저장된 상품 중 키워드 토큰이 이름에 포함된 것만 뽑아온다 (최종 유사도 랭킹은 호출측에서)."""
-    if not keyword_tokens:
+def search_cached_products(vendor_id: str, keyword: str, limit: int = 30) -> list[dict]:
+    """저장된 상품 중 검색어와 이름이 비슷한 것들을 유사도 순으로 뽑아온다.
+    정확히 포함되는 상품이 하나라도 있으면 그것만 쓰고, 하나도 없을 때만 오타/
+    띄어쓰기 한두 글자 차이(예: '꿀밤맛쫀드기' vs '꿀밤맛 쫀디기')를 허용하는
+    느슨한 매칭으로 대체한다. 짧은 검색어(예: '브이콘')가 오타 허용 때문에
+    무관한 상품(예: '브이톡')과 섞이는 걸 막기 위한 구조다."""
+    if not keyword:
         return []
 
     conn = get_conn()
     cur = conn.cursor()
-
-    where = " OR ".join(["name LIKE ?"] * len(keyword_tokens))
-    params = [f"%{tok}%" for tok in keyword_tokens]
     cur.execute(
-        f"SELECT name, price, unit_qty, product_url, goods_no FROM product_cache "
-        f"WHERE vendor_id = ? AND ({where}) LIMIT ?",
-        (vendor_id, *params, limit * 5),
+        "SELECT name, price, unit_qty, product_url, goods_no FROM product_cache WHERE vendor_id = ?",
+        (vendor_id,),
     )
     rows = cur.fetchall()
     conn.close()
 
-    return [
-        {"name": r[0], "price": r[1], "unit_qty": r[2], "product_url": r[3], "goods_no": r[4]}
-        for r in rows
-    ]
+    exact, fuzzy = [], []
+    for r in rows:
+        name = r[0] or ""
+        score = product_match.keyword_containment_score(keyword, name)
+        if score < MIN_SEARCH_SCORE:
+            continue
+        item = {"name": name, "price": r[1], "unit_qty": r[2], "product_url": r[3], "goods_no": r[4]}
+        (exact if score >= EXACT_SEARCH_SCORE else fuzzy).append((score, item))
+
+    chosen = exact or fuzzy
+    chosen.sort(key=lambda x: -x[0])
+    return [item for _, item in chosen[:limit]]

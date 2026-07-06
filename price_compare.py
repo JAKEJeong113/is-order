@@ -27,8 +27,7 @@ def _fetch_one(vendor_id: str, keyword: str) -> dict:
         "error": None,
     }
 
-    tokens = [t for t in keyword.split() if t] or [keyword]
-    candidates = catalog_cache.search_cached_products(vendor_id, tokens, limit=CANDIDATES_PER_VENDOR)
+    candidates = catalog_cache.search_cached_products(vendor_id, keyword, limit=CANDIDATES_PER_VENDOR)
 
     if not candidates:
         base["error"] = "일치하는 상품 없음 (캐시가 오래되었으면 새로고침 필요)"

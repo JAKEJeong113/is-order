@@ -23,6 +23,17 @@ def _bigrams(text: str) -> set[str]:
     return {t[i:i + 2] for i in range(len(t) - 1)}
 
 
+def keyword_containment_score(keyword: str, name: str) -> float:
+    """검색어 bigram이 상품명 안에 얼마나 포함되는지(0~1). 대칭 Jaccard와 달리
+    상품명에 브랜드/용량 등 부가 텍스트가 많이 붙어도 불리해지지 않아서,
+    짧은 검색어로 긴 상품명을 찾을 때(오타/띄어쓰기 한두 글자 차이 포함) 더 적합하다."""
+    kb = _bigrams(keyword)
+    if not kb:
+        return 0.0
+    nb = _bigrams(name)
+    return len(kb & nb) / len(kb)
+
+
 def _extract_weight(text: str) -> tuple[float, str] | None:
     m = WEIGHT_RE.search(text or "")
     if not m:
