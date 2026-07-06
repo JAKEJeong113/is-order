@@ -16,8 +16,11 @@ API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 CONFIRM_WORDS = {"확인", "네", "예", "ok", "okay", "yes", "go", "담아줘", "담아"}
 CANCEL_WORDS = {"취소", "아니", "아니오", "no", "cancel"}
+CRED_TRIGGER_WORDS = {"계정등록", "도매처등록", "도매처계정등록", "계정 등록"}
 
 CART_SUPPORTED_VENDORS = ("yamimall", "ccdome", "3bong")
+KOREAN_TO_VENDOR_ID = {"야미몰": "yamimall", "과자생각": "ccdome", "삼봉몰": "3bong"}
+VENDOR_MENU_TEXT = "등록할 도매처를 입력해주세요: 야미몰 / 과자생각 / 삼봉몰"
 
 
 def send_message(chat_id, text: str) -> None:
@@ -84,12 +87,15 @@ def _resolve_order_list(text: str) -> tuple[list[dict], list[str]]:
     return matched, not_found
 
 
-def _execute_cart_adds(chat_id, store_name: str, items: list[dict]) -> None:
+def _execute_cart_adds(chat_id, store_id: str, items: list[dict]) -> None:
     results = []
     for item in items:
-        creds = vendors.get_vendor_credentials(item["vendor_id"])
+        creds = vendors.get_store_vendor_credentials(store_id, item["vendor_id"])
         if not creds:
-            results.append(f"✗ {item['item_name']} - {item['vendor_name']} 계정 정보 없음")
+            results.append(
+                f"✗ {item['item_name']} - {item['vendor_name']} 계정 미등록 "
+                f"('계정등록'이라고 보내서 먼저 등록해주세요)"
+            )
             continue
 
         login_id, login_pwd = creds
@@ -105,7 +111,7 @@ def _execute_cart_adds(chat_id, store_name: str, items: list[dict]) -> None:
 
         if result.get("ok"):
             results.append(f"✓ {item['item_name']} - {item['vendor_name']} 담기 완료")
-            popularity.log_event(store_name, "wholesale", item["item_key"], item["item_name"], item["qty"])
+            popularity.log_event(store_id, "wholesale", item["item_key"], item["item_name"], item["qty"])
         else:
             results.append(f"✗ {item['item_name']} - {item['vendor_name']} 실패: {result.get('reason', '')}")
 
@@ -132,6 +138,38 @@ def _handle_registration(chat_id: str, reg: dict, text: str) -> None:
             "등록 신청이 완료되었습니다. 대표님 승인을 기다려주세요.\n"
             f"(내 chat_id: {chat_id})",
         )
+
+
+def _handle_credential_flow(chat_id: str, store_id: str, reg: dict, text: str) -> None:
+    step = reg["cred_step"]
+
+    if step == "vendor":
+        vendor_id = KOREAN_TO_VENDOR_ID.get(text.strip())
+        if not vendor_id:
+            send_message(chat_id, "찾을 수 없는 도매처예요.\n" + VENDOR_MENU_TEXT)
+            return
+        telegram_store.start_credential_registration(chat_id, vendor_id)
+        vendor_name = vendors.VENDORS[vendor_id]["name"]
+        send_message(chat_id, f"{vendor_name} 아이디를 입력해주세요.")
+        return
+
+    if step == "id":
+        telegram_store.save_credential_id(chat_id, text.strip())
+        vendor_name = vendors.VENDORS[reg["cred_vendor"]]["name"]
+        send_message(chat_id, f"{vendor_name} 비밀번호를 입력해주세요.")
+        return
+
+    if step == "pwd":
+        vendor_id = reg["cred_vendor"]
+        vendor_name = vendors.VENDORS[vendor_id]["name"]
+        vendors.set_store_vendor_credentials(store_id, vendor_id, reg["cred_temp_id"], text.strip())
+        telegram_store.clear_credential_registration(chat_id)
+        send_message(
+            chat_id,
+            f"{vendor_name} 계정이 등록되었습니다.\n"
+            "다른 도매처도 등록하려면 '계정등록'이라고 다시 보내주세요.",
+        )
+        return
 
 
 def handle_update(update: dict) -> None:
@@ -164,6 +202,15 @@ def handle_update(update: dict) -> None:
 
     store_name = reg["store_name"]
     normalized = text.lower()
+
+    if reg.get("cred_step"):
+        _handle_credential_flow(chat_id, store_name, reg, text)
+        return
+
+    if text.strip() in CRED_TRIGGER_WORDS:
+        telegram_store.start_credential_menu(chat_id)
+        send_message(chat_id, VENDOR_MENU_TEXT)
+        return
 
     if normalized in CANCEL_WORDS:
         telegram_store.clear_pending(chat_id)

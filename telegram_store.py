@@ -30,7 +30,11 @@ def init_telegram_tables():
 
     # 기존에 만들어진 테이블에 새 컬럼을 안전하게 추가 (마이그레이션)
     existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(telegram_stores)").fetchall()}
-    for col_def in ["phone TEXT", "business_number TEXT", "registration_step TEXT"]:
+    new_columns = [
+        "phone TEXT", "business_number TEXT", "registration_step TEXT",
+        "cred_vendor TEXT", "cred_step TEXT", "cred_temp_id TEXT",
+    ]
+    for col_def in new_columns:
         col_name = col_def.split()[0]
         if col_name not in existing_cols:
             cur.execute(f"ALTER TABLE telegram_stores ADD COLUMN {col_def}")
@@ -57,7 +61,8 @@ def get_registration(chat_id: str) -> dict | None:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT chat_id, store_name, display_name, phone, business_number, registration_step, approved
+    SELECT chat_id, store_name, display_name, phone, business_number, registration_step, approved,
+           cred_vendor, cred_step, cred_temp_id
     FROM telegram_stores WHERE chat_id = ?
     """, (chat_id,))
     row = cur.fetchone()
@@ -68,7 +73,50 @@ def get_registration(chat_id: str) -> dict | None:
         "chat_id": row[0], "store_name": row[1], "display_name": row[2],
         "phone": row[3], "business_number": row[4],
         "registration_step": row[5], "approved": bool(row[6]),
+        "cred_vendor": row[7], "cred_step": row[8], "cred_temp_id": row[9],
     }
+
+
+def start_credential_menu(chat_id: str) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    UPDATE telegram_stores SET cred_vendor = NULL, cred_step = 'vendor', cred_temp_id = NULL
+    WHERE chat_id = ?
+    """, (chat_id,))
+    conn.commit()
+    conn.close()
+
+
+def start_credential_registration(chat_id: str, vendor_id: str) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    UPDATE telegram_stores SET cred_vendor = ?, cred_step = 'id', cred_temp_id = NULL
+    WHERE chat_id = ?
+    """, (vendor_id, chat_id))
+    conn.commit()
+    conn.close()
+
+
+def save_credential_id(chat_id: str, login_id: str) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    UPDATE telegram_stores SET cred_temp_id = ?, cred_step = 'pwd' WHERE chat_id = ?
+    """, (login_id, chat_id))
+    conn.commit()
+    conn.close()
+
+
+def clear_credential_registration(chat_id: str) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    UPDATE telegram_stores SET cred_vendor = NULL, cred_step = NULL, cred_temp_id = NULL WHERE chat_id = ?
+    """, (chat_id,))
+    conn.commit()
+    conn.close()
 
 
 def start_registration(chat_id: str, display_name: str) -> None:

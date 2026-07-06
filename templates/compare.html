@@ -102,9 +102,9 @@
     section-title { display: block; font-size: 15px; margin: 20px 0 10px; font-weight: 700; }
 
     .store-row { display: flex; gap: 8px; margin-bottom: 10px; }
-    .store-row input {
+    .store-row select {
       flex: 1; padding: 8px 10px; border: 1px solid var(--line);
-      border-radius: 8px; font-size: 13px;
+      border-radius: 8px; font-size: 13px; background: white;
     }
     .offer-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
     .qty-input {
@@ -123,7 +123,9 @@
 <body>
   <h1>도매처 가격비교</h1>
   <div class="store-row">
-    <input id="storeId" type="text" placeholder="지점명을 입력하세요 (인기상품 집계에 사용됩니다)" />
+    <select id="storeId">
+      <option value="">지점을 선택하세요</option>
+    </select>
   </div>
   <div class="search-row">
     <input id="keyword" type="text" placeholder="상품명을 검색하세요 (예: 젤리)" />
@@ -137,10 +139,26 @@
     const resultsEl = document.getElementById("results");
     const storeInput = document.getElementById("storeId");
 
-    storeInput.value = localStorage.getItem("compare_store_id") || "";
     storeInput.addEventListener("change", () => {
-      localStorage.setItem("compare_store_id", storeInput.value.trim());
+      localStorage.setItem("compare_store_id", storeInput.value);
     });
+
+    async function loadApprovedStores() {
+      const res = await fetch("/api/telegram/approved-stores");
+      const data = await res.json();
+      const saved = localStorage.getItem("compare_store_id") || "";
+
+      (data.stores || []).forEach((s) => {
+        const opt = document.createElement("option");
+        opt.value = s.store_name;
+        opt.textContent = s.store_name;
+        storeInput.appendChild(opt);
+      });
+
+      if (saved) storeInput.value = saved;
+    }
+
+    loadApprovedStores();
 
     const VENDOR_COLORS = {
       yamimall: "#f97316",
@@ -154,7 +172,7 @@
     async function addToCart(vendorId, productUrl, itemName, itemKey, btnEl) {
       const storeId = storeInput.value.trim();
       if (!storeId) {
-        alert("지점명을 먼저 입력해주세요.");
+        alert("지점을 먼저 선택해주세요.");
         storeInput.focus();
         return;
       }

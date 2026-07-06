@@ -142,3 +142,81 @@ def get_enabled_vendor_ids() -> list[str]:
     ids = [r[0] for r in cur.fetchall()]
     conn.close()
     return ids
+
+
+# --- 지점별 도매처 계정 (실제 담기/구매용. 가격비교용 크롤링은 위 대표 계정을 그대로 사용) ---
+
+def init_store_vendor_table():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS store_vendor_credentials (
+        store_id TEXT,
+        vendor_id TEXT,
+        login_id_enc TEXT,
+        login_pwd_enc TEXT,
+        updated_at TEXT,
+        PRIMARY KEY (store_id, vendor_id)
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def set_store_vendor_credentials(store_id: str, vendor_id: str, login_id: str, login_pwd: str) -> None:
+    if vendor_id not in VENDORS:
+        raise ValueError(f"알 수 없는 도매처: {vendor_id}")
+
+    fernet = _get_fernet()
+    login_id_enc = fernet.encrypt(login_id.encode("utf-8")).decode("utf-8")
+    login_pwd_enc = fernet.encrypt(login_pwd.encode("utf-8")).decode("utf-8")
+    now = datetime.now().isoformat(timespec="seconds")
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    INSERT INTO store_vendor_credentials (store_id, vendor_id, login_id_enc, login_pwd_enc, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(store_id, vendor_id) DO UPDATE SET
+        login_id_enc = excluded.login_id_enc,
+        login_pwd_enc = excluded.login_pwd_enc,
+        updated_at = excluded.updated_at
+    """, (store_id, vendor_id, login_id_enc, login_pwd_enc, now))
+    conn.commit()
+    conn.close()
+
+
+def get_store_vendor_credentials(store_id: str, vendor_id: str) -> tuple[str, str] | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT login_id_enc, login_pwd_enc FROM store_vendor_credentials WHERE store_id = ? AND vendor_id = ?",
+        (store_id, vendor_id),
+    )
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    fernet = _get_fernet()
+    try:
+        login_id = fernet.decrypt(row[0].encode("utf-8")).decode("utf-8")
+        login_pwd = fernet.decrypt(row[1].encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        raise RuntimeError(f"{store_id}/{vendor_id} 자격증명 복호화 실패")
+    return login_id, login_pwd
+
+
+def list_store_vendor_status(store_id: str) -> list[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT vendor_id FROM store_vendor_credentials WHERE store_id = ?", (store_id,))
+    registered = {r[0] for r in cur.fetchall()}
+    conn.close()
+
+    return [
+        {"vendor_id": vid, "name": meta["name"], "registered": vid in registered}
+        for vid, meta in VENDORS.items()
+        if vid in ("yamimall", "ccdome", "3bong")
+    ]

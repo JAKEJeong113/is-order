@@ -81,6 +81,7 @@ vendors.init_vendor_table()
 catalog_cache.init_catalog_table()
 popularity.init_popularity_table()
 telegram_store.init_telegram_tables()
+vendors.init_store_vendor_table()
 
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 scheduler.add_job(
@@ -298,16 +299,26 @@ class CartAddRequest(BaseModel):
     vendor_id: str
     product_url: str
     qty: int = Field(1, ge=1, le=99)
-    store_id: str = "unknown"
+    store_id: str
     item_name: str = ""
     item_key: str = ""
 
 
+@app.get("/api/telegram/approved-stores")
+def api_approved_stores():
+    stores = [s for s in telegram_store.list_stores() if s["approved"]]
+    return {"stores": [{"store_name": s["store_name"]} for s in stores]}
+
+
 @app.post("/api/cart-add")
 def api_cart_add(req: CartAddRequest):
-    creds = vendors.get_vendor_credentials(req.vendor_id)
+    approved_names = {s["store_name"] for s in telegram_store.list_stores() if s["approved"]}
+    if req.store_id not in approved_names:
+        return {"ok": False, "reason": "승인된 지점이 아닙니다. 지점을 다시 선택해주세요."}
+
+    creds = vendors.get_store_vendor_credentials(req.store_id, req.vendor_id)
     if not creds:
-        return {"ok": False, "reason": "저장된 계정이 없습니다."}
+        return {"ok": False, "reason": f"{req.store_id}에 등록된 계정이 없습니다. 텔레그램 봇에 '계정등록'으로 먼저 등록해주세요."}
     login_id, login_pwd = creds
 
     if req.vendor_id == "yamimall":
