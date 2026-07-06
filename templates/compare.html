@@ -151,13 +151,9 @@
       }
 
       currentUser = data;
-      const storeTag = data.linked_store_name
-        ? `<span class="store-tag">${data.linked_store_name}</span>`
-        : `<span class="store-tag" style="background:#fef3c7;color:#92400e;">가맹점 미연결</span>`;
-
       userBar.innerHTML = `
-        <span>${data.display_name} (${data.email})${storeTag}</span>
-        <a href="#" onclick="logout(); return false;">로그아웃</a>
+        <span>${data.display_name} (${data.email})</span>
+        <span><a href="/my-vendors">내 도매처 계정</a> · <a href="#" onclick="logout(); return false;">로그아웃</a></span>
       `;
     }
 
@@ -178,11 +174,6 @@
     const CART_SUPPORTED_VENDORS = ["yamimall", "ccdome", "3bong"];
 
     async function addToCart(vendorId, productUrl, itemName, itemKey, btnEl) {
-      if (!currentUser || !currentUser.linked_store_name) {
-        alert("이 계정은 가맹점으로 연결되어 있지 않아 담기를 쓸 수 없습니다. 대표님께 연결을 요청해주세요.");
-        return;
-      }
-
       const row = btnEl.closest(".offer-row");
       const qty = parseInt(row.querySelector(".qty-input").value, 10) || 1;
       const statusEl = row.querySelector(".cart-status");

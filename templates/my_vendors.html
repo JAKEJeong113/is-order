@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>내 도매처 계정</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+    .back-link { font-size: 13px; color: var(--mint); text-decoration: none; display: inline-block; margin-bottom: 16px; }
+    .vendor-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px; margin-bottom: 12px;
+    }
+    .vendor-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .vendor-name { font-weight: 700; font-size: 16px; }
+    .badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 999px;
+      background: var(--mint-soft); color: #0f766e;
+    }
+    .cred-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .cred-row input {
+      flex: 1; min-width: 140px; padding: 8px 10px;
+      border: 1px solid var(--line); border-radius: 8px; font-size: 14px;
+    }
+    .save-btn {
+      padding: 8px 14px; border: none; border-radius: 8px;
+      background: var(--mint); color: white; font-weight: 600; cursor: pointer;
+    }
+    .status-text { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <a class="back-link" href="/compare">← 가격비교로 돌아가기</a>
+  <h1>내 도매처 계정</h1>
+  <div class="hint-text">여기에 등록한 계정으로 실제 "담기"가 진행됩니다. 도매처 자체 계정(아이디/비밀번호)이 필요합니다.</div>
+  <div id="vendor-list"></div>
+
+  <script>
+    async function loadVendors() {
+      const res = await fetch("/api/my-vendors");
+      const data = await res.json();
+      const list = document.getElementById("vendor-list");
+      list.innerHTML = "";
+
+      data.vendors.forEach((v) => {
+        const card = document.createElement("div");
+        card.className = "vendor-card";
+        card.innerHTML = `
+          <div class="vendor-head">
+            <span class="vendor-name">${v.name}</span>
+            ${v.registered ? '<span class="badge">등록됨</span>' : ""}
+          </div>
+          <div class="cred-row">
+            <input type="text" placeholder="아이디" class="login-id" data-vendor="${v.vendor_id}">
+            <input type="password" placeholder="비밀번호" class="login-pwd" data-vendor="${v.vendor_id}">
+            <button class="save-btn" data-vendor="${v.vendor_id}">저장</button>
+          </div>
+          <div class="status-text save-status" data-vendor="${v.vendor_id}"></div>
+        `;
+        list.appendChild(card);
+      });
+
+      document.querySelectorAll(".save-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const vendorId = btn.dataset.vendor;
+          const idInput = document.querySelector(`.login-id[data-vendor="${vendorId}"]`);
+          const pwInput = document.querySelector(`.login-pwd[data-vendor="${vendorId}"]`);
+          const statusEl = document.querySelector(`.save-status[data-vendor="${vendorId}"]`);
+
+          if (!idInput.value || !pwInput.value) {
+            statusEl.textContent = "아이디와 비밀번호를 모두 입력해주세요.";
+            return;
+          }
+
+          btn.disabled = true;
+          statusEl.textContent = "저장 중...";
+
+          const res = await fetch(`/api/my-vendors/${vendorId}/credentials`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ login_id: idInput.value, login_pwd: pwInput.value }),
+          });
+          const data = await res.json();
+
+          btn.disabled = false;
+          statusEl.textContent = data.ok ? "저장 완료" : `저장 실패: ${data.message || ""}`;
+          if (data.ok) {
+            pwInput.value = "";
+            loadVendors();
+          }
+        });
+      });
+    }
+
+    loadVendors();
+  </script>
+</body>
+</html>

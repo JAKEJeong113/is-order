@@ -388,13 +388,12 @@ class CartAddRequest(BaseModel):
 
 @app.post("/api/cart-add")
 def api_cart_add(req: CartAddRequest, user: dict = Depends(require_web_user)):
-    store_id = user.get("linked_store_name")
-    if not store_id:
-        return {"ok": False, "reason": "이 계정은 가맹점으로 연결되어 있지 않습니다. 대표님께 연결을 요청해주세요."}
+    store_id = f"web:{user['email']}"
 
     creds = vendors.get_store_vendor_credentials(store_id, req.vendor_id)
     if not creds:
-        return {"ok": False, "reason": f"{store_id}에 등록된 계정이 없습니다. 텔레그램 봇에 '계정등록'으로 먼저 등록해주세요."}
+        vendor_name = vendors.VENDORS.get(req.vendor_id, {}).get("name", req.vendor_id)
+        return {"ok": False, "reason": f"{vendor_name} 계정이 등록되어 있지 않습니다. '내 도매처 계정'에서 먼저 등록해주세요."}
     login_id, login_pwd = creds
 
     if req.vendor_id == "yamimall":
@@ -415,6 +414,34 @@ def api_cart_add(req: CartAddRequest, user: dict = Depends(require_web_user)):
         )
 
     return result
+
+
+@app.get("/my-vendors", response_class=HTMLResponse)
+def my_vendors_page(request: Request):
+    if not get_current_web_user(request):
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("my_vendors.html", {"request": request})
+
+
+@app.get("/api/my-vendors")
+def api_my_vendors_status(user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    return {"vendors": vendors.list_store_vendor_status(store_id)}
+
+
+class MyVendorCredentialsRequest(BaseModel):
+    login_id: str
+    login_pwd: str
+
+
+@app.post("/api/my-vendors/{vendor_id}/credentials")
+def api_my_vendors_save(vendor_id: str, req: MyVendorCredentialsRequest, user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    try:
+        vendors.set_store_vendor_credentials(store_id, vendor_id, req.login_id, req.login_pwd)
+    except ValueError as e:
+        return {"ok": False, "message": str(e)}
+    return {"ok": True}
 
 
 @app.get("/popular", response_class=HTMLResponse)
