@@ -59,7 +59,7 @@
       const data = await res.json();
 
       if (data.ok) {
-        window.location.href = "/compare";
+        window.location.href = "/home";
       } else {
         errorEl.textContent = data.message || "가입에 실패했습니다.";
       }

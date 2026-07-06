@@ -13,8 +13,8 @@
     body {
       margin: 0; background: var(--bg); color: var(--text);
       font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
-      padding: 24px 16px 80px;
     }
+    .app-main { padding-bottom: 80px; }
     h1 { font-size: 20px; margin: 0 0 8px; }
     .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
     .back-link { font-size: 13px; color: var(--mint); text-decoration: none; display: inline-block; margin-bottom: 16px; }
@@ -41,10 +41,13 @@
   </style>
 </head>
 <body>
-  <a class="back-link" href="/compare">← 가격비교로 돌아가기</a>
+  {% include "_sidebar.html" %}
   <h1>내 도매처 계정</h1>
   <div class="hint-text">여기에 등록한 계정으로 실제 "담기"가 진행됩니다. 도매처 자체 계정(아이디/비밀번호)이 필요합니다.</div>
   <div id="vendor-list"></div>
+
+      </div>
+    </div>
 
   <script>
     async function loadVendors() {

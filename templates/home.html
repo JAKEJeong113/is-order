@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>홈</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+    }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .sub-text { font-size: 13px; color: var(--muted); margin: 0 0 20px; }
+    .search-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px 18px; margin-bottom: 20px;
+    }
+    .search-label { font-size: 13px; color: var(--muted); margin: 0 0 10px; }
+    .search-row { display: flex; gap: 8px; }
+    .search-row input {
+      flex: 1; padding: 10px 12px; border: 1px solid var(--line);
+      border-radius: 8px; font-size: 14px;
+    }
+    .search-row button {
+      padding: 10px 16px; border: none; border-radius: 8px;
+      background: var(--mint); color: white; font-weight: 700; cursor: pointer;
+    }
+    .search-result-row {
+      margin-top: 10px; background: var(--bg); border-radius: 8px;
+      padding: 10px 12px; display: flex; justify-content: space-between; align-items: center;
+    }
+    .search-result-name { font-size: 13px; font-weight: 600; margin: 0; }
+    .search-result-sub { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
+    .search-result-price { font-size: 15px; font-weight: 700; }
+    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+    .stat-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+    }
+    .stat-label { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+    .stat-value { font-size: 22px; font-weight: 700; margin: 0; }
+    .empty-text { color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  {% include "_sidebar.html" %}
+  <h1 id="welcomeTitle">안녕하세요</h1>
+  <p class="sub-text" id="todayDate"></p>
+
+  <div class="search-card">
+    <p class="search-label">상품 정보 빠른 검색 (신규/미등록 상품 확인용)</p>
+    <div class="search-row">
+      <input id="quickSearch" type="text" placeholder="상품명 또는 바코드 입력" />
+      <button id="quickSearchBtn">검색</button>
+    </div>
+    <div id="quickSearchResults"></div>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat-card">
+      <p class="stat-label">등록된 도매처</p>
+      <p class="stat-value" id="vendorStat">-</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">인기상품 1위 (아이스크림)</p>
+      <p class="stat-value" id="popularStat" style="font-size:15px;">-</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">인기상품 1위 (도매처)</p>
+      <p class="stat-value" id="popularWholesaleStat" style="font-size:15px;">-</p>
+    </div>
+  </div>
+
+      </div>
+    </div>
+
+    <script>
+      const today = new Date();
+      document.getElementById("todayDate").textContent = today.toLocaleDateString("ko-KR", {
+        year: "numeric", month: "long", day: "numeric", weekday: "long",
+      });
+
+      async function loadUser() {
+        const res = await fetch("/api/auth/me");
+        const data = await res.json();
+        if (!data.logged_in) {
+          window.location.href = "/login";
+          return;
+        }
+        document.getElementById("welcomeTitle").textContent = `안녕하세요, ${data.display_name}님`;
+      }
+
+      async function loadStats() {
+        const vendorRes = await fetch("/api/my-vendors");
+        const vendorData = await vendorRes.json();
+        const registered = (vendorData.vendors || []).filter((v) => v.registered).length;
+        const total = (vendorData.vendors || []).length;
+        document.getElementById("vendorStat").textContent = `${registered} / ${total}`;
+
+        const popularRes = await fetch("/api/popular?category=icecream&limit=1");
+        const popularData = await popularRes.json();
+        document.getElementById("popularStat").textContent =
+          popularData.items && popularData.items.length ? popularData.items[0].item_name : "데이터 없음";
+
+        const wholesaleRes = await fetch("/api/popular?category=wholesale&limit=1");
+        const wholesaleData = await wholesaleRes.json();
+        document.getElementById("popularWholesaleStat").textContent =
+          wholesaleData.items && wholesaleData.items.length ? wholesaleData.items[0].item_name : "데이터 없음";
+      }
+
+      async function runQuickSearch() {
+        const keyword = document.getElementById("quickSearch").value.trim();
+        const resultsEl = document.getElementById("quickSearchResults");
+        if (!keyword) return;
+
+        resultsEl.innerHTML = '<p class="empty-text" style="margin-top:10px;">검색 중...</p>';
+        const res = await fetch(`/api/products/search?q=${encodeURIComponent(keyword)}`);
+        const data = await res.json();
+
+        if (!data.items || data.items.length === 0) {
+          resultsEl.innerHTML = '<p class="empty-text" style="margin-top:10px;">등록된 상품 정보를 찾지 못했습니다.</p>';
+          return;
+        }
+
+        resultsEl.innerHTML = data.items.slice(0, 5).map((item) => `
+          <div class="search-result-row">
+            <div>
+              <p class="search-result-name">${item.menu_name || "(이름 없음)"}</p>
+              <p class="search-result-sub">바코드: ${item.barcode || "-"}</p>
+            </div>
+            <span class="search-result-price">${item.recommended_price ? Number(item.recommended_price).toLocaleString() + "원" : "가격 미등록"}</span>
+          </div>
+        `).join("");
+      }
+
+      document.getElementById("quickSearchBtn").addEventListener("click", runQuickSearch);
+      document.getElementById("quickSearch").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") runQuickSearch();
+      });
+
+      loadUser();
+      loadStats();
+    </script>
+</body>
+</html>

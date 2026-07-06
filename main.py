@@ -62,7 +62,7 @@ CP_METHOD = "POST"
 CP_PATH = "/v2/providers/affiliate_open_api/apis/openapi/deeplink"
 
 app = FastAPI(title="OrderQueen Sales Importer", version="0.6.0")
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 admin_security = HTTPBasic()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
@@ -354,7 +354,7 @@ class PriceCompareRequest(BaseModel):
 def compare_page(request: Request):
     if not get_current_web_user(request):
         return RedirectResponse(url="/login")
-    return templates.TemplateResponse("compare.html", {"request": request})
+    return templates.TemplateResponse("compare.html", {"request": request, "active_page": "compare"})
 
 
 @app.post("/api/price-compare")
@@ -422,7 +422,7 @@ def api_cart_add(req: CartAddRequest, user: dict = Depends(require_web_user)):
 def my_vendors_page(request: Request):
     if not get_current_web_user(request):
         return RedirectResponse(url="/login")
-    return templates.TemplateResponse("my_vendors.html", {"request": request})
+    return templates.TemplateResponse("my_vendors.html", {"request": request, "active_page": "vendors"})
 
 
 @app.get("/api/my-vendors")
@@ -448,7 +448,16 @@ def api_my_vendors_save(vendor_id: str, req: MyVendorCredentialsRequest, user: d
 
 @app.get("/popular", response_class=HTMLResponse)
 def popular_page(request: Request):
-    return templates.TemplateResponse("popular.html", {"request": request})
+    if not get_current_web_user(request):
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("popular.html", {"request": request, "active_page": "popular"})
+
+
+@app.get("/home", response_class=HTMLResponse)
+def home_page(request: Request):
+    if not get_current_web_user(request):
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("home.html", {"request": request, "active_page": "home"})
 
 
 @app.get("/api/popular")

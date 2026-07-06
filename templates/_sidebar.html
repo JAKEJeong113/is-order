@@ -1,0 +1,37 @@
+<style>
+  .app-shell { display: flex; min-height: 100vh; align-items: stretch; }
+  .app-sidebar {
+    width: 180px; flex-shrink: 0; background: var(--card);
+    border-right: 1px solid var(--line); padding: 20px 12px;
+    display: flex; flex-direction: column; gap: 4px;
+    position: sticky; top: 0; align-self: flex-start; height: 100vh;
+  }
+  .app-sidebar .app-brand { font-size: 15px; font-weight: 700; padding: 0 10px 16px; }
+  .app-nav-item {
+    display: block; padding: 10px; border-radius: 8px; text-decoration: none;
+    color: var(--text); font-size: 13px; font-weight: 600;
+  }
+  .app-nav-item:hover { background: var(--bg); }
+  .app-nav-item.active { background: var(--mint-soft); color: var(--mint-text); }
+  .app-sidebar .app-spacer { flex: 1; }
+  .app-sidebar .app-footer {
+    font-size: 11px; color: var(--muted); padding: 8px 10px 0;
+    border-top: 1px solid var(--line);
+  }
+  .app-sidebar .app-footer a { color: inherit; }
+  .app-main { flex: 1; padding: 24px; min-width: 0; }
+</style>
+<div class="app-shell">
+  <div class="app-sidebar">
+    <div class="app-brand">i'S ORDER</div>
+    <a class="app-nav-item {{ 'active' if active_page == 'home' else '' }}" href="/home">홈</a>
+    <a class="app-nav-item {{ 'active' if active_page == 'order' else '' }}" href="/">발주 가져오기</a>
+    <a class="app-nav-item {{ 'active' if active_page == 'compare' else '' }}" href="/compare">가격비교</a>
+    <a class="app-nav-item {{ 'active' if active_page == 'popular' else '' }}" href="/popular">인기상품</a>
+    <a class="app-nav-item {{ 'active' if active_page == 'vendors' else '' }}" href="/my-vendors">내 도매처 계정</a>
+    <div class="app-spacer"></div>
+    <div class="app-footer" id="appShellUserInfo">
+      <a href="#" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>window.location.href='/login');return false;">로그아웃</a>
+    </div>
+  </div>
+  <div class="app-main">

@@ -21,8 +21,8 @@
       background: var(--bg);
       color: var(--text);
       font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
-      padding: 24px 16px 80px;
     }
+    .app-main { padding-bottom: 80px; }
     h1 { font-size: 20px; margin: 0 0 16px; }
     .search-row { display: flex; gap: 8px; margin-bottom: 20px; }
     .search-row input {
@@ -125,6 +125,7 @@
   </style>
 </head>
 <body>
+  {% include "_sidebar.html" %}
   <h1>도매처 가격비교</h1>
   <div class="user-bar" id="userBar"></div>
   <div class="search-row">
@@ -132,6 +133,9 @@
     <button id="searchBtn">비교</button>
   </div>
   <div id="results"></div>
+
+      </div>
+    </div>
 
   <script>
     const input = document.getElementById("keyword");

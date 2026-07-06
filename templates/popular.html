@@ -13,8 +13,8 @@
     body {
       margin: 0; background: var(--bg); color: var(--text);
       font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
-      padding: 24px 16px 80px;
     }
+    .app-main { padding-bottom: 80px; }
     h1 { font-size: 20px; margin: 0 0 16px; }
     .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
     .tab {
@@ -40,6 +40,7 @@
   </style>
 </head>
 <body>
+  {% include "_sidebar.html" %}
   <h1>인기상품 TOP30 (전 가맹점 합산)</h1>
   <div class="tabs">
     <div class="tab active" data-category="icecream" onclick="selectTab('icecream')">아이스크림</div>
@@ -47,6 +48,9 @@
     <div class="tab" data-category="wholesale" onclick="selectTab('wholesale')">도매처</div>
   </div>
   <div id="list"></div>
+
+      </div>
+    </div>
 
   <script>
     async function selectTab(category) {
