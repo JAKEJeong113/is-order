@@ -283,6 +283,16 @@ def _extract_list_page_items(page) -> list[dict]:
     return items
 
 
+def _block_heavy_resources(page) -> None:
+    """크롤링은 텍스트/가격만 필요하므로 이미지·폰트·미디어를 차단해 메모리 사용을 줄인다."""
+    page.route(
+        "**/*",
+        lambda route: route.abort()
+        if route.request.resource_type in ("image", "media", "font")
+        else route.continue_(),
+    )
+
+
 def crawl_full_catalog(username: str, password: str) -> list[dict]:
     """카테고리별 '전체보기' 코드를 모두 순회해서 전체 상품을 수집한다."""
     products: dict[str, dict] = {}
@@ -293,6 +303,7 @@ def crawl_full_catalog(username: str, password: str) -> list[dict]:
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"],
         )
         page = browser.new_page()
+        _block_heavy_resources(page)
 
         try:
             login_yamimall(page, username, password)

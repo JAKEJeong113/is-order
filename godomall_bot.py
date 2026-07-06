@@ -124,6 +124,16 @@ def _extract_page_items(page: Page, base_url: str) -> list[dict]:
     return results
 
 
+def _block_heavy_resources(page: Page) -> None:
+    """크롤링은 텍스트/가격만 필요하므로 이미지·폰트·미디어를 차단해 메모리 사용을 줄인다."""
+    page.route(
+        "**/*",
+        lambda route: route.abort()
+        if route.request.resource_type in ("image", "media", "font")
+        else route.continue_(),
+    )
+
+
 def crawl_full_catalog(base_url: str, login_id: str, login_pwd: str, category_code: str, max_pages: int = 60) -> list[dict]:
     """'전체상품' 카테고리(스토어마다 cateCd가 다름)를 끝까지 페이지를 넘기며 전부 수집한다."""
     all_products: dict[str, dict] = {}
@@ -134,6 +144,7 @@ def crawl_full_catalog(base_url: str, login_id: str, login_pwd: str, category_co
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"],
         )
         page = browser.new_page()
+        _block_heavy_resources(page)
 
         try:
             login_godomall(page, base_url, login_id, login_pwd)
