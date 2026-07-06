@@ -33,6 +33,7 @@ def init_telegram_tables():
     new_columns = [
         "phone TEXT", "business_number TEXT", "registration_step TEXT",
         "cred_vendor TEXT", "cred_step TEXT", "cred_temp_id TEXT",
+        "preferred_vendor TEXT", "disabled_vendors TEXT",
     ]
     for col_def in new_columns:
         col_name = col_def.split()[0]
@@ -62,7 +63,7 @@ def get_registration(chat_id: str) -> dict | None:
     cur = conn.cursor()
     cur.execute("""
     SELECT chat_id, store_name, display_name, phone, business_number, registration_step, approved,
-           cred_vendor, cred_step, cred_temp_id
+           cred_vendor, cred_step, cred_temp_id, preferred_vendor, disabled_vendors
     FROM telegram_stores WHERE chat_id = ?
     """, (chat_id,))
     row = cur.fetchone()
@@ -74,7 +75,35 @@ def get_registration(chat_id: str) -> dict | None:
         "phone": row[3], "business_number": row[4],
         "registration_step": row[5], "approved": bool(row[6]),
         "cred_vendor": row[7], "cred_step": row[8], "cred_temp_id": row[9],
+        "preferred_vendor": row[10],
+        "disabled_vendors": [v for v in (row[11] or "").split(",") if v],
     }
+
+
+def set_preferred_vendor(chat_id: str, vendor_id: str | None) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE telegram_stores SET preferred_vendor = ? WHERE chat_id = ?", (vendor_id, chat_id))
+    conn.commit()
+    conn.close()
+
+
+def set_vendor_enabled_for_store(chat_id: str, vendor_id: str, enabled: bool) -> None:
+    reg = get_registration(chat_id)
+    disabled = set(reg["disabled_vendors"]) if reg else set()
+    if enabled:
+        disabled.discard(vendor_id)
+    else:
+        disabled.add(vendor_id)
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE telegram_stores SET disabled_vendors = ? WHERE chat_id = ?",
+        (",".join(sorted(disabled)), chat_id),
+    )
+    conn.commit()
+    conn.close()
 
 
 def start_credential_menu(chat_id: str) -> None:

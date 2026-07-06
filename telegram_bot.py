@@ -3,6 +3,7 @@
 import os
 
 import requests
+from apscheduler.schedulers.background import BackgroundScheduler
 
 import godomall_bot
 import popularity
@@ -17,10 +18,40 @@ API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
 CONFIRM_WORDS = {"확인", "네", "예", "ok", "okay", "yes", "go", "담아줘", "담아"}
 CANCEL_WORDS = {"취소", "아니", "아니오", "no", "cancel"}
 CRED_TRIGGER_WORDS = {"계정등록", "도매처등록", "도매처계정등록", "계정 등록"}
+HELP_WORDS = {"도움말", "명령어", "help", "도움", "명령"}
 
 CART_SUPPORTED_VENDORS = ("yamimall", "ccdome", "3bong")
 KOREAN_TO_VENDOR_ID = {"야미몰": "yamimall", "과자생각": "ccdome", "삼봉몰": "3bong"}
+VENDOR_ID_TO_KOREAN = {v: k for k, v in KOREAN_TO_VENDOR_ID.items()}
 VENDOR_MENU_TEXT = "등록할 도매처를 입력해주세요: 야미몰 / 과자생각 / 삼봉몰"
+
+HELP_TEXT = """사용 가능한 명령어입니다:
+
+[발주하기]
+상품명을 줄바꿈으로 여러 개 보내면 최저가로 자동 비교해드려요.
+비교 결과가 오면 '확인'(담기) 또는 '취소'로 답장해주세요.
+
+[계정등록]
+도매처(야미몰/과자생각/삼봉몰) 아이디·비밀번호를 등록합니다.
+
+[주거래처 설정 (도매처명)]
+가격이 같을 때 우선으로 담을 도매처를 지정합니다. 예: 주거래처 설정 야미몰
+- 주거래처 확인: 현재 설정 확인
+- 주거래처 해제: 설정 해제
+
+[도매처 활성화 (도매처명)] / [도매처 비활성화 (도매처명)]
+가격비교에서 특정 도매처를 켜고 끌 수 있습니다. 예: 도매처 비활성화 삼봉몰
+- 도매처 목록: 현재 켜짐/꺼짐 상태 확인
+
+[도움말]
+이 안내를 다시 봅니다."""
+
+# 텔레그램 웹훅은 응답이 늦으면(수십 초 이상) 같은 메시지를 재전송하는데, 담기 작업은
+# 도매처마다 실제 브라우저를 띄우는 Playwright 호출이라 30초~수분씩 걸릴 수 있다.
+# 웹훅 요청 안에서 동기로 기다리면 재전송으로 인한 중복 처리가 발생하므로, 카탈로그
+# 크롤링과 동일하게 별도 스레드(APScheduler)에 맡기고 웹훅은 즉시 응답한다.
+_scheduler = BackgroundScheduler()
+_scheduler.start()
 
 
 def send_message(chat_id, text: str) -> None:
@@ -56,8 +87,31 @@ def _format_comparison(matched: list[dict], not_found: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _resolve_order_list(text: str) -> tuple[list[dict], list[str]]:
-    """줄바꿈으로 구분된 상품명을 각각 가격비교해서 최저가 항목을 고른다."""
+def _pick_best_offer(offers: list[dict], preferred_vendor: str | None) -> dict | None:
+    """CART_SUPPORTED_VENDORS 중 담을 수 있는 후보만 놓고, 최저가 동률이면 주거래처를 우선한다."""
+    candidates = [o for o in offers if o["vendor_id"] in CART_SUPPORTED_VENDORS and o.get("product_url")]
+    if not candidates:
+        return None
+
+    # offers는 이미 가격 오름차순 정렬되어 있음 (price_compare.compare 참고)
+    lowest_price = candidates[0].get("price")
+    tied = [o for o in candidates if o.get("price") == lowest_price]
+
+    if preferred_vendor:
+        for o in tied:
+            if o["vendor_id"] == preferred_vendor:
+                return o
+
+    return candidates[0]
+
+
+def _resolve_order_list(text: str, chat_id: str) -> tuple[list[dict], list[str]]:
+    """줄바꿈으로 구분된 상품명을 각각 가격비교해서 최저가 항목을 고른다.
+    지점별로 비활성화한 도매처는 제외하고, 최저가가 동률이면 주거래처를 우선한다."""
+    reg = telegram_store.get_registration(chat_id) or {}
+    disabled_vendors = set(reg.get("disabled_vendors") or [])
+    preferred_vendor = reg.get("preferred_vendor")
+
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     matched = []
     not_found = []
@@ -69,8 +123,9 @@ def _resolve_order_list(text: str) -> tuple[list[dict], list[str]]:
             not_found.append(keyword)
             continue
 
-        best_offer = groups[0]["offers"][0]
-        if best_offer["vendor_id"] not in CART_SUPPORTED_VENDORS or not best_offer.get("product_url"):
+        offers = [o for o in groups[0]["offers"] if o["vendor_id"] not in disabled_vendors]
+        best_offer = _pick_best_offer(offers, preferred_vendor)
+        if not best_offer:
             not_found.append(keyword)
             continue
 
@@ -172,6 +227,70 @@ def _handle_credential_flow(chat_id: str, store_id: str, reg: dict, text: str) -
         return
 
 
+def _handle_preferred_vendor_command(chat_id: str, text: str) -> None:
+    tokens = text.strip().split()  # tokens[0] == "주거래처"
+    rest = " ".join(t for t in tokens[1:] if t != "설정").strip()
+
+    if not rest or rest == "확인":
+        reg = telegram_store.get_registration(chat_id) or {}
+        preferred = reg.get("preferred_vendor")
+        if preferred:
+            send_message(chat_id, f"현재 주거래처는 {VENDOR_ID_TO_KOREAN.get(preferred, preferred)}입니다.")
+        else:
+            send_message(chat_id, "설정된 주거래처가 없습니다.\n'주거래처 설정 (도매처명)'으로 지정해주세요.")
+        return
+
+    if rest in ("해제", "취소"):
+        telegram_store.set_preferred_vendor(chat_id, None)
+        send_message(chat_id, "주거래처 설정을 해제했습니다.")
+        return
+
+    vendor_id = KOREAN_TO_VENDOR_ID.get(rest)
+    if not vendor_id:
+        send_message(chat_id, f"찾을 수 없는 도매처예요: {rest}\n{VENDOR_MENU_TEXT}")
+        return
+
+    telegram_store.set_preferred_vendor(chat_id, vendor_id)
+    send_message(
+        chat_id,
+        f"주거래처를 {vendors.VENDORS[vendor_id]['name']}(으)로 설정했습니다. (가격이 같을 때 우선 담습니다)",
+    )
+
+
+def _handle_vendor_toggle_command(chat_id: str, text: str) -> None:
+    tokens = text.strip().split()  # tokens[0] == "도매처"
+    if len(tokens) < 2:
+        send_message(chat_id, "사용법: 도매처 활성화 (도매처명) / 도매처 비활성화 (도매처명) / 도매처 목록")
+        return
+
+    action = tokens[1]
+
+    if action in ("목록", "확인", "상태"):
+        reg = telegram_store.get_registration(chat_id) or {}
+        disabled = set(reg.get("disabled_vendors") or [])
+        lines = ["현재 도매처 상태:"]
+        for vid in CART_SUPPORTED_VENDORS:
+            name = vendors.VENDORS[vid]["name"]
+            state = "꺼짐" if vid in disabled else "켜짐"
+            lines.append(f"• {name}: {state}")
+        send_message(chat_id, "\n".join(lines))
+        return
+
+    if action not in ("활성화", "비활성화"):
+        send_message(chat_id, "사용법: 도매처 활성화 (도매처명) / 도매처 비활성화 (도매처명) / 도매처 목록")
+        return
+
+    vendor_name = " ".join(tokens[2:]).strip()
+    vendor_id = KOREAN_TO_VENDOR_ID.get(vendor_name)
+    if not vendor_id:
+        send_message(chat_id, f"찾을 수 없는 도매처예요: {vendor_name}\n{VENDOR_MENU_TEXT}")
+        return
+
+    enabled = action == "활성화"
+    telegram_store.set_vendor_enabled_for_store(chat_id, vendor_id, enabled)
+    send_message(chat_id, f"{vendors.VENDORS[vendor_id]['name']}를 {action}했습니다.")
+
+
 def handle_update(update: dict) -> None:
     message = update.get("message") or {}
     chat = message.get("chat") or {}
@@ -226,11 +345,25 @@ def handle_update(update: dict) -> None:
         send_message(chat_id, "장바구니에 담는 중입니다. 잠시만 기다려주세요...")
         telegram_store.clear_pending(chat_id)
 
-        _execute_cart_adds(chat_id, store_name, pending)
+        # 담기는 시간이 걸려 웹훅 안에서 동기로 기다리면 텔레그램이 같은 메시지를 재전송해
+        # 중복 처리가 생기므로, 백그라운드 스레드에 맡기고 웹훅은 바로 끝낸다.
+        _scheduler.add_job(_execute_cart_adds, args=[chat_id, store_name, pending])
+        return
+
+    if text.strip() in HELP_WORDS:
+        send_message(chat_id, HELP_TEXT)
+        return
+
+    if text.strip().startswith("주거래처"):
+        _handle_preferred_vendor_command(chat_id, text)
+        return
+
+    if text.strip().startswith("도매처"):
+        _handle_vendor_toggle_command(chat_id, text)
         return
 
     # 새 발주 목록으로 처리
-    matched, not_found = _resolve_order_list(text)
+    matched, not_found = _resolve_order_list(text, chat_id)
     if matched:
         telegram_store.save_pending_items(chat_id, matched)
     send_message(chat_id, _format_comparison(matched, not_found))
