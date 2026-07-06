@@ -177,6 +177,32 @@
 
     const CART_SUPPORTED_VENDORS = ["yamimall", "ccdome", "3bong"];
 
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    // 상품명에 줄바꿈 등이 섞여 있으면 onclick="addToCart('...')" 형태의 인라인 문자열이
+    // 깨져서 버튼이 아예 반응하지 않는 문제가 있었다. data-* 속성 + 이벤트 위임으로 바꿔
+    // 값이 항상 안전하게 전달되도록 한다.
+    // .offer-row/.offer-actions가 그룹 카드 토글을 막으려고 stopPropagation을 호출하므로,
+    // bubble 단계에서 위임하면 여기까지 이벤트가 올라오지 못한다. capture 단계에서 먼저
+    // 잡아서 stopPropagation의 영향을 받지 않게 한다.
+    resultsEl.addEventListener("click", (e) => {
+      const btnEl = e.target.closest(".cart-btn");
+      if (!btnEl) return;
+      addToCart(
+        btnEl.dataset.vendorId,
+        btnEl.dataset.productUrl,
+        btnEl.dataset.itemName,
+        btnEl.dataset.itemKey,
+        btnEl,
+      );
+    }, true);
+
     async function addToCart(vendorId, productUrl, itemName, itemKey, btnEl) {
       const row = btnEl.closest(".offer-row");
       const qty = parseInt(row.querySelector(".qty-input").value, 10) || 1;
@@ -254,7 +280,12 @@
       const cartHtml = CART_SUPPORTED_VENDORS.includes(o.vendor_id) && o.product_url ? `
         <div class="offer-actions" onclick="event.stopPropagation()">
           <input type="number" class="qty-input" value="1" min="1" max="99">
-          <button class="cart-btn" onclick="addToCart('${o.vendor_id}', '${o.product_url}', '${nameText.replace(/'/g, "\\'")}', '${o.goods_no || o.product_url}', this)">담기</button>
+          <button class="cart-btn"
+            data-vendor-id="${escapeHtml(o.vendor_id)}"
+            data-product-url="${escapeHtml(o.product_url)}"
+            data-item-name="${escapeHtml(nameText)}"
+            data-item-key="${escapeHtml(o.goods_no || o.product_url)}"
+          >담기</button>
           <span class="cart-status"></span>
         </div>
       ` : "";
