@@ -63,27 +63,42 @@
     .hint-text { font-size: 12px; color: var(--muted); margin: -4px 0 14px; }
 
     .group-card {
-      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-      margin-bottom: 10px; overflow: hidden; cursor: pointer;
+      background: #0f172a; border-radius: 14px;
+      margin-bottom: 14px; overflow: hidden; cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
     }
     .group-head {
       display: flex; justify-content: space-between; align-items: center;
-      gap: 12px; padding: 16px;
+      gap: 12px; padding: 20px;
     }
-    .group-count { font-size: 12px; color: var(--muted); margin-top: 2px; }
-    .chevron { color: var(--muted); font-size: 12px; transition: transform .15s; }
+    .group-title { font-size: 17px; font-weight: 800; color: white; line-height: 1.35; }
+    .group-count { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+    .group-head .price { color: white; font-size: 22px; }
+    .chevron { color: #94a3b8; font-size: 12px; transition: transform .15s; }
     .group-card.open .chevron { transform: rotate(180deg); }
-    .group-detail { display: none; border-top: 1px solid var(--line); padding: 10px 16px 14px; }
+    .group-detail {
+      display: none; padding: 10px; background: #e2e8f0;
+    }
     .group-card.open .group-detail { display: block; }
     .offer-row {
       display: flex; justify-content: space-between; align-items: center;
-      padding: 10px 0; border-bottom: 1px solid var(--line);
+      padding: 10px 12px; margin-bottom: 6px; border-radius: 8px;
+      background: var(--card); border: 1px solid var(--line);
     }
-    .offer-row:last-child { border-bottom: none; }
-    .offer-row.cheapest { background: var(--mint-soft); margin: 0 -16px; padding: 10px 16px; }
-    .offer-vendor { font-weight: 700; font-size: 14px; }
-    .offer-name { font-size: 12px; color: var(--muted); white-space: pre-line; margin-top: 2px; }
-    .offer-price { font-weight: 800; font-size: 16px; text-align: right; }
+    .offer-row:last-child { margin-bottom: 0; }
+    .offer-row.cheapest { background: var(--mint); border-color: var(--mint-text); }
+    .offer-row.cheapest .offer-vendor,
+    .offer-row.cheapest .offer-price { color: white; }
+    .offer-row.cheapest .offer-name { color: #e6fffa; }
+    .offer-row.cheapest .badge { background: white; color: var(--mint-text); }
+    .vendor-tag {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      margin-right: 6px;
+    }
+    .offer-vendor { font-weight: 700; font-size: 13px; }
+    .offer-name { font-size: 11px; color: var(--muted); white-space: pre-line; margin-top: 2px; }
+    .offer-row.cheapest .offer-name { }
+    .offer-price { font-weight: 800; font-size: 15px; text-align: right; }
     section-title { display: block; font-size: 15px; margin: 20px 0 10px; font-weight: 700; }
   </style>
 </head>
@@ -99,6 +114,13 @@
     const input = document.getElementById("keyword");
     const btn = document.getElementById("searchBtn");
     const resultsEl = document.getElementById("results");
+
+    const VENDOR_COLORS = {
+      yamimall: "#f97316",
+      ccdome: "#3b82f6",
+      "3bong": "#8b5cf6",
+      samwon: "#ec4899",
+    };
 
     async function runCompare() {
       const keyword = input.value.trim();
@@ -137,9 +159,11 @@
         : "무료배송 기준 미입력";
       const confidencePct = Math.round((o.match_score ?? 0) * 100);
       const rowClass = o.is_cheapest ? "offer-row cheapest" : "offer-row";
+      const dotColor = VENDOR_COLORS[o.vendor_id] || "#94a3b8";
 
       const inner = `
         <div>
+          <span class="vendor-tag" style="background:${dotColor};"></span>
           <span class="offer-vendor">${o.vendor_name}</span>
           ${o.is_cheapest ? '<span class="badge">최저가</span>' : ""}
           <div class="offer-name">${(o.name || "").trim()}</div>
@@ -166,7 +190,7 @@
         <div class="group-card" id="group-${idx}" onclick="toggleGroup(${idx})">
           <div class="group-head">
             <div>
-              <div class="vendor-name">${(g.representative_name || "").trim()}</div>
+              <div class="group-title">${(g.representative_name || "").trim()}</div>
               <div class="group-count">${compareText}</div>
             </div>
             <div style="display:flex;align-items:center;gap:10px;">
