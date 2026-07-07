@@ -111,11 +111,22 @@ scheduler.add_job(
     replace_existing=True,
 )
 scheduler.add_job(
-    beverage_ranking.refresh_beverage_rankings,
-    # 쿠팡 파트너스 링크는 발급 후 24시간만 유효해서 매일 새로 발급해야 한다.
-    # 카탈로그 크롤링(새벽 4시)과 겹치지 않게 30분 뒤로 잡는다.
+    beverage_ranking.refresh_beverage_products,
+    # 쿠팡 상품검색 API로 아직 이미지/가격이 없는 음료만 채운다. 이 API는 시간당
+    # 호출 한도가 엄격해서(초과 시 최대 24시간 잠기고 3회 누적되면 계정 자체가
+    # 제한됨) 자주 돌리면 안 되지만, 이미 채워진 항목은 다시 건드리지 않으므로
+    # 카탈로그가 그대로면 둘째 날부터는 호출이 거의 발생하지 않는다.
+    trigger=CronTrigger(hour=4, minute=0),
+    id="daily_beverage_product_backfill",
+    replace_existing=True,
+)
+scheduler.add_job(
+    beverage_ranking.refresh_beverage_links,
+    # 파트너스 추적 링크는 발급 후 24시간만 유효해서 매일 새로 발급해야 한다.
+    # deeplink API는 발주 임포트마다 호출해도 문제없었던 걸 확인했으니 매일
+    # 돌려도 안전하다.
     trigger=CronTrigger(hour=4, minute=30),
-    id="daily_beverage_ranking_refresh",
+    id="daily_beverage_link_refresh",
     replace_existing=True,
 )
 scheduler.start()
@@ -519,7 +530,22 @@ def api_beverage_ranking(_: dict = Depends(require_web_user)):
 
 @app.post("/api/beverage-ranking/refresh")
 def api_beverage_ranking_refresh(_: bool = Depends(require_admin)):
-    return beverage_ranking.refresh_beverage_rankings()
+    """이미 기준 URL이 있는 음료들의 파트너스 링크만 새로 발급(24시간 유효, 매일 자동 실행됨)."""
+    return beverage_ranking.refresh_beverage_links()
+
+
+@app.post("/api/beverage-ranking/refresh-products")
+def api_beverage_ranking_refresh_products(_: bool = Depends(require_admin)):
+    """카탈로그에 새로 추가된 음료의 이미지/가격을 쿠팡 상품검색으로 채운다.
+    이 API는 시간당 호출 한도가 엄격해서 자주 누르면 안 되고, 매일 자동으로도
+    한 번 돌아간다(카탈로그가 그대로면 처리할 게 없어 거의 즉시 끝남)."""
+    return beverage_ranking.refresh_beverage_products()
+
+
+@app.post("/api/beverage-click/{item_key}")
+def api_beverage_click(item_key: str, _: dict = Depends(require_web_user)):
+    ok = beverage_ranking.record_click(item_key)
+    return {"ok": ok}
 
 
 @app.post("/telegram/webhook")
@@ -1004,9 +1030,6 @@ def import_from_orderqueen(req: OrderQueenImportRequest):
             popularity.log_event(req.login_id, "icecream", barcode or name, name, qty)
         elif item.get("is_coupang") == 1:
             popularity.log_event(req.login_id, "coupang", barcode or name, name, qty)
-
-        if item.get("category") == "음료":
-            popularity.log_event(req.login_id, "beverage", barcode or name, name, qty)
 
     # 7) 엑셀 생성
     export_path = None

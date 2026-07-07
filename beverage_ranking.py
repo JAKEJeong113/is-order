@@ -1,19 +1,32 @@
 # beverage_ranking.py
-"""전 가맹점 합산 음료 인기순위 + 쿠팡 파트너스 링크 캐시.
-파트너스 링크는 발급 후 24시간만 유효해서 매일 새로 발급해서 저장해둔다."""
+"""음료 추천 카드 목록 + 쿠팡 파트너스 링크/이미지 캐시.
+카탈로그의 '음료수' 카테고리 상품을 전부 카드로 보여주고, 카드를 클릭한 횟수를
+기준으로 정렬한다(조회할 때마다 현재 클릭수로 다시 정렬하므로 실시간 반영).
+
+이미지/가격은 쿠팡 상품검색 API(products/search)로 가져오는데, 이 API는 시간당
+호출 한도가 엄격하고(실측 시간당 약 90여회) 초과하면 최대 24시간 잠기며 3회
+누적되면 계정 자체가 제한된다. 그래서 이 API는 "아직 기준 URL이 없는 상품"에
+대해서만 하루 한 번 백필하듯 돌린다 — 카탈로그가 안 바뀌면 둘째 날부터는 처리할
+게 없어서 사실상 호출이 0에 수렴한다.
+
+파트너스 추적 링크(24시간 유효)는 별도로, 이미 기준 URL이 있는 상품에 한해
+deeplink API로 매일 갱신한다. deeplink API는 발주 임포트 때마다 호출해도 문제
+없었던 걸 이미 확인했기 때문에 매일 돌려도 안전하다.
+
+클릭수는 순위 집계용이라 어느 갱신 작업에서도 건드리지 않는다."""
 import hashlib
 import hmac
 import json
 import os
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import urlencode
 
 import requests
 
 import mapping
-import popularity
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
@@ -23,10 +36,16 @@ COUPANG_CATALOG_XLSX_PATH = BASE_DIR / "coupang_catalog_sample_2.xlsx"
 CP_ACCESS_KEY = os.getenv("CP_ACCESS_KEY", "")
 CP_SECRET_KEY = os.getenv("CP_SECRET_KEY", "")
 CP_DOMAIN = "https://api-gateway.coupang.com"
-CP_METHOD = "POST"
-CP_PATH = "/v2/providers/affiliate_open_api/apis/openapi/deeplink"
+CP_SEARCH_PATH = "/v2/providers/affiliate_open_api/apis/openapi/products/search"
+CP_DEEPLINK_PATH = "/v2/providers/affiliate_open_api/apis/openapi/deeplink"
 
-RANKING_LIMIT = 20
+BEVERAGE_CATEGORY = "음료수"
+SEARCH_DELAY_SECONDS = 0.3
+LINK_DELAY_SECONDS = 0.15
+
+
+class CoupangRateLimitError(RuntimeError):
+    pass
 
 
 def get_conn():
@@ -37,23 +56,20 @@ def init_beverage_ranking_table():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS beverage_rankings (
-        rank INTEGER PRIMARY KEY,
-        item_key TEXT,
+    CREATE TABLE IF NOT EXISTS beverage_catalog (
+        item_key TEXT PRIMARY KEY,
         item_name TEXT,
-        total_qty INTEGER,
-        store_count INTEGER,
+        image_url TEXT,
+        price INTEGER,
+        reference_url TEXT,
         partners_link TEXT,
-        refreshed_at TEXT
+        click_count INTEGER NOT NULL DEFAULT 0,
+        image_refreshed_at TEXT,
+        link_refreshed_at TEXT
     )
     """)
     conn.commit()
     conn.close()
-
-
-def _build_search_url(keyword: str) -> str:
-    q = quote(keyword)
-    return f"https://www.coupang.com/np/search?component=&q={q}&channel=user"
 
 
 def _make_signed_date() -> str:
@@ -67,17 +83,48 @@ def _make_authorization(method: str, path: str, query: str, access_key: str, sec
     return f"CEA algorithm=HmacSHA256, access-key={access_key}, signed-date={signed_date}, signature={signature}"
 
 
-def create_partners_link(keyword: str) -> str:
+def search_coupang_product(keyword: str) -> dict | None:
+    """검색어로 쿠팡 상품을 검색해서 1순위 상품의 이미지/가격/상품 URL을 가져온다."""
     if not CP_ACCESS_KEY or not CP_SECRET_KEY:
         raise RuntimeError("CP_ACCESS_KEY / CP_SECRET_KEY 환경변수가 설정되지 않았습니다.")
 
-    source_url = _build_search_url(keyword)
-    authorization = _make_authorization(CP_METHOD, CP_PATH, "", CP_ACCESS_KEY, CP_SECRET_KEY)
+    query = urlencode({"keyword": keyword, "limit": "1"})
+    authorization = _make_authorization("GET", CP_SEARCH_PATH, query, CP_ACCESS_KEY, CP_SECRET_KEY)
 
+    resp = requests.get(
+        f"{CP_DOMAIN}{CP_SEARCH_PATH}?{query}",
+        headers={"Authorization": authorization},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    result = resp.json()
+    if result.get("rCode") == "403":
+        raise CoupangRateLimitError(result.get("rMessage") or "쿠팡 상품검색 API 호출 한도 초과")
+    if result.get("rCode") != "0":
+        raise RuntimeError(f"쿠팡 상품검색 실패: {result}")
+
+    products = (result.get("data") or {}).get("productData") or []
+    if not products:
+        return None
+
+    top = products[0]
+    return {
+        "image_url": top.get("productImage"),
+        "price": top.get("productPrice"),
+        "reference_url": top.get("productUrl"),
+    }
+
+
+def create_partners_link_for_url(target_url: str) -> str:
+    """이미 알고 있는 쿠팡 상품 URL을 파트너스 추적 링크로 변환한다(24시간 유효)."""
+    if not CP_ACCESS_KEY or not CP_SECRET_KEY:
+        raise RuntimeError("CP_ACCESS_KEY / CP_SECRET_KEY 환경변수가 설정되지 않았습니다.")
+
+    authorization = _make_authorization("POST", CP_DEEPLINK_PATH, "", CP_ACCESS_KEY, CP_SECRET_KEY)
     resp = requests.post(
-        f"{CP_DOMAIN}{CP_PATH}",
+        f"{CP_DOMAIN}{CP_DEEPLINK_PATH}",
         headers={"Authorization": authorization, "Content-Type": "application/json"},
-        data=json.dumps({"coupangUrls": [source_url]}),
+        data=json.dumps({"coupangUrls": [target_url]}),
         timeout=30,
     )
     resp.raise_for_status()
@@ -95,58 +142,131 @@ def create_partners_link(keyword: str) -> str:
     return shorten_url
 
 
-def refresh_beverage_rankings() -> dict:
-    """음료 인기순위 top N을 다시 계산하고, 각각 새 파트너스 링크를 발급해서 저장한다."""
-    catalog = {}
+def refresh_beverage_products() -> dict:
+    """카탈로그의 음료수 상품 중 기준 URL(reference_url)이 아직 없는 것만 상품검색
+    API로 채운다. 한 번 채워지면 다시 건드리지 않으므로, 카탈로그가 그대로면 둘째
+    날부터는 처리할 항목이 없어 호출이 거의 발생하지 않는다. 그래도 시간당 한도를
+    만나면(신규 항목이 한꺼번에 많이 추가된 경우 등) 그 시점에 멈춘다."""
     try:
         catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
     except Exception as e:
         print("[BEVERAGE_RANKING] 카탈로그 로드 실패:", e)
+        return {"ok": False, "error": str(e)}
 
-    top_items = popularity.get_top_items("beverage", limit=RANKING_LIMIT)
-    now = datetime.now().isoformat(timespec="seconds")
+    beverage_entries = [
+        (barcode, entry) for barcode, entry in catalog.items()
+        if entry.category.strip() == BEVERAGE_CATEGORY
+    ]
 
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("DELETE FROM beverage_rankings")
+    cur.execute("SELECT item_key FROM beverage_catalog WHERE reference_url IS NOT NULL")
+    already_backfilled = {r[0] for r in cur.fetchall()}
+    pending_entries = [(k, e) for k, e in beverage_entries if k not in already_backfilled]
 
     saved = 0
-    for i, item in enumerate(top_items, start=1):
-        item_key = item.get("item_key") or ""
-        cat_entry = catalog.get(item_key)
-        # 검색 키워드는 카탈로그에 등록된 정제된 키워드를 우선 쓰고, 없으면 상품명 그대로 쓴다.
-        keyword = (cat_entry.search_keyword if cat_entry and cat_entry.search_keyword else "") or item.get("item_name") or item_key
-
-        link = None
+    failed = 0
+    rate_limited = False
+    for item_key, entry in pending_entries:
+        keyword = entry.search_keyword or entry.menu_name or item_key
         try:
-            link = create_partners_link(keyword)
+            result = search_coupang_product(keyword)
+        except CoupangRateLimitError as e:
+            print(f"[BEVERAGE_RANKING] API 호출 한도 초과로 이번 실행 중단: {e}")
+            rate_limited = True
+            break
         except Exception as e:
-            print(f"[BEVERAGE_RANKING] {keyword!r} 파트너스 링크 생성 실패:", e)
+            print(f"[BEVERAGE_RANKING] {keyword!r} 쿠팡 검색 실패:", e)
+            failed += 1
+            time.sleep(SEARCH_DELAY_SECONDS)
+            continue
 
+        if not result or not result.get("reference_url"):
+            print(f"[BEVERAGE_RANKING] {keyword!r} 검색 결과 없음")
+            failed += 1
+            time.sleep(SEARCH_DELAY_SECONDS)
+            continue
+
+        now = datetime.now().isoformat(timespec="seconds")
         cur.execute("""
-        INSERT INTO beverage_rankings (rank, item_key, item_name, total_qty, store_count, partners_link, refreshed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (i, item_key, item.get("item_name"), item.get("total_qty"), item.get("store_count"), link, now))
+        INSERT INTO beverage_catalog (item_key, item_name, image_url, price, reference_url, click_count, image_refreshed_at)
+        VALUES (?, ?, ?, ?, ?, 0, ?)
+        ON CONFLICT(item_key) DO UPDATE SET
+            item_name=excluded.item_name,
+            image_url=excluded.image_url,
+            price=excluded.price,
+            reference_url=excluded.reference_url,
+            image_refreshed_at=excluded.image_refreshed_at
+        """, (item_key, entry.menu_name, result["image_url"], result["price"], result["reference_url"], now))
         saved += 1
+        time.sleep(SEARCH_DELAY_SECONDS)
 
     conn.commit()
     conn.close()
-    return {"ok": True, "count": saved, "refreshed_at": now}
+    remaining = len(pending_entries) - saved - failed
+    return {
+        "ok": True, "count": saved, "failed": failed,
+        "rate_limited": rate_limited, "remaining": remaining,
+    }
+
+
+def refresh_beverage_links() -> dict:
+    """기준 URL이 있는 음료들의 파트너스 추적 링크만 매일 새로 발급한다(24시간 유효)."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT item_key, reference_url FROM beverage_catalog WHERE reference_url IS NOT NULL")
+    rows = cur.fetchall()
+
+    now = datetime.now().isoformat(timespec="seconds")
+    saved = 0
+    failed = 0
+    for item_key, reference_url in rows:
+        try:
+            link = create_partners_link_for_url(reference_url)
+        except Exception as e:
+            print(f"[BEVERAGE_RANKING] {item_key} 파트너스 링크 갱신 실패:", e)
+            failed += 1
+            time.sleep(LINK_DELAY_SECONDS)
+            continue
+
+        cur.execute(
+            "UPDATE beverage_catalog SET partners_link = ?, link_refreshed_at = ? WHERE item_key = ?",
+            (link, now, item_key),
+        )
+        saved += 1
+        time.sleep(LINK_DELAY_SECONDS)
+
+    conn.commit()
+    conn.close()
+    return {"ok": True, "count": saved, "failed": failed, "refreshed_at": now}
 
 
 def get_beverage_rankings() -> list[dict]:
+    """클릭수 내림차순으로 정렬해서 반환한다(조회 시점마다 다시 정렬되므로 실시간 반영)."""
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT rank, item_name, total_qty, store_count, partners_link, refreshed_at
-    FROM beverage_rankings ORDER BY rank ASC
+    SELECT item_key, item_name, image_url, price, partners_link, click_count, link_refreshed_at
+    FROM beverage_catalog
+    WHERE partners_link IS NOT NULL
+    ORDER BY click_count DESC, item_name ASC
     """)
     rows = cur.fetchall()
     conn.close()
     return [
         {
-            "rank": r[0], "item_name": r[1], "total_qty": r[2],
-            "store_count": r[3], "partners_link": r[4], "refreshed_at": r[5],
+            "item_key": r[0], "item_name": r[1], "image_url": r[2], "price": r[3],
+            "partners_link": r[4], "click_count": r[5], "refreshed_at": r[6],
         }
         for r in rows
     ]
+
+
+def record_click(item_key: str) -> bool:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE beverage_catalog SET click_count = click_count + 1 WHERE item_key = ?", (item_key,))
+    updated = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
