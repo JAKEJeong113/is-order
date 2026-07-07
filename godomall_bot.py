@@ -136,8 +136,14 @@ def _block_heavy_resources(page: Page) -> None:
     )
 
 
-def crawl_full_catalog(base_url: str, login_id: str, login_pwd: str, category_code: str, max_pages: int = 60) -> list[dict]:
-    """'전체상품' 카테고리(스토어마다 cateCd가 다름)를 끝까지 페이지를 넘기며 전부 수집한다."""
+def crawl_full_catalog(
+    base_url: str, login_id: str, login_pwd: str, category_codes: str | list[str], max_pages: int = 60,
+) -> list[dict]:
+    """'전체상품' 개념의 카테고리(들)를 끝까지 페이지를 넘기며 전부 수집한다.
+    스토어에 따라 전체상품이 단일 cateCd 하나로 되는 곳도 있고(과자생각/삼봉몰),
+    그런 코드 없이 대분류 여러 개를 각각 순회해야 하는 곳도 있어(현동몰)
+    category_codes로 문자열 하나 또는 리스트를 모두 받는다."""
+    codes = [category_codes] if isinstance(category_codes, str) else category_codes
     all_products: dict[str, dict] = {}
 
     with sync_playwright() as p:
@@ -151,28 +157,29 @@ def crawl_full_catalog(base_url: str, login_id: str, login_pwd: str, category_co
         try:
             login_godomall(page, base_url, login_id, login_pwd)
 
-            for page_no in range(1, max_pages + 1):
-                page.goto(
-                    f"{base_url}/goods/goods_list.php?cateCd={category_code}&page={page_no}",
-                    wait_until="domcontentloaded",
-                    timeout=30000,
-                )
-                page.wait_for_timeout(600)
+            for category_code in codes:
+                for page_no in range(1, max_pages + 1):
+                    page.goto(
+                        f"{base_url}/goods/goods_list.php?cateCd={category_code}&page={page_no}",
+                        wait_until="domcontentloaded",
+                        timeout=30000,
+                    )
+                    page.wait_for_timeout(600)
 
-                items = _extract_page_items(page, base_url)
-                if not items:
-                    break
+                    items = _extract_page_items(page, base_url)
+                    if not items:
+                        break
 
-                new_count = 0
-                for it in items:
-                    key = it["goods_no"] or it["name"]
-                    if key not in all_products:
-                        all_products[key] = it
-                        new_count += 1
+                    new_count = 0
+                    for it in items:
+                        key = it["goods_no"] or it["name"]
+                        if key not in all_products:
+                            all_products[key] = it
+                            new_count += 1
 
-                # 더 이상 새로운 상품이 없으면(마지막 페이지가 반복되는 경우) 종료
-                if new_count == 0:
-                    break
+                    # 더 이상 새로운 상품이 없으면(마지막 페이지가 반복되는 경우) 다음 카테고리로
+                    if new_count == 0:
+                        break
         finally:
             browser.close()
 

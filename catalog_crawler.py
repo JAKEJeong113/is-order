@@ -27,7 +27,7 @@ def crawl_vendor(vendor_id: str) -> dict:
     try:
         if vendor_id == "yamimall":
             products = yamimall_bot.crawl_full_catalog(login_id, login_pwd)
-        elif vendor_id in ("ccdome", "3bong"):
+        elif vendor_id in ("ccdome", "3bong", "hdinter"):
             products = godomall_bot.crawl_full_catalog(base_url, login_id, login_pwd, meta["catalog_category_code"])
         else:
             return {"vendor_id": vendor_id, "ok": False, "error": "이 도매처는 아직 전체상품 수집을 지원하지 않습니다"}
