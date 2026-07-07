@@ -35,6 +35,7 @@ from db import init_db, get_inventory, upsert_inventory, change_stock
 
 from yamimall_bot import add_yamimall_cart
 import beverage_ranking
+import cafe24_bot
 import catalog_cache
 import catalog_crawler
 import godomall_bot
@@ -421,6 +422,9 @@ def api_cart_add(req: CartAddRequest, user: dict = Depends(require_web_user)):
         if not goods_no_match:
             return {"ok": False, "reason": f"상품 번호 추출 실패: {req.product_url}"}
         result = godomall_bot.add_to_cart(store_id, req.vendor_id, base_url, login_id, login_pwd, goods_no_match.group(1), req.qty)
+    elif req.vendor_id == "moomarket":
+        base_url = vendors.VENDORS[req.vendor_id]["base_url"]
+        result = cafe24_bot.add_to_cart(store_id, base_url, login_id, login_pwd, req.product_url, req.qty)
     else:
         return {"ok": False, "reason": f"{req.vendor_id}는 아직 자동 담기를 지원하지 않습니다."}
 
@@ -431,6 +435,19 @@ def api_cart_add(req: CartAddRequest, user: dict = Depends(require_web_user)):
         )
 
     return result
+
+
+@app.post("/admin/debug-copy-vendor-cred/{vendor_id}/{store_id}")
+def admin_debug_copy_vendor_cred(vendor_id: str, store_id: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 관리자가 등록해둔 크롤링용 계정을 지정한 store_id의
+    담기용 계정으로 그대로 복사한다. 서버 안에서 복호화->재암호화만 하고 평문은
+    응답에 담지 않는다. 테스트 끝나면 제거할 것."""
+    creds = vendors.get_vendor_credentials(vendor_id)
+    if not creds:
+        return {"ok": False, "reason": f"{vendor_id} 관리자 계정이 등록되어 있지 않습니다."}
+    login_id, login_pwd = creds
+    vendors.set_store_vendor_credentials(store_id, vendor_id, login_id, login_pwd)
+    return {"ok": True}
 
 
 @app.get("/my-vendors", response_class=HTMLResponse)

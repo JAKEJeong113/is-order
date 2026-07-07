@@ -1,8 +1,16 @@
 # cafe24_bot.py
 """카페24(Cafe24) 플랫폼 공통 봇: 무마켓(moomarket)에서 사용."""
+import os
 import re
+from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright, TimeoutError as PWTimeoutError
+
+import vendors
+
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
+DEBUG_SCREENSHOT_PATH = DATA_DIR / "debug_cafe24_cart_failure.png"
 
 
 def login_cafe24(page: Page, base_url: str, login_id: str, login_pwd: str) -> None:
@@ -142,3 +150,69 @@ def crawl_full_catalog(
             browser.close()
 
     return list(all_products.values())
+
+
+def add_to_cart(store_id: str, base_url: str, login_id: str, login_pwd: str, product_url: str, qty: int = 1) -> dict:
+    """상품 상세페이지에서 실제로 장바구니에 담는다. 지점별 로그인 세션(쿠키)을
+    캐시해서, 저장된 세션이 있으면 로그인 과정을 건너뛴다. 캐시된 세션이 만료됐으면
+    (담기 버튼을 못 찾으면) 새로 로그인해서 한 번 더 시도한다."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"],
+        )
+        cached_state = vendors.get_session_state(store_id, "moomarket")
+        context = browser.new_context(storage_state=cached_state) if cached_state else browser.new_context()
+        page = context.new_page()
+
+        def _try_add() -> str:
+            page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(800)
+
+            qty_input = page.locator("input[name='quantity'], input#quantity_1").first
+            if qty_input.count() > 0:
+                try:
+                    qty_input.fill(str(qty))
+                except Exception:
+                    pass
+
+            # 카페24 테마마다 담기 버튼 마크업이 조금씩 달라서 여러 후보를 넓게 찾는다
+            cart_btn = page.locator(
+                "a:has-text('장바구니'), button:has-text('장바구니'), "
+                "#BtnBasket, a.btnBasket, [onclick*='basket' i]"
+            ).first
+            if cart_btn.count() == 0:
+                try:
+                    page.screenshot(path=str(DEBUG_SCREENSHOT_PATH))
+                except Exception:
+                    pass
+                return "no_cart_button"
+
+            cart_btn.click(timeout=5000)
+            page.wait_for_timeout(1500)
+            return "ok"
+
+        try:
+            logged_in_fresh = False
+            if not cached_state:
+                login_cafe24(page, base_url, login_id, login_pwd)
+                logged_in_fresh = True
+
+            outcome = _try_add()
+            if outcome == "no_cart_button" and cached_state:
+                # 캐시된 세션이 만료됐을 수 있으니 새로 로그인해서 한 번 더 시도
+                login_cafe24(page, base_url, login_id, login_pwd)
+                logged_in_fresh = True
+                outcome = _try_add()
+
+            if outcome == "no_cart_button":
+                return {"ok": False, "reason": "장바구니 버튼을 찾지 못함"}
+
+            if logged_in_fresh:
+                vendors.save_session_state(store_id, "moomarket", context.storage_state())
+
+            return {"ok": True, "qty": qty}
+        except Exception as e:
+            return {"ok": False, "reason": str(e)}
+        finally:
+            browser.close()

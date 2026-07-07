@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 
+import cafe24_bot
 import godomall_bot
 import popularity
 import price_compare
@@ -22,9 +23,9 @@ CANCEL_WORDS = {"취소", "아니", "아니오", "no", "cancel"}
 CRED_TRIGGER_WORDS = {"계정등록", "도매처등록", "도매처계정등록", "계정 등록"}
 HELP_WORDS = {"도움말", "명령어", "help", "도움", "명령"}
 
-# 실제 자동 담기(add_to_cart)가 구현된 도매처만 포함. 무마켓/또요몰은 계정 등록은
-# 받되(KOREAN_TO_VENDOR_ID), 봇 구현 전까지는 담기 자동화 대상에서 제외한다.
-CART_SUPPORTED_VENDORS = ("yamimall", "ccdome", "3bong", "hdinter")
+# 실제 자동 담기(add_to_cart)가 구현된 도매처만 포함. 또요몰은 계정 등록은
+# 받되(KOREAN_TO_VENDOR_ID), 봇 감지 우회가 되기 전까지는 담기 자동화 대상에서 제외한다.
+CART_SUPPORTED_VENDORS = ("yamimall", "ccdome", "3bong", "hdinter", "moomarket")
 KOREAN_TO_VENDOR_ID = {
     "야미몰": "yamimall", "과자생각": "ccdome", "삼봉몰": "3bong",
     "현동몰": "hdinter", "무마켓": "moomarket", "또요몰": "douyou",
@@ -278,10 +279,13 @@ def _add_single_item_to_cart(store_id: str, item: dict) -> dict:
         }
 
     login_id, login_pwd = creds
+    base_url = vendors.VENDORS[item["vendor_id"]]["base_url"]
+
     if item["vendor_id"] == "yamimall":
         return yamimall_bot.add_to_cart(store_id, login_id, login_pwd, item["product_url"], item["qty"])
+    if item["vendor_id"] == "moomarket":
+        return cafe24_bot.add_to_cart(store_id, base_url, login_id, login_pwd, item["product_url"], item["qty"])
 
-    base_url = vendors.VENDORS[item["vendor_id"]]["base_url"]
     return godomall_bot.add_to_cart(store_id, item["vendor_id"], base_url, login_id, login_pwd, item["item_key"], item["qty"])
 
 
