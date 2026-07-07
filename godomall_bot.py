@@ -16,7 +16,15 @@ def login_godomall(page: Page, base_url: str, login_id: str, login_pwd: str) -> 
     page.wait_for_timeout(3000)
 
     if "login.php" in page.url:
-        raise RuntimeError("고도몰 로그인 실패 (아이디/비밀번호를 확인해주세요)")
+        # 원인 파악을 위해 화면에 실제로 보이는 에러 메시지를 최대한 같이 담는다
+        detail = ""
+        try:
+            error_el = page.locator("[class*=caution], .error, [class*=alert]").first
+            if error_el.count() > 0 and error_el.is_visible():
+                detail = f" / 화면 메시지: {error_el.inner_text().strip()}"
+        except Exception:
+            pass
+        raise RuntimeError(f"고도몰 로그인 실패 (아이디/비밀번호를 확인해주세요) / URL: {page.url}{detail}")
 
     # 비밀번호 변경 안내 팝업("다음에 변경") 무시하고 넘어가기
     later_btn = page.locator("#btnLater, button:has-text('다음에 변경')")
