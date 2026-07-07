@@ -9,7 +9,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
 DB_PATH = DATA_DIR / "inventory.db"
 
-CATEGORIES = ("icecream", "coupang", "wholesale")
+CATEGORIES = ("icecream", "coupang", "wholesale", "beverage")
 
 
 def get_conn():

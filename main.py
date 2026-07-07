@@ -34,6 +34,7 @@ from mapping import load_coupang_catalog_xlsx, select_representative_item
 from db import init_db, get_inventory, upsert_inventory, change_stock
 
 from yamimall_bot import add_yamimall_cart
+import beverage_ranking
 import catalog_cache
 import catalog_crawler
 import godomall_bot
@@ -99,12 +100,21 @@ telegram_store.init_telegram_tables()
 vendors.init_store_vendor_table()
 vendors.init_session_table()
 web_auth.init_web_auth_tables()
+beverage_ranking.init_beverage_ranking_table()
 
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 scheduler.add_job(
     catalog_crawler.crawl_all_enabled,
     trigger=CronTrigger(hour=4, minute=0),
     id="daily_catalog_refresh",
+    replace_existing=True,
+)
+scheduler.add_job(
+    beverage_ranking.refresh_beverage_rankings,
+    # 쿠팡 파트너스 링크는 발급 후 24시간만 유효해서 매일 새로 발급해야 한다.
+    # 카탈로그 크롤링(새벽 4시)과 겹치지 않게 30분 뒤로 잡는다.
+    trigger=CronTrigger(hour=4, minute=30),
+    id="daily_beverage_ranking_refresh",
     replace_existing=True,
 )
 scheduler.start()
@@ -470,6 +480,23 @@ def api_popular(category: str = Query(...), limit: int = Query(30, ge=1, le=100)
     if category not in popularity.CATEGORIES:
         return {"items": []}
     return {"items": popularity.get_top_items(category, limit=limit)}
+
+
+@app.get("/beverages", response_class=HTMLResponse)
+def beverages_page(request: Request):
+    if not get_current_web_user(request):
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("beverages.html", {"request": request, "active_page": "beverages"})
+
+
+@app.get("/api/beverage-ranking")
+def api_beverage_ranking(_: dict = Depends(require_web_user)):
+    return {"items": beverage_ranking.get_beverage_rankings()}
+
+
+@app.post("/api/beverage-ranking/refresh")
+def api_beverage_ranking_refresh(_: bool = Depends(require_admin)):
+    return beverage_ranking.refresh_beverage_rankings()
 
 
 @app.post("/telegram/webhook")
@@ -954,6 +981,9 @@ def import_from_orderqueen(req: OrderQueenImportRequest):
             popularity.log_event(req.login_id, "icecream", barcode or name, name, qty)
         elif item.get("is_coupang") == 1:
             popularity.log_event(req.login_id, "coupang", barcode or name, name, qty)
+
+        if item.get("category") == "음료":
+            popularity.log_event(req.login_id, "beverage", barcode or name, name, qty)
 
     # 7) 엑셀 생성
     export_path = None
