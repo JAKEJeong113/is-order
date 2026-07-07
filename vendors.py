@@ -1,4 +1,5 @@
 # vendors.py
+import json
 import os
 import sqlite3
 from datetime import datetime
@@ -220,3 +221,65 @@ def list_store_vendor_status(store_id: str) -> list[dict]:
         for vid, meta in VENDORS.items()
         if vid in ("yamimall", "ccdome", "3bong")
     ]
+
+
+# --- 담기 속도 개선용: 지점별 로그인 세션(쿠키) 캐시. 매번 새로 로그인하는 대신
+# 저장된 쿠키로 브라우저 컨텍스트를 만들어서 로그인 과정을 건너뛴다. ---
+
+def init_session_table():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS store_vendor_sessions (
+        store_id TEXT,
+        vendor_id TEXT,
+        storage_state TEXT,
+        saved_at TEXT,
+        PRIMARY KEY (store_id, vendor_id)
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def get_session_state(store_id: str, vendor_id: str) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT storage_state FROM store_vendor_sessions WHERE store_id = ? AND vendor_id = ?",
+        (store_id, vendor_id),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row or not row[0]:
+        return None
+    try:
+        return json.loads(row[0])
+    except ValueError:
+        return None
+
+
+def save_session_state(store_id: str, vendor_id: str, state: dict) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    INSERT INTO store_vendor_sessions (store_id, vendor_id, storage_state, saved_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(store_id, vendor_id) DO UPDATE SET
+        storage_state = excluded.storage_state,
+        saved_at = excluded.saved_at
+    """, (store_id, vendor_id, json.dumps(state), now))
+    conn.commit()
+    conn.close()
+
+
+def clear_session_state(store_id: str, vendor_id: str) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM store_vendor_sessions WHERE store_id = ? AND vendor_id = ?",
+        (store_id, vendor_id),
+    )
+    conn.commit()
+    conn.close()

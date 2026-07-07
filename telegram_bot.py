@@ -274,10 +274,10 @@ def _add_single_item_to_cart(store_id: str, item: dict) -> dict:
 
     login_id, login_pwd = creds
     if item["vendor_id"] == "yamimall":
-        return yamimall_bot.add_to_cart(login_id, login_pwd, item["product_url"], item["qty"])
+        return yamimall_bot.add_to_cart(store_id, login_id, login_pwd, item["product_url"], item["qty"])
 
     base_url = vendors.VENDORS[item["vendor_id"]]["base_url"]
-    return godomall_bot.add_to_cart(base_url, login_id, login_pwd, item["item_key"], item["qty"])
+    return godomall_bot.add_to_cart(store_id, item["vendor_id"], base_url, login_id, login_pwd, item["item_key"], item["qty"])
 
 
 def _execute_cart_adds(chat_id, store_id: str, items: list[dict]) -> None:

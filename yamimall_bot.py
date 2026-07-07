@@ -4,6 +4,8 @@ from urllib.parse import quote
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
+import vendors
+
 
 YAMIMALL_URL = "https://xn--352blx12s.com"
 
@@ -386,8 +388,10 @@ def _parse_price(text: str) -> int | None:
     return int(digits) if digits else None
 
 
-def add_to_cart(username: str, password: str, product_url: str, qty: int = 1) -> dict:
-    """상품 상세페이지에서 실제로 장바구니에 담는다. product_url은 item.php?code=... 형태."""
+def add_to_cart(store_id: str, username: str, password: str, product_url: str, qty: int = 1) -> dict:
+    """상품 상세페이지에서 실제로 장바구니에 담는다. product_url은 item.php?code=... 형태.
+    지점별 로그인 세션(쿠키)을 캐시해서, 저장된 세션이 있으면 로그인 과정을 건너뛴다.
+    캐시된 세션이 만료됐으면(담기 버튼을 못 찾으면) 새로 로그인해서 한 번 더 시도한다."""
     code_match = re.search(r"code=(\d+)", product_url or "")
     if not code_match:
         return {"ok": False, "reason": f"상품 코드 추출 실패: {product_url}"}
@@ -398,10 +402,11 @@ def add_to_cart(username: str, password: str, product_url: str, qty: int = 1) ->
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"],
         )
-        page = browser.new_page()
+        cached_state = vendors.get_session_state(store_id, "yamimall")
+        context = browser.new_context(storage_state=cached_state) if cached_state else browser.new_context()
+        page = context.new_page()
 
-        try:
-            login_yamimall(page, username, password)
+        def _try_add() -> str:
             page.goto(
                 f"{YAMIMALL_URL}:443/shop/item.php?code={item_code}",
                 wait_until="domcontentloaded",
@@ -416,7 +421,7 @@ def add_to_cart(username: str, password: str, product_url: str, qty: int = 1) ->
                 try:
                     plus_button.wait_for(state="attached", timeout=8000)
                 except PlaywrightTimeoutError:
-                    return {"ok": False, "reason": "수량 조절 버튼을 찾지 못함 (품절이거나 페이지 구조 변경)"}
+                    return "no_qty_button"
 
                 for _ in range(qty - 1):
                     plus_button.click(timeout=1000)
@@ -424,7 +429,7 @@ def add_to_cart(username: str, password: str, product_url: str, qty: int = 1) ->
 
             cart_btn = page.locator("#sit_btn_cart")
             if cart_btn.count() == 0:
-                return {"ok": False, "reason": "장바구니 버튼을 찾지 못함"}
+                return "no_cart_button"
 
             cart_btn.click(timeout=5000)
             page.wait_for_timeout(1500)
@@ -436,6 +441,29 @@ def add_to_cart(username: str, password: str, product_url: str, qty: int = 1) ->
                     dialog_btn.click(timeout=2000)
                 except Exception:
                     pass
+
+            return "ok"
+
+        try:
+            logged_in_fresh = False
+            if not cached_state:
+                login_yamimall(page, username, password)
+                logged_in_fresh = True
+
+            outcome = _try_add()
+            if outcome == "no_cart_button" and cached_state:
+                # 캐시된 세션이 만료됐을 수 있으니 새로 로그인해서 한 번 더 시도
+                login_yamimall(page, username, password)
+                logged_in_fresh = True
+                outcome = _try_add()
+
+            if outcome == "no_qty_button":
+                return {"ok": False, "reason": "수량 조절 버튼을 찾지 못함 (품절이거나 페이지 구조 변경)"}
+            if outcome == "no_cart_button":
+                return {"ok": False, "reason": "장바구니 버튼을 찾지 못함"}
+
+            if logged_in_fresh:
+                vendors.save_session_state(store_id, "yamimall", context.storage_state())
 
             return {"ok": True, "item_code": item_code, "qty": qty}
         except Exception as e:

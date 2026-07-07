@@ -5,6 +5,8 @@ from urllib.parse import quote
 
 from playwright.sync_api import Page, sync_playwright, TimeoutError as PWTimeoutError
 
+import vendors
+
 
 def login_godomall(page: Page, base_url: str, login_id: str, login_pwd: str) -> None:
     page.goto(f"{base_url}/member/login.php", wait_until="domcontentloaded", timeout=30000)
@@ -205,17 +207,21 @@ def fetch_candidates(base_url: str, login_id: str, login_pwd: str, keywords: lis
     return results
 
 
-def add_to_cart(base_url: str, login_id: str, login_pwd: str, goods_no: str, qty: int) -> dict:
+def add_to_cart(
+    store_id: str, vendor_id: str, base_url: str, login_id: str, login_pwd: str, goods_no: str, qty: int,
+) -> dict:
+    """지점별 로그인 세션(쿠키)을 캐시해서, 저장된 세션이 있으면 로그인 과정을 건너뛴다.
+    캐시된 세션이 만료됐으면(담기 버튼을 못 찾으면) 새로 로그인해서 한 번 더 시도한다."""
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"],
         )
-        page = browser.new_page()
+        cached_state = vendors.get_session_state(store_id, vendor_id)
+        context = browser.new_context(storage_state=cached_state) if cached_state else browser.new_context()
+        page = context.new_page()
 
-        try:
-            login_godomall(page, base_url, login_id, login_pwd)
-
+        def _try_add() -> str:
             page.goto(
                 f"{base_url}/goods/goods_view.php?goodsNo={goods_no}",
                 wait_until="domcontentloaded",
@@ -231,7 +237,7 @@ def add_to_cart(base_url: str, login_id: str, login_pwd: str, goods_no: str, qty
             # '함께 보면 좋은 상품' 추천 위젯용이라 다른 상품 goods_no를 가리킴 - 사용 금지)
             cart_btn = page.locator("#cartBtn")
             if cart_btn.count() == 0:
-                return {"ok": False, "goods_no": goods_no, "qty": qty, "reason": "담기 버튼(#cartBtn)을 찾지 못함"}
+                return "no_cart_button"
 
             cart_btn.click(timeout=5000)
             page.wait_for_timeout(1500)
@@ -247,6 +253,27 @@ def add_to_cart(base_url: str, login_id: str, login_pwd: str, goods_no: str, qty
                     page.wait_for_timeout(500)
             except Exception:
                 pass
+
+            return "ok"
+
+        try:
+            logged_in_fresh = False
+            if not cached_state:
+                login_godomall(page, base_url, login_id, login_pwd)
+                logged_in_fresh = True
+
+            outcome = _try_add()
+            if outcome == "no_cart_button" and cached_state:
+                # 캐시된 세션이 만료됐을 수 있으니 새로 로그인해서 한 번 더 시도
+                login_godomall(page, base_url, login_id, login_pwd)
+                logged_in_fresh = True
+                outcome = _try_add()
+
+            if outcome == "no_cart_button":
+                return {"ok": False, "goods_no": goods_no, "qty": qty, "reason": "담기 버튼(#cartBtn)을 찾지 못함"}
+
+            if logged_in_fresh:
+                vendors.save_session_state(store_id, vendor_id, context.storage_state())
 
             return {"ok": True, "goods_no": goods_no, "qty": qty}
         except Exception as e:

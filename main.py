@@ -97,6 +97,7 @@ catalog_cache.init_catalog_table()
 popularity.init_popularity_table()
 telegram_store.init_telegram_tables()
 vendors.init_store_vendor_table()
+vendors.init_session_table()
 web_auth.init_web_auth_tables()
 
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
@@ -403,13 +404,13 @@ def api_cart_add(req: CartAddRequest, user: dict = Depends(require_web_user)):
     login_id, login_pwd = creds
 
     if req.vendor_id == "yamimall":
-        result = yamimall_bot.add_to_cart(login_id, login_pwd, req.product_url, req.qty)
+        result = yamimall_bot.add_to_cart(store_id, login_id, login_pwd, req.product_url, req.qty)
     elif req.vendor_id in ("ccdome", "3bong"):
         base_url = vendors.VENDORS[req.vendor_id]["base_url"]
         goods_no_match = re.search(r"goodsNo=(\d+)", req.product_url or "")
         if not goods_no_match:
             return {"ok": False, "reason": f"상품 번호 추출 실패: {req.product_url}"}
-        result = godomall_bot.add_to_cart(base_url, login_id, login_pwd, goods_no_match.group(1), req.qty)
+        result = godomall_bot.add_to_cart(store_id, req.vendor_id, base_url, login_id, login_pwd, goods_no_match.group(1), req.qty)
     else:
         return {"ok": False, "reason": f"{req.vendor_id}는 아직 자동 담기를 지원하지 않습니다."}
 
