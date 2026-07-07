@@ -133,6 +133,30 @@ def _store_prefs(chat_id: str) -> tuple[set, str | None]:
     return set(reg.get("disabled_vendors") or []), reg.get("preferred_vendor")
 
 
+def _filter_groups_for_store(groups: list[dict], disabled_vendors: set) -> list[dict]:
+    """비활성화한 도매처는 가격비교/후보 목록에서 아예 안 보이게 거른다.
+    걸러내고 나서 살 수 있는 도매처가 하나도 안 남는 그룹은 통째로 제거하고,
+    대표 이름/가격도 남은 오퍼 기준으로 다시 뽑는다(offers는 이미 단가순 정렬돼 있음)."""
+    if not disabled_vendors:
+        return groups
+
+    filtered = []
+    for g in groups:
+        offers = [o for o in g["offers"] if o["vendor_id"] not in disabled_vendors]
+        if not offers:
+            continue
+        best = offers[0]
+        filtered.append({
+            **g,
+            "offers": offers,
+            "representative_name": best["name"],
+            "best_price": best.get("price"),
+            "best_vendor_name": best["vendor_name"],
+            "vendor_count": len(offers),
+        })
+    return filtered
+
+
 # 상품명 뒤에 공백 + 순수 숫자(1~99)만 오면 수량으로 해석한다. "80g", "500ml"처럼
 # 숫자에 단위가 바로 붙어 있으면(공백으로 안 떨어져 있으면) 매칭되지 않아 용량과 헷갈리지 않는다.
 QTY_SUFFIX_RE = re.compile(r"^(.*\S)\s+(\d{1,2})$")
@@ -159,6 +183,7 @@ def _classify_order_list(text: str, chat_id: str) -> dict:
     for line in lines:
         keyword, qty = _parse_item_line(line)
         groups = price_compare.compare(keyword).get("groups", [])
+        groups = _filter_groups_for_store(groups, disabled_vendors)
         if not groups:
             not_found.append(keyword)
             continue
@@ -167,7 +192,7 @@ def _classify_order_list(text: str, chat_id: str) -> dict:
             ambiguous.append({"keyword": keyword, "qty": qty})
             continue
 
-        offers = [o for o in groups[0]["offers"] if o["vendor_id"] not in disabled_vendors]
+        offers = groups[0]["offers"]
         best_offer = _pick_best_offer(offers, preferred_vendor)
         if not best_offer:
             not_found.append(keyword)
@@ -205,7 +230,9 @@ def _ask_next_disambiguation(chat_id: str, state: dict) -> None:
 
     entry = state["queue"][0]
     keyword = entry["keyword"]
+    disabled_vendors, _ = _store_prefs(chat_id)
     groups = price_compare.compare(keyword).get("groups", [])
+    groups = _filter_groups_for_store(groups, disabled_vendors)
 
     if not groups:
         # 두 메시지 사이 캐시가 바뀌는 등 방어적 처리
@@ -236,7 +263,9 @@ def _handle_disambiguation_reply(chat_id: str, state: dict, text: str) -> None:
         _ask_next_disambiguation(chat_id, state)
         return
 
+    disabled_vendors, preferred_vendor = _store_prefs(chat_id)
     groups = price_compare.compare(keyword).get("groups", [])
+    groups = _filter_groups_for_store(groups, disabled_vendors)
 
     # "2" 또는 "2,4" 처럼 쉼표(또는 공백)로 구분된 여러 번호를 한 번에 선택할 수 있다.
     raw_parts = [p for p in re.split(r"[,\s]+", stripped) if p]
@@ -249,10 +278,9 @@ def _handle_disambiguation_reply(chat_id: str, state: dict, text: str) -> None:
         send_message(chat_id, f"1~{len(groups)} 사이의 번호로 답장해주세요.")
         return
 
-    disabled_vendors, preferred_vendor = _store_prefs(chat_id)
     added_any = False
     for idx in dict.fromkeys(indices):  # 중복 번호 제거, 순서는 유지
-        offers = [o for o in groups[idx]["offers"] if o["vendor_id"] not in disabled_vendors]
+        offers = groups[idx]["offers"]
         best_offer = _pick_best_offer(offers, preferred_vendor)
         if best_offer:
             display_name = (best_offer.get("name") or keyword).strip()

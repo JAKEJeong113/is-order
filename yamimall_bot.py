@@ -438,7 +438,20 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
         context = browser.new_context(storage_state=cached_state) if cached_state else browser.new_context()
         page = context.new_page()
 
+        # 캐시된 세션이 만료된 채로 담기를 누르면 "로그인이 필요합니다" 같은
+        # 네이티브 alert가 뜨고 로그인 페이지로 튕긴다. 담기 버튼 자체는 비로그인
+        # 상태에서도 페이지에 존재해서 클릭 자체는 "성공"하기 때문에, 이 alert를
+        # 잡아두지 않으면 실제로는 실패했는데 성공으로 잘못 보고하게 된다.
+        alert_messages: list[str] = []
+
+        def _on_dialog(dialog):
+            alert_messages.append(dialog.message)
+            dialog.dismiss()
+
+        page.on("dialog", _on_dialog)
+
         def _try_add() -> str:
+            alert_messages.clear()
             page.goto(
                 f"{YAMIMALL_URL}:443/shop/item.php?code={item_code}",
                 wait_until="domcontentloaded",
@@ -466,6 +479,9 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
             cart_btn.click(timeout=5000)
             page.wait_for_timeout(1500)
 
+            if "login.php" in page.url or any("로그인" in m for m in alert_messages):
+                return "login_required"
+
             # 담기 확인 팝업 처리 (있으면 닫기)
             dialog_btn = page.locator(".ui-dialog-buttonpane button").first
             if dialog_btn.count() > 0:
@@ -483,7 +499,7 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
                 logged_in_fresh = True
 
             outcome = _try_add()
-            if outcome == "no_cart_button" and cached_state:
+            if outcome in ("no_cart_button", "login_required") and cached_state:
                 # 캐시된 세션이 만료됐을 수 있으니 새로 로그인해서 한 번 더 시도
                 login_yamimall(page, username, password)
                 logged_in_fresh = True
@@ -493,6 +509,8 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
                 return {"ok": False, "reason": "수량 조절 버튼을 찾지 못함 (품절이거나 페이지 구조 변경)"}
             if outcome == "no_cart_button":
                 return {"ok": False, "reason": "장바구니 버튼을 찾지 못함"}
+            if outcome == "login_required":
+                return {"ok": False, "reason": "로그인이 필요합니다 (아이디/비밀번호를 확인해주세요)"}
 
             if logged_in_fresh:
                 vendors.save_session_state(store_id, "yamimall", context.storage_state())
@@ -532,7 +550,14 @@ def add_to_cart_via_list(
         cached_state = vendors.get_session_state(store_id, vendor_id)
         context = browser.new_context(storage_state=cached_state) if cached_state else browser.new_context()
         page = context.new_page()
-        page.on("dialog", lambda dialog: dialog.dismiss())
+
+        alert_messages: list[str] = []
+
+        def _on_dialog(dialog):
+            alert_messages.append(dialog.message)
+            dialog.dismiss()
+
+        page.on("dialog", _on_dialog)
 
         def _find_container():
             run_yamimall_search(page, search_keyword, base_url=base_url)
@@ -542,6 +567,7 @@ def add_to_cart_via_list(
             return links.first.locator("xpath=ancestor::li[1]")
 
         def _try_add() -> str:
+            alert_messages.clear()
             container = _find_container()
             if container is None:
                 return "not_found"
@@ -569,7 +595,7 @@ def add_to_cart_via_list(
             # 비로그인/세션 만료 상태로 담기를 누르면 "로그인이 필요합니다" alert 후
             # login.php로 이동한다. 이 경우 담기 버튼은 찾았지만 실제로는 로그인이
             # 안 된 상태이므로, 세션이 만료된 것으로 간주하고 재로그인을 유도한다.
-            if "login.php" in page.url:
+            if "login.php" in page.url or any("로그인" in m for m in alert_messages):
                 return "login_required"
 
             # 담기 확인 팝업 처리 (add_yamimall_cart와 동일한 확인/계속쇼핑 패턴)
