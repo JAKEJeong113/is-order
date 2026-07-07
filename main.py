@@ -472,13 +472,6 @@ def api_popular(category: str = Query(...), limit: int = Query(30, ge=1, le=100)
     return {"items": popularity.get_top_items(category, limit=limit)}
 
 
-@app.get("/admin/debug-login-screenshot")
-def admin_debug_login_screenshot(_: bool = Depends(require_admin)):
-    if not godomall_bot.DEBUG_SCREENSHOT_PATH.exists():
-        raise HTTPException(status_code=404, detail="스크린샷이 아직 없습니다.")
-    return FileResponse(path=str(godomall_bot.DEBUG_SCREENSHOT_PATH), media_type="image/png")
-
-
 @app.post("/telegram/webhook")
 def telegram_webhook(update: dict):
     try:
