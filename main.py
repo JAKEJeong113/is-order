@@ -425,6 +425,12 @@ def api_cart_add(req: CartAddRequest, user: dict = Depends(require_web_user)):
     elif req.vendor_id == "moomarket":
         base_url = vendors.VENDORS[req.vendor_id]["base_url"]
         result = cafe24_bot.add_to_cart(store_id, base_url, login_id, login_pwd, req.product_url, req.qty)
+    elif req.vendor_id == "douyou":
+        base_url = vendors.VENDORS[req.vendor_id]["base_url"]
+        result = yamimall_bot.add_to_cart_via_list(
+            store_id, req.vendor_id, login_id, login_pwd, req.product_url, req.qty,
+            base_url=base_url, keyword=req.item_name,
+        )
     else:
         return {"ok": False, "reason": f"{req.vendor_id}는 아직 자동 담기를 지원하지 않습니다."}
 

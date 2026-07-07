@@ -10,11 +10,11 @@ import vendors
 YAMIMALL_URL = "https://xn--352blx12s.com"
 
 
-def run_yamimall_search(page, keyword: str) -> None:
+def run_yamimall_search(page, keyword: str, base_url: str = YAMIMALL_URL) -> None:
     """검색창 버튼(#sch_submit)은 아이콘폰트라 실제 클릭이 안 먹는 경우가 있어
     검색 폼이 실제로 이동하는 GET URL로 직접 이동한다."""
     page.goto(
-        f"{YAMIMALL_URL}/shop/search.php?skey={quote(keyword)}",
+        f"{base_url}/shop/search.php?skey={quote(keyword)}",
         wait_until="domcontentloaded",
         timeout=30000,
     )
@@ -496,6 +496,119 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
 
             if logged_in_fresh:
                 vendors.save_session_state(store_id, "yamimall", context.storage_state())
+
+            return {"ok": True, "item_code": item_code, "qty": qty}
+        except Exception as e:
+            return {"ok": False, "reason": str(e)}
+        finally:
+            browser.close()
+
+
+def add_to_cart_via_list(
+    store_id: str,
+    vendor_id: str,
+    username: str,
+    password: str,
+    product_url: str,
+    qty: int = 1,
+    base_url: str = YAMIMALL_URL,
+    keyword: str | None = None,
+) -> dict:
+    """일부 스토어(또요몰 등)는 상품 상세페이지(item.php)에 접속하면 봇 감지로
+    페이지가 about:blank로 리다이렉트되는 문제가 있어, item.php 대신 검색 결과
+    목록 화면에서 바로 담는 방식을 쓴다. product_url의 code= 값으로 목록에서
+    정확한 상품 컨테이너를 찾아 그 안의 담기 버튼을 클릭한다."""
+    code_match = re.search(r"code=(\d+)", product_url or "")
+    if not code_match:
+        return {"ok": False, "reason": f"상품 코드 추출 실패: {product_url}"}
+    item_code = code_match.group(1)
+    search_keyword = keyword or item_code
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"],
+        )
+        cached_state = vendors.get_session_state(store_id, vendor_id)
+        context = browser.new_context(storage_state=cached_state) if cached_state else browser.new_context()
+        page = context.new_page()
+        page.on("dialog", lambda dialog: dialog.dismiss())
+
+        def _find_container():
+            run_yamimall_search(page, search_keyword, base_url=base_url)
+            links = page.locator(f"a[href*='code={item_code}']")
+            if links.count() == 0:
+                return None
+            return links.first.locator("xpath=ancestor::li[1]")
+
+        def _try_add() -> str:
+            container = _find_container()
+            if container is None:
+                return "not_found"
+
+            if qty > 1:
+                plus_btn = container.locator(".qty_plus_class2, .add_qty_class").first
+                if plus_btn.count() > 0:
+                    for _ in range(qty - 1):
+                        try:
+                            plus_btn.click(timeout=1000)
+                            page.wait_for_timeout(150)
+                        except Exception:
+                            break
+
+            cart_btn = container.locator(".list_cart2_class, .sct_cart_add").first
+            if cart_btn.count() == 0:
+                return "no_cart_button"
+
+            try:
+                cart_btn.click(timeout=3000, force=True)
+            except Exception:
+                cart_btn.dispatch_event("click")
+            page.wait_for_timeout(1000)
+
+            # 비로그인/세션 만료 상태로 담기를 누르면 "로그인이 필요합니다" alert 후
+            # login.php로 이동한다. 이 경우 담기 버튼은 찾았지만 실제로는 로그인이
+            # 안 된 상태이므로, 세션이 만료된 것으로 간주하고 재로그인을 유도한다.
+            if "login.php" in page.url:
+                return "login_required"
+
+            # 담기 확인 팝업 처리 (add_yamimall_cart와 동일한 확인/계속쇼핑 패턴)
+            for btn_text in ("확인", "계속쇼핑"):
+                popup_btn = page.locator(f"button.ui-button:has-text('{btn_text}')").last
+                if popup_btn.count() > 0:
+                    try:
+                        popup_btn.click(timeout=2000, force=True)
+                    except Exception:
+                        try:
+                            popup_btn.evaluate("(el) => el.click()")
+                        except Exception:
+                            pass
+                    page.wait_for_timeout(500)
+
+            return "ok"
+
+        try:
+            logged_in_fresh = False
+            if not cached_state:
+                login_yamimall(page, username, password, base_url=base_url)
+                logged_in_fresh = True
+
+            outcome = _try_add()
+            if outcome in ("no_cart_button", "not_found", "login_required") and cached_state:
+                # 캐시된 세션이 만료됐을 수 있으니 새로 로그인해서 한 번 더 시도
+                login_yamimall(page, username, password, base_url=base_url)
+                logged_in_fresh = True
+                outcome = _try_add()
+
+            if outcome == "not_found":
+                return {"ok": False, "reason": f"검색 결과에서 해당 상품(코드 {item_code})을 찾지 못함"}
+            if outcome == "no_cart_button":
+                return {"ok": False, "reason": "장바구니 버튼을 찾지 못함"}
+            if outcome == "login_required":
+                return {"ok": False, "reason": "로그인이 필요합니다 (아이디/비밀번호를 확인해주세요)"}
+
+            if logged_in_fresh:
+                vendors.save_session_state(store_id, vendor_id, context.storage_state())
 
             return {"ok": True, "item_code": item_code, "qty": qty}
         except Exception as e:

@@ -25,7 +25,7 @@ HELP_WORDS = {"도움말", "명령어", "help", "도움", "명령"}
 
 # 실제 자동 담기(add_to_cart)가 구현된 도매처만 포함. 또요몰은 계정 등록은
 # 받되(KOREAN_TO_VENDOR_ID), 봇 감지 우회가 되기 전까지는 담기 자동화 대상에서 제외한다.
-CART_SUPPORTED_VENDORS = ("yamimall", "ccdome", "3bong", "hdinter", "moomarket")
+CART_SUPPORTED_VENDORS = ("yamimall", "ccdome", "3bong", "hdinter", "moomarket", "douyou")
 KOREAN_TO_VENDOR_ID = {
     "야미몰": "yamimall", "과자생각": "ccdome", "삼봉몰": "3bong",
     "현동몰": "hdinter", "무마켓": "moomarket", "또요몰": "douyou",
@@ -285,6 +285,11 @@ def _add_single_item_to_cart(store_id: str, item: dict) -> dict:
         return yamimall_bot.add_to_cart(store_id, login_id, login_pwd, item["product_url"], item["qty"])
     if item["vendor_id"] == "moomarket":
         return cafe24_bot.add_to_cart(store_id, base_url, login_id, login_pwd, item["product_url"], item["qty"])
+    if item["vendor_id"] == "douyou":
+        return yamimall_bot.add_to_cart_via_list(
+            store_id, item["vendor_id"], login_id, login_pwd, item["product_url"], item["qty"],
+            base_url=base_url, keyword=item.get("item_name"),
+        )
 
     return godomall_bot.add_to_cart(store_id, item["vendor_id"], base_url, login_id, login_pwd, item["item_key"], item["qty"])
 
