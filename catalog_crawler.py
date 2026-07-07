@@ -32,6 +32,10 @@ def crawl_vendor(vendor_id: str) -> dict:
             products = godomall_bot.crawl_full_catalog(base_url, login_id, login_pwd, meta["catalog_category_code"])
         elif vendor_id == "moomarket":
             products = cafe24_bot.crawl_full_catalog(base_url, login_id, login_pwd, meta["catalog_category_code"])
+        elif vendor_id == "douyou":
+            products = yamimall_bot.crawl_full_catalog(
+                login_id, login_pwd, base_url=base_url, category_codes=meta["catalog_category_code"],
+            )
         else:
             return {"vendor_id": vendor_id, "ok": False, "error": "이 도매처는 아직 전체상품 수집을 지원하지 않습니다"}
     except Exception as e:

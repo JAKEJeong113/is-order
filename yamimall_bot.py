@@ -295,8 +295,13 @@ def _block_heavy_resources(page) -> None:
     )
 
 
-def crawl_full_catalog(username: str, password: str) -> list[dict]:
-    """카테고리별 '전체보기' 코드를 모두 순회해서 전체 상품을 수집한다."""
+def crawl_full_catalog(
+    username: str, password: str, base_url: str = YAMIMALL_URL, category_codes: list[str] | None = None,
+) -> list[dict]:
+    """카테고리별 '전체보기' 코드를 모두 순회해서 전체 상품을 수집한다.
+    같은 플랫폼을 쓰는 다른 스토어(또요몰 등)를 위해 base_url/category_codes를
+    바꿔 넣을 수 있게 했다 (기본값은 기존 야미몰 동작 그대로)."""
+    codes = category_codes if category_codes is not None else FULL_CATALOG_CATEGORY_CODES
     products: dict[str, dict] = {}
 
     with sync_playwright() as p:
@@ -308,12 +313,12 @@ def crawl_full_catalog(username: str, password: str) -> list[dict]:
         _block_heavy_resources(page)
 
         try:
-            login_yamimall(page, username, password)
+            login_yamimall(page, username, password, base_url=base_url)
 
-            for code in FULL_CATALOG_CATEGORY_CODES:
+            for code in codes:
                 try:
                     page.goto(
-                        f"https://xn--352blx12s.com:443/shop/list.php?code={code}",
+                        f"{base_url}:443/shop/list.php?code={code}",
                         wait_until="domcontentloaded",
                         timeout=30000,
                     )
@@ -348,12 +353,17 @@ def calc_yamimall_cart_qty(sold_qty: int, unit_qty: int) -> int:
     return cart_qty
 
 
-def login_yamimall(page, username: str, password: str) -> None:
-    page.goto(YAMIMALL_URL, wait_until="domcontentloaded", timeout=60000)
+def login_yamimall(page, username: str, password: str, base_url: str = YAMIMALL_URL) -> None:
+    page.goto(base_url, wait_until="domcontentloaded", timeout=60000)
     page.wait_for_timeout(2000)
     close_yamimall_popups(page)
 
-    page.locator(".hdgnb_login_class").click()
+    # 같은 플랫폼을 쓰는 다른 스토어(또요몰 등)는 로그인 버튼이 모달을 띄우는 대신
+    # 로그인 페이지로 바로 이동하는 경우가 있어, 트리거를 못 찾으면 텍스트로 한 번 더 찾는다.
+    login_trigger = page.locator(".hdgnb_login_class")
+    if login_trigger.count() == 0:
+        login_trigger = page.locator("a:has-text('로그인')").first
+    login_trigger.first.click()
     page.wait_for_timeout(1000)
 
     page.fill("#login_id", username)

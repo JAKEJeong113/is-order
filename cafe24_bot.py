@@ -9,7 +9,10 @@ def login_cafe24(page: Page, base_url: str, login_id: str, login_pwd: str) -> No
     page.goto(f"{base_url}/member/login.html", wait_until="domcontentloaded", timeout=30000)
     page.fill("#member_id", login_id)
     page.fill("#member_passwd", login_pwd)
-    page.locator("form:has(#member_id) button[type=submit], form:has(#member_id) input[type=submit]").first.click()
+
+    # 카페24는 <button type=submit>이 아니라 onclick="MemberAction.login(...)"을 쓰는
+    # <a class="btnLogin"> 링크로 로그인을 제출한다 (form id는 요청마다 랜덤하게 바뀜).
+    page.locator("a.btnLogin").first.click()
 
     try:
         page.wait_for_url(lambda url: "login" not in url.lower(), timeout=8000)
