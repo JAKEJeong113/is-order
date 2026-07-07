@@ -1,11 +1,17 @@
 # godomall_bot.py
 """고도몰(Godomall) 플랫폼 공통 봇: 과자생각(ccdome), 삼봉몰(3bong)에서 재사용."""
+import os
 import re
+from pathlib import Path
 from urllib.parse import quote
 
 from playwright.sync_api import Page, sync_playwright, TimeoutError as PWTimeoutError
 
 import vendors
+
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
+DEBUG_SCREENSHOT_PATH = DATA_DIR / "debug_login_failure.png"
 
 
 def login_godomall(page: Page, base_url: str, login_id: str, login_pwd: str) -> None:
@@ -16,12 +22,16 @@ def login_godomall(page: Page, base_url: str, login_id: str, login_pwd: str) -> 
     page.wait_for_timeout(3000)
 
     if "login.php" in page.url:
-        # 원인 파악을 위해 화면에 실제로 보이는 에러 메시지를 최대한 같이 담는다
+        # 원인 파악을 위해 화면에 실제로 보이는 에러 메시지와 스크린샷을 같이 남긴다
         detail = ""
         try:
             error_el = page.locator("[class*=caution], .error, [class*=alert]").first
             if error_el.count() > 0 and error_el.is_visible():
                 detail = f" / 화면 메시지: {error_el.inner_text().strip()}"
+        except Exception:
+            pass
+        try:
+            page.screenshot(path=str(DEBUG_SCREENSHOT_PATH))
         except Exception:
             pass
         raise RuntimeError(f"고도몰 로그인 실패 (아이디/비밀번호를 확인해주세요) / URL: {page.url}{detail}")
