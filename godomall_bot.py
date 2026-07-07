@@ -19,7 +19,14 @@ def login_godomall(page: Page, base_url: str, login_id: str, login_pwd: str) -> 
     page.fill("#loginId", login_id)
     page.fill("#loginPwd", login_pwd)
     page.locator("#formLogin").locator("button, input[type=submit]").first.click()
-    page.wait_for_timeout(3000)
+
+    # 로그인 성공 시 login.php를 벗어나기까지 걸리는 시간이 스토어마다 달라서(현동몰은
+    # 고정 3초 대기보다 늦게 리다이렉트되는 경우가 있어 실패로 오판했었다), 고정 대기
+    # 대신 URL이 바뀔 때까지 최대 8초 기다린 뒤에 최종 상태로 판단한다.
+    try:
+        page.wait_for_url(lambda url: "login.php" not in url, timeout=8000)
+    except PWTimeoutError:
+        pass
 
     if "login.php" in page.url:
         # 원인 파악을 위해 화면에 실제로 보이는 에러 메시지와 스크린샷을 같이 남긴다
