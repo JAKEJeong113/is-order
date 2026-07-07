@@ -22,10 +22,15 @@ CANCEL_WORDS = {"취소", "아니", "아니오", "no", "cancel"}
 CRED_TRIGGER_WORDS = {"계정등록", "도매처등록", "도매처계정등록", "계정 등록"}
 HELP_WORDS = {"도움말", "명령어", "help", "도움", "명령"}
 
+# 실제 자동 담기(add_to_cart)가 구현된 도매처만 포함. 현동몰/무마켓/또요몰은 계정
+# 등록은 받되(KOREAN_TO_VENDOR_ID), 봇 구현 전까지는 담기 자동화 대상에서 제외한다.
 CART_SUPPORTED_VENDORS = ("yamimall", "ccdome", "3bong")
-KOREAN_TO_VENDOR_ID = {"야미몰": "yamimall", "과자생각": "ccdome", "삼봉몰": "3bong"}
+KOREAN_TO_VENDOR_ID = {
+    "야미몰": "yamimall", "과자생각": "ccdome", "삼봉몰": "3bong",
+    "현동몰": "hdinter", "무마켓": "moomarket", "또요몰": "douyou",
+}
 VENDOR_ID_TO_KOREAN = {v: k for k, v in KOREAN_TO_VENDOR_ID.items()}
-VENDOR_MENU_TEXT = "등록할 도매처를 입력해주세요: 야미몰 / 과자생각 / 삼봉몰"
+VENDOR_MENU_TEXT = "등록할 도매처를 입력해주세요: 야미몰 / 과자생각 / 삼봉몰 / 현동몰 / 무마켓 / 또요몰"
 
 HELP_TEXT = """사용 가능한 명령어입니다:
 

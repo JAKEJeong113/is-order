@@ -16,6 +16,9 @@ VENDORS = {
     "ccdome": {"name": "과자생각", "base_url": "https://www.ccdome.co.kr", "free_shipping_threshold": 100000, "catalog_category_code": "017"},
     "3bong": {"name": "삼봉몰", "base_url": "https://3bong.kr", "free_shipping_threshold": 100000, "catalog_category_code": "021"},
     "samwon": {"name": "삼원유통", "base_url": "https://15774281.com", "free_shipping_threshold": 300000},
+    "hdinter": {"name": "현동몰", "base_url": "https://hd-inter.co.kr", "free_shipping_threshold": 100000},
+    "moomarket": {"name": "무마켓", "base_url": "https://moomarket.co.kr", "free_shipping_threshold": 100000},
+    "douyou": {"name": "또요몰", "base_url": "https://www.douyoudouyou.com", "free_shipping_threshold": 100000},
 }
 
 
@@ -209,6 +212,11 @@ def get_store_vendor_credentials(store_id: str, vendor_id: str) -> tuple[str, st
     return login_id, login_pwd
 
 
+# 지점별 계정 등록 + 자동 담기를 지원하는 도매처 (현동몰/무마켓/또요몰은 봇 구현 전까지는
+# 계정 등록 화면에는 노출하되 담기 자동화 대상에는 아직 넣지 않는다)
+STORE_MANAGED_VENDOR_IDS = ("yamimall", "ccdome", "3bong", "hdinter", "moomarket", "douyou")
+
+
 def list_store_vendor_status(store_id: str) -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
@@ -219,7 +227,7 @@ def list_store_vendor_status(store_id: str) -> list[dict]:
     return [
         {"vendor_id": vid, "name": meta["name"], "registered": vid in registered}
         for vid, meta in VENDORS.items()
-        if vid in ("yamimall", "ccdome", "3bong")
+        if vid in STORE_MANAGED_VENDOR_IDS
     ]
 
 
