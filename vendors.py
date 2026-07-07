@@ -16,9 +16,9 @@ VENDORS = {
     "ccdome": {"name": "과자생각", "base_url": "https://www.ccdome.co.kr", "free_shipping_threshold": 100000, "catalog_category_code": "017"},
     "3bong": {"name": "삼봉몰", "base_url": "https://3bong.kr", "free_shipping_threshold": 100000, "catalog_category_code": "021"},
     "samwon": {"name": "삼원유통", "base_url": "https://15774281.com", "free_shipping_threshold": 300000},
-    "hdinter": {"name": "현동몰", "base_url": "https://hd-inter.co.kr", "free_shipping_threshold": 100000},
-    "moomarket": {"name": "무마켓", "base_url": "https://moomarket.co.kr", "free_shipping_threshold": 100000},
-    "douyou": {"name": "또요몰", "base_url": "https://www.douyoudouyou.com", "free_shipping_threshold": 100000},
+    "hdinter": {"name": "현동몰", "base_url": "https://hd-inter.co.kr", "free_shipping_threshold": 200000},
+    "moomarket": {"name": "무마켓", "base_url": "https://moomarket.co.kr", "free_shipping_threshold": 150000},
+    "douyou": {"name": "또요몰", "base_url": "https://www.douyoudouyou.com", "free_shipping_threshold": 150000},
 }
 
 
