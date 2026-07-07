@@ -176,7 +176,11 @@ def crawl_full_catalog(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"],
         )
-        page = browser.new_page()
+        # 페이지 하나로 카테고리를 전부(수십 페이지 이동) 돌면 브라우저 메모리가 계속
+        # 쌓여서 Render 인스턴스가 OOM으로 재시작되는 문제가 있었다. 로그인 세션은
+        # context 단위로 유지되니, 카테고리마다 페이지를 새로 만들어 메모리를 정리한다.
+        context = browser.new_context()
+        page = context.new_page()
         _block_heavy_resources(page)
 
         try:
@@ -205,6 +209,10 @@ def crawl_full_catalog(
                     # 더 이상 새로운 상품이 없으면(마지막 페이지가 반복되는 경우) 다음 카테고리로
                     if new_count == 0:
                         break
+
+                page.close()
+                page = context.new_page()
+                _block_heavy_resources(page)
         finally:
             browser.close()
 

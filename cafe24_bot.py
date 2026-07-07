@@ -100,8 +100,13 @@ def crawl_full_catalog(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"],
         )
-        page = browser.new_page()
+        # 페이지 하나로 수십~80페이지를 계속 이동하면 브라우저 메모리가 쌓여서 Render
+        # 인스턴스가 OOM으로 재시작되는 문제가 있었다. 로그인 세션은 context 단위로
+        # 유지되니, 일정 페이지마다 페이지를 새로 만들어 메모리를 정리한다.
+        context = browser.new_context()
+        page = context.new_page()
         _block_heavy_resources(page)
+        PAGE_RECYCLE_INTERVAL = 10
 
         try:
             login_cafe24(page, base_url, login_id, login_pwd)
@@ -128,6 +133,11 @@ def crawl_full_catalog(
                 # 더 이상 새로운 상품이 없으면(마지막 페이지가 반복되는 경우) 종료
                 if new_count == 0:
                     break
+
+                if page_no % PAGE_RECYCLE_INTERVAL == 0:
+                    page.close()
+                    page = context.new_page()
+                    _block_heavy_resources(page)
         finally:
             browser.close()
 
