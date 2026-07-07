@@ -296,11 +296,14 @@ def _block_heavy_resources(page) -> None:
 
 
 def crawl_full_catalog(
-    username: str, password: str, base_url: str = YAMIMALL_URL, category_codes: list[str] | None = None,
+    username: str, password: str, base_url: str = YAMIMALL_URL,
+    category_codes: list[str] | None = None, max_pages: int = 60,
 ) -> list[dict]:
     """카테고리별 '전체보기' 코드를 모두 순회해서 전체 상품을 수집한다.
     같은 플랫폼을 쓰는 다른 스토어(또요몰 등)를 위해 base_url/category_codes를
-    바꿔 넣을 수 있게 했다 (기본값은 기존 야미몰 동작 그대로)."""
+    바꿔 넣을 수 있게 했다 (기본값은 기존 야미몰 동작 그대로).
+    카테고리 하나에도 페이지가 여러 장일 수 있어(또요몰 젤리 카테고리 하나가 11페이지+)
+    각 카테고리마다 새 상품이 없어질 때까지 페이지를 끝까지 넘긴다."""
     codes = category_codes if category_codes is not None else FULL_CATALOG_CATEGORY_CODES
     products: dict[str, dict] = {}
 
@@ -316,21 +319,32 @@ def crawl_full_catalog(
             login_yamimall(page, username, password, base_url=base_url)
 
             for code in codes:
-                try:
-                    page.goto(
-                        f"{base_url}:443/shop/list.php?code={code}",
-                        wait_until="domcontentloaded",
-                        timeout=30000,
-                    )
-                    page.wait_for_timeout(1200)
-                except Exception as e:
-                    print(f"[YAMIMALL] 카테고리 {code} 로딩 실패:", e)
-                    continue
+                for page_no in range(1, max_pages + 1):
+                    try:
+                        page.goto(
+                            f"{base_url}:443/shop/list.php?code={code}&page={page_no}",
+                            wait_until="domcontentloaded",
+                            timeout=30000,
+                        )
+                        page.wait_for_timeout(1200)
+                    except Exception as e:
+                        print(f"[YAMIMALL] 카테고리 {code} 페이지 {page_no} 로딩 실패:", e)
+                        break
 
-                for item in _extract_list_page_items(page):
-                    key = item.pop("_key")
-                    if key not in products:
-                        products[key] = item
+                    items = _extract_list_page_items(page)
+                    if not items:
+                        break
+
+                    new_count = 0
+                    for item in items:
+                        key = item.pop("_key")
+                        if key not in products:
+                            products[key] = item
+                            new_count += 1
+
+                    # 더 이상 새로운 상품이 없으면(마지막 페이지가 반복되는 경우) 다음 카테고리로
+                    if new_count == 0:
+                        break
         finally:
             browser.close()
 

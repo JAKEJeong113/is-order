@@ -36,32 +36,37 @@ def _extract_unit_qty(text: str) -> int | None:
 
 
 def _extract_list_page_items(page: Page, base_url: str) -> list[dict]:
-    items = page.locator("ul.prdList li")
-    count = items.count()
+    """상품이 페이지당 최대 80개까지 있어서, 아이템마다 Playwright 왕복 호출을
+    여러 번 하면(수십 페이지 누적 시) 크롤링이 비정상적으로 느려진다. 페이지당
+    한 번의 evaluate로 필요한 값을 한꺼번에 뽑아온다."""
+    raw_items = page.evaluate("""
+        () => Array.from(document.querySelectorAll('ul.prdList li')).map(li => {
+            const link = li.querySelector('div.thumbnail a');
+            const img = li.querySelector('div.thumbnail img');
+            const desc = li.querySelector('div.description');
+            return {
+                href: link ? link.getAttribute('href') : null,
+                name: img ? img.getAttribute('alt') : '',
+                descText: desc ? desc.innerText : '',
+            };
+        })
+    """)
+
     results = []
+    for raw in raw_items:
+        href = raw.get("href") or ""
+        name = (raw.get("name") or "").strip()
 
-    for i in range(count):
-        item = items.nth(i)
-        try:
-            link = item.locator("div.thumbnail a").first
-            href = link.get_attribute("href") or ""
-            img = item.locator("div.thumbnail img").first
-            name = (img.get_attribute("alt") or "").strip()
-
-            # 가격 표시 위치가 테마마다 조금씩 달라서 상품명 옆 텍스트 전체에서 숫자+원을 찾는다
-            desc_text = item.locator("div.description").inner_text()
-            price = None
-            price_match = re.search(r"([\d,]+)\s*원", desc_text)
-            if price_match:
-                price = _parse_price(price_match.group(1))
-
-            no_match = re.search(r"/product/[^/]+/(\d+)/", href)
-            product_no = no_match.group(1) if no_match else None
-        except Exception:
-            continue
-
+        no_match = re.search(r"/product/[^/]+/(\d+)/", href)
+        product_no = no_match.group(1) if no_match else None
         if not name or not product_no:
             continue
+
+        # 가격 표시 위치가 테마마다 조금씩 달라서 상품명 옆 텍스트 전체에서 숫자+원을 찾는다
+        price = None
+        price_match = re.search(r"([\d,]+)\s*원", raw.get("descText") or "")
+        if price_match:
+            price = _parse_price(price_match.group(1))
 
         results.append({
             "name": name,
