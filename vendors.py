@@ -24,7 +24,10 @@ VENDORS = {
             "022003", "022004", "023001", "023002", "025002",
         ],
     },
-    "moomarket": {"name": "무마켓", "base_url": "https://moomarket.co.kr", "free_shipping_threshold": 150000},
+    "moomarket": {
+        "name": "무마켓", "base_url": "https://moomarket.co.kr", "free_shipping_threshold": 150000,
+        "catalog_category_code": "240",  # 카페24 "전체상품" 카테고리(cate_no)
+    },
     "douyou": {"name": "또요몰", "base_url": "https://www.douyoudouyou.com", "free_shipping_threshold": 150000},
 }
 

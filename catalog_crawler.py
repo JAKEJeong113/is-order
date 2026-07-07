@@ -2,6 +2,7 @@
 """활성화된 도매처의 전체상품을 크롤링해서 catalog_cache에 저장한다."""
 import threading
 
+import cafe24_bot
 import catalog_cache
 import godomall_bot
 import vendors
@@ -29,6 +30,8 @@ def crawl_vendor(vendor_id: str) -> dict:
             products = yamimall_bot.crawl_full_catalog(login_id, login_pwd)
         elif vendor_id in ("ccdome", "3bong", "hdinter"):
             products = godomall_bot.crawl_full_catalog(base_url, login_id, login_pwd, meta["catalog_category_code"])
+        elif vendor_id == "moomarket":
+            products = cafe24_bot.crawl_full_catalog(base_url, login_id, login_pwd, meta["catalog_category_code"])
         else:
             return {"vendor_id": vendor_id, "ok": False, "error": "이 도매처는 아직 전체상품 수집을 지원하지 않습니다"}
     except Exception as e:
