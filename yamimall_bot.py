@@ -450,6 +450,17 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
 
         page.on("dialog", _on_dialog)
 
+        def _read_cart_count() -> int:
+            """헤더의 실시간 장바구니 개수 배지(.cart_prod_cnt_class)를 읽는다.
+            못 읽으면 -1(판단 불가)을 반환해서, 클릭 성공 여부만으로 함부로
+            성공/실패를 단정하지 않게 한다."""
+            try:
+                text = page.locator(".cart_prod_cnt_class").first.inner_text(timeout=2000)
+                digits = re.sub(r"[^\d]", "", text or "")
+                return int(digits) if digits else 0
+            except Exception:
+                return -1
+
         def _try_add() -> str:
             alert_messages.clear()
             page.goto(
@@ -457,6 +468,8 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
                 wait_until="domcontentloaded",
                 timeout=30000,
             )
+
+            before_count = _read_cart_count()
 
             # 수량 1개는 +버튼을 누를 필요가 없다. 수량 조절 UI(.add_qty_class)가
             # 지연된 AJAX로 늦게 뜨거나, 상품에 따라 아예 없는 경우(고정 수량 등)도
@@ -476,7 +489,13 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
             if cart_btn.count() == 0:
                 return "no_cart_button"
 
-            cart_btn.click(timeout=5000)
+            try:
+                cart_btn.click(timeout=5000)
+            except Exception:
+                # alert 때문에 Playwright가 "navigation 대기"에서 타임아웃날 수
+                # 있는데, 그래도 클릭 자체는 이미 서버로 전달됐을 수 있어 여기서
+                # 바로 실패 처리하지 않고 아래 실제 확인 단계로 넘어간다.
+                pass
             page.wait_for_timeout(1500)
 
             if "login.php" in page.url or any("로그인" in m for m in alert_messages):
@@ -489,6 +508,21 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
                     dialog_btn.click(timeout=2000)
                 except Exception:
                     pass
+                page.wait_for_timeout(500)
+
+            # alert/리다이렉트가 없어도 재고부족·최소수량 등 다른 사유로 조용히
+            # 실패하는 경우가 있어서, 클릭 성공 여부만으로는 신뢰할 수 없다는 게
+            # 실측으로 확인됐다. 새로고침 후 실제 장바구니 개수 배지로 최종 확인한다.
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+            after_count = _read_cart_count()
+
+            if before_count >= 0 and after_count >= 0 and after_count <= before_count:
+                if alert_messages:
+                    return f"blocked:{alert_messages[-1]}"
+                return "not_added"
 
             return "ok"
 
@@ -499,7 +533,7 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
                 logged_in_fresh = True
 
             outcome = _try_add()
-            if outcome in ("no_cart_button", "login_required") and cached_state:
+            if outcome in ("no_cart_button", "login_required", "not_added") and cached_state:
                 # 캐시된 세션이 만료됐을 수 있으니 새로 로그인해서 한 번 더 시도
                 login_yamimall(page, username, password)
                 logged_in_fresh = True
@@ -511,6 +545,10 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
                 return {"ok": False, "reason": "장바구니 버튼을 찾지 못함"}
             if outcome == "login_required":
                 return {"ok": False, "reason": "로그인이 필요합니다 (아이디/비밀번호를 확인해주세요)"}
+            if outcome == "not_added":
+                return {"ok": False, "reason": "담기를 시도했지만 장바구니 수량이 늘지 않음 (재고/최소수량 등 확인 필요)"}
+            if outcome.startswith("blocked:"):
+                return {"ok": False, "reason": outcome[len("blocked:"):]}
 
             if logged_in_fresh:
                 vendors.save_session_state(store_id, "yamimall", context.storage_state())
@@ -559,6 +597,14 @@ def add_to_cart_via_list(
 
         page.on("dialog", _on_dialog)
 
+        def _read_cart_count() -> int:
+            try:
+                text = page.locator(".cart_prod_cnt_class").first.inner_text(timeout=2000)
+                digits = re.sub(r"[^\d]", "", text or "")
+                return int(digits) if digits else 0
+            except Exception:
+                return -1
+
         def _find_container():
             run_yamimall_search(page, search_keyword, base_url=base_url)
             links = page.locator(f"a[href*='code={item_code}']")
@@ -571,6 +617,8 @@ def add_to_cart_via_list(
             container = _find_container()
             if container is None:
                 return "not_found"
+
+            before_count = _read_cart_count()
 
             if qty > 1:
                 plus_btn = container.locator(".qty_plus_class2, .add_qty_class").first
@@ -611,6 +659,14 @@ def add_to_cart_via_list(
                             pass
                     page.wait_for_timeout(500)
 
+            # alert/리다이렉트가 없어도 조용히 실패하는 경우가 있어(실측으로 확인),
+            # 헤더의 실시간 장바구니 개수 배지로 최종 확인한다.
+            after_count = _read_cart_count()
+            if before_count >= 0 and after_count >= 0 and after_count <= before_count:
+                if alert_messages:
+                    return f"blocked:{alert_messages[-1]}"
+                return "not_added"
+
             return "ok"
 
         try:
@@ -620,7 +676,7 @@ def add_to_cart_via_list(
                 logged_in_fresh = True
 
             outcome = _try_add()
-            if outcome in ("no_cart_button", "not_found", "login_required") and cached_state:
+            if outcome in ("no_cart_button", "not_found", "login_required", "not_added") and cached_state:
                 # 캐시된 세션이 만료됐을 수 있으니 새로 로그인해서 한 번 더 시도
                 login_yamimall(page, username, password, base_url=base_url)
                 logged_in_fresh = True
@@ -632,6 +688,10 @@ def add_to_cart_via_list(
                 return {"ok": False, "reason": "장바구니 버튼을 찾지 못함"}
             if outcome == "login_required":
                 return {"ok": False, "reason": "로그인이 필요합니다 (아이디/비밀번호를 확인해주세요)"}
+            if outcome == "not_added":
+                return {"ok": False, "reason": "담기를 시도했지만 장바구니 수량이 늘지 않음 (재고/최소수량 등 확인 필요)"}
+            if outcome.startswith("blocked:"):
+                return {"ok": False, "reason": outcome[len("blocked:"):]}
 
             if logged_in_fresh:
                 vendors.save_session_state(store_id, vendor_id, context.storage_state())
