@@ -408,16 +408,19 @@ def add_to_cart(username: str, password: str, product_url: str, qty: int = 1) ->
                 timeout=30000,
             )
 
-            # 수량 조절 버튼(.add_qty_class)이 지연된 AJAX로 뜨는 경우가 있어 넉넉히 대기
-            plus_button = page.locator(".add_qty_class").first
-            try:
-                plus_button.wait_for(state="attached", timeout=8000)
-            except PlaywrightTimeoutError:
-                return {"ok": False, "reason": "수량 조절 버튼을 찾지 못함 (품절이거나 페이지 구조 변경)"}
+            # 수량 1개는 +버튼을 누를 필요가 없다. 수량 조절 UI(.add_qty_class)가
+            # 지연된 AJAX로 늦게 뜨거나, 상품에 따라 아예 없는 경우(고정 수량 등)도
+            # 있어서 실제로 필요할 때(qty>1)만 기다리고 요구한다.
+            if qty > 1:
+                plus_button = page.locator(".add_qty_class").first
+                try:
+                    plus_button.wait_for(state="attached", timeout=8000)
+                except PlaywrightTimeoutError:
+                    return {"ok": False, "reason": "수량 조절 버튼을 찾지 못함 (품절이거나 페이지 구조 변경)"}
 
-            for _ in range(max(qty, 1) - 1):
-                plus_button.click(timeout=1000)
-                page.wait_for_timeout(150)
+                for _ in range(qty - 1):
+                    plus_button.click(timeout=1000)
+                    page.wait_for_timeout(150)
 
             cart_btn = page.locator("#sit_btn_cart")
             if cart_btn.count() == 0:
