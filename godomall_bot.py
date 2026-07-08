@@ -297,7 +297,11 @@ def add_to_cart(
 
             before_count = _read_cart_count()
 
-            qty_input = page.locator("input[name='goodsCnt'], input.qty_input").first
+            # 실제 필드명은 "goodsCnt[]"(대괄호 포함, 배열 표기)라 input[name='goodsCnt']로는
+            # 매칭이 안 돼 항상 수량이 기본값 1로만 담기고 있었다(진단으로 확인). onchange
+            # 핸들러(goodsViewController.input_count_change)가 붙어있어 fill()이 발생시키는
+            # input/change 이벤트로 정상적으로 반영된다.
+            qty_input = page.locator("input[name='goodsCnt[]'], input[class*='goodsCnt'], input.qty_input").first
             if qty_input.count() > 0:
                 qty_input.fill(str(qty))
 
