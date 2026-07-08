@@ -511,6 +511,24 @@ def admin_debug_yamimall_qty(item_code: str, _: bool = Depends(require_admin)):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@app.get("/admin/debug-yamimall-after-click-screenshot/{item_code}")
+def admin_debug_yamimall_after_click_screenshot(item_code: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 담기 버튼 클릭 직후 화면 스크린샷을 확인한다."""
+    path = yamimall_bot.DATA_DIR / f"debug_yamimall_after_click_{item_code}.png"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="스크린샷이 아직 없습니다.")
+    return FileResponse(str(path))
+
+
+@app.get("/admin/debug-yamimall-after-click/{item_code}")
+def admin_debug_yamimall_after_click(item_code: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 담기 버튼 클릭 직후 상태(모달 존재 여부, 수량 등)를 확인한다."""
+    path = yamimall_bot.DATA_DIR / f"debug_yamimall_after_click_{item_code}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="기록이 아직 없습니다.")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 @app.get("/my-vendors", response_class=HTMLResponse)
 def my_vendors_page(request: Request):
     if not get_current_web_user(request):

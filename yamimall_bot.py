@@ -741,6 +741,26 @@ def add_to_cart_via_list(
                 cart_btn.dispatch_event("click")
             page.wait_for_timeout(1000)
 
+            # 목록의 qty[]를 세팅한 대로 클릭 직전 값은 맞는데(확인됨) 실제 담기는
+            # 항상 기본 수량으로 되는 문제가 있어서, 클릭 직후 화면(모달이 뜨는지 등)을
+            # 남긴다 - 클릭이 목록 폼을 그대로 제출하는 게 아니라 별도 팝업/모달을
+            # 여는 흐름일 가능성을 확인하기 위함.
+            try:
+                after_click_shot = DATA_DIR / f"debug_yamimall_after_click_{item_code}.png"
+                page.screenshot(path=str(after_click_shot))
+                modal_info = {
+                    "url": page.url,
+                    "modal_member_box_64_count": page.locator("#modal_member_box_64").count(),
+                    "item_mag_form_count": page.locator("#item_mag_form").count(),
+                    "ui_dialog_count": page.locator(".ui-dialog").count(),
+                    "qty_after_click": qty_field.input_value() if qty_field.count() > 0 else None,
+                }
+                (DATA_DIR / f"debug_yamimall_after_click_{item_code}.json").write_text(
+                    json.dumps(modal_info, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            except Exception:
+                pass
+
             # 비로그인/세션 만료 상태로 담기를 누르면 "로그인이 필요합니다" alert 후
             # login.php로 이동한다. 이 경우 담기 버튼은 찾았지만 실제로는 로그인이
             # 안 된 상태이므로, 세션이 만료된 것으로 간주하고 재로그인을 유도한다.
