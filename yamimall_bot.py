@@ -767,6 +767,42 @@ def add_to_cart_via_list(
             if "login.php" in page.url or any("로그인" in m for m in alert_messages):
                 return "login_required"
 
+            # 담기 버튼을 누르면 목록 페이지 폼이 그대로 제출되는 게 아니라 "옵션선택"
+            # jQuery UI 모달이 새로 뜨고, 그 안에 목록과는 별개인 수량칸(기본값도 다시
+            # 초기화됨)과 "담기" 확정 버튼이 있다(진단 스크린샷으로 확인됨). 목록
+            # 페이지의 qty[]를 아무리 정확히 세팅해도 이 모달 안의 값이 실제 제출값이라,
+            # 모달이 뜨면 그 안의 수량을 다시 세팅하고 모달의 "담기" 버튼을 눌러야 한다.
+            option_modal = page.locator(".ui-dialog:visible").first
+            if option_modal.count() > 0:
+                modal_qty_field = option_modal.locator("input[name='qty[]']").first
+                if modal_qty_field.count() > 0 and qty > 1:
+                    try:
+                        modal_unit_qty = int(modal_qty_field.input_value() or "1")
+                    except Exception:
+                        modal_unit_qty = 1
+                    modal_target_qty = max(modal_unit_qty, 1) * qty
+                    try:
+                        modal_qty_field.evaluate(
+                            """
+                            (el, val) => {
+                                el.value = val;
+                                el.dispatchEvent(new Event('input', { bubbles: true }));
+                                el.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
+                            """,
+                            str(modal_target_qty),
+                        )
+                    except Exception:
+                        pass
+
+                modal_add_btn = option_modal.locator("button:has-text('담기')").first
+                if modal_add_btn.count() > 0:
+                    try:
+                        modal_add_btn.click(timeout=3000, force=True)
+                    except Exception:
+                        modal_add_btn.dispatch_event("click")
+                    page.wait_for_timeout(1000)
+
             # 담기 확인 팝업 처리 (add_yamimall_cart와 동일한 확인/계속쇼핑 패턴)
             for btn_text in ("확인", "계속쇼핑"):
                 popup_btn = page.locator(f"button.ui-button:has-text('{btn_text}')").last
