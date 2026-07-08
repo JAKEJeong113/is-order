@@ -235,12 +235,21 @@ def add_to_cart(store_id: str, base_url: str, login_id: str, login_pwd: str, pro
 
             before_count = _read_cart_count()
 
-            qty_input = page.locator("input[name='quantity'], input#quantity_1").first
-            if qty_input.count() > 0:
-                try:
-                    qty_input.fill(str(qty))
-                except Exception:
-                    pass
+            # 무마켓은 다른 도매처와 달리 수량 입력칸(#quantity, name="quantity_opt[]")이
+            # readonly라 값을 직접 채울 수 없고, 기본값이 이미 "구매단위"(예: 26EA)
+            # 1세트로 채워져 있다. qty는 "몇 세트를 담을지"를 의미하므로, qty>1이면
+            # +버튼(.QuantityUp)을 (qty-1)번 눌러서 세트 수만큼 늘린다(클릭 한 번 =
+            # 구매단위만큼 증가하는 사이트 자체 동작). 예전엔 이름이 다른 셀렉터를
+            # 써서 이 필드를 아예 못 찾아 항상 최소 1세트만 담기고 있었다.
+            if qty > 1:
+                up_btn = page.locator("a.QuantityUp, a.up").first
+                if up_btn.count() > 0:
+                    for _ in range(qty - 1):
+                        try:
+                            up_btn.click(timeout=1000)
+                            page.wait_for_timeout(150)
+                        except Exception:
+                            break
 
             # 헤더에 항상 떠 있는 "장바구니로 이동" 링크(<a href="/order/basket.html">)도
             # 텍스트가 "장바구니"라 넓은 텍스트 검색으로는 이게 먼저 잡혀서 실제로는
