@@ -347,17 +347,30 @@ def add_to_cart(
             if cart_btn.count() == 0:
                 # 8초 기다려도 안 나타나면 실제로 이 goods_no가 우리 예상과 다른
                 # 상품(품절 처리된 다른 옵션 등)을 가리키고 있을 가능성이 있어, 실제로
-                # 어떤 페이지가 떴는지 남긴다.
+                # 어떤 페이지가 떴는지 남긴다. 각 단계를 독립적으로 try/except해서,
+                # 하나(예: 제목 추출)가 실패해도 나머지(URL/본문/스크린샷)는 남게 한다.
+                debug_info = {"goods_no": goods_no, "page_url": "", "page_title": None, "body_sample": "", "capture_error": None}
                 try:
-                    debug_info = {
-                        "goods_no": goods_no,
-                        "page_url": page.url,
-                        "page_title": (page.locator("h2, h1").first.inner_text(timeout=2000) if page.locator("h2, h1").count() > 0 else None),
-                        "body_sample": page.locator("body").inner_text(timeout=2000)[:800],
-                    }
+                    debug_info["page_url"] = page.url
+                except Exception as e:
+                    debug_info["capture_error"] = f"page_url: {e}"
+                try:
+                    title_el = page.locator("h2, h1").first
+                    if title_el.count() > 0:
+                        debug_info["page_title"] = title_el.inner_text(timeout=2000)
+                except Exception as e:
+                    debug_info["capture_error"] = f"page_title: {e}"
+                try:
+                    debug_info["body_sample"] = page.locator("body").inner_text(timeout=2000)[:800]
+                except Exception as e:
+                    debug_info["capture_error"] = f"body_sample: {e}"
+                try:
                     (DATA_DIR / f"debug_godomall_nocart_{vendor_id}_{goods_no}.json").write_text(
                         json.dumps(debug_info, ensure_ascii=False, indent=2), encoding="utf-8"
                     )
+                except Exception:
+                    pass
+                try:
                     page.screenshot(path=str(DATA_DIR / f"debug_godomall_nocart_{vendor_id}_{goods_no}.png"), full_page=True)
                 except Exception:
                     pass
