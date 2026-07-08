@@ -55,6 +55,11 @@ def init_telegram_tables():
         created_at TEXT
     )
     """)
+
+    existing_pending_cols = {row[1] for row in cur.execute("PRAGMA table_info(telegram_pending_items)").fetchall()}
+    if "alt_offers_json" not in existing_pending_cols:
+        cur.execute("ALTER TABLE telegram_pending_items ADD COLUMN alt_offers_json TEXT")
+
     conn.commit()
     conn.close()
 
@@ -256,12 +261,13 @@ def save_pending_items(chat_id: str, items: list[dict]) -> None:
     cur.execute("DELETE FROM telegram_pending_items WHERE chat_id = ?", (chat_id,))
     cur.executemany("""
     INSERT INTO telegram_pending_items
-    (chat_id, item_name, vendor_id, vendor_name, product_url, item_key, price, qty, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (chat_id, item_name, vendor_id, vendor_name, product_url, item_key, price, qty, created_at, alt_offers_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, [
         (
             chat_id, it["item_name"], it["vendor_id"], it["vendor_name"],
             it["product_url"], it["item_key"], it.get("price"), it.get("qty", 1), now,
+            json.dumps(it.get("alt_offers") or [], ensure_ascii=False),
         )
         for it in items
     ])
@@ -273,7 +279,7 @@ def get_pending_items(chat_id: str) -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT item_name, vendor_id, vendor_name, product_url, item_key, price, qty
+    SELECT item_name, vendor_id, vendor_name, product_url, item_key, price, qty, alt_offers_json
     FROM telegram_pending_items WHERE chat_id = ?
     """, (chat_id,))
     rows = cur.fetchall()
@@ -282,6 +288,7 @@ def get_pending_items(chat_id: str) -> list[dict]:
         {
             "item_name": r[0], "vendor_id": r[1], "vendor_name": r[2],
             "product_url": r[3], "item_key": r[4], "price": r[5], "qty": r[6],
+            "alt_offers": json.loads(r[7]) if r[7] else [],
         }
         for r in rows
     ]

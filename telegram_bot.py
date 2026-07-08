@@ -116,7 +116,24 @@ def _pick_best_offer(offers: list[dict], preferred_vendor: str | None) -> dict |
     return candidates[0]
 
 
-def _offer_to_item(item_name: str, best_offer: dict, qty: int = 1) -> dict:
+def _offer_to_item(item_name: str, best_offer: dict, qty: int = 1, all_offers: list[dict] | None = None) -> dict:
+    """all_offers를 넘기면(그룹 전체 후보), 선택된 도매처가 품절일 때 시도해볼 다른
+    도매처 후보들을 alt_offers로 같이 담아둔다(이미 개당가 오름차순 정렬돼 있음)."""
+    alt_offers = []
+    if all_offers:
+        seen_vendors = {best_offer["vendor_id"]}
+        for o in all_offers:
+            if o["vendor_id"] in seen_vendors or o["vendor_id"] not in CART_SUPPORTED_VENDORS or not o.get("product_url"):
+                continue
+            seen_vendors.add(o["vendor_id"])
+            alt_offers.append({
+                "vendor_id": o["vendor_id"],
+                "vendor_name": o["vendor_name"],
+                "product_url": o["product_url"],
+                "item_key": o.get("goods_no") or o["product_url"],
+                "price": o.get("price"),
+            })
+
     return {
         "item_name": item_name,
         "vendor_id": best_offer["vendor_id"],
@@ -125,6 +142,7 @@ def _offer_to_item(item_name: str, best_offer: dict, qty: int = 1) -> dict:
         "item_key": best_offer.get("goods_no") or best_offer["product_url"],
         "price": best_offer.get("price"),
         "qty": qty,
+        "alt_offers": alt_offers,
     }
 
 
@@ -201,7 +219,7 @@ def _classify_order_list(text: str, chat_id: str) -> dict:
             continue
 
         display_name = (best_offer.get("name") or keyword).strip()
-        matched.append(_offer_to_item(display_name, best_offer, qty))
+        matched.append(_offer_to_item(display_name, best_offer, qty, all_offers=offers))
 
     return {"matched": matched, "not_found": not_found, "ambiguous": ambiguous}
 
@@ -286,7 +304,7 @@ def _handle_disambiguation_reply(chat_id: str, state: dict, text: str) -> None:
         best_offer = _pick_best_offer(offers, preferred_vendor)
         if best_offer:
             display_name = (best_offer.get("name") or keyword).strip()
-            state["resolved"].append(_offer_to_item(display_name, best_offer, qty))
+            state["resolved"].append(_offer_to_item(display_name, best_offer, qty, all_offers=offers))
             added_any = True
 
     if not added_any:
@@ -298,6 +316,16 @@ def _handle_disambiguation_reply(chat_id: str, state: dict, text: str) -> None:
 
 
 ITEM_CART_ADD_TIMEOUT_SECONDS = 90
+# 배치 내 다른 도매처로 자동 재시도할 때는 도매처 봇을 여러 번 호출할 수 있어
+# 한 상품당 예산을 넉넉히 잡는다 (품절 재시도 최대 2~3곳 가정).
+ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS = 240
+
+STOCK_FAILURE_KEYWORDS = ("재고", "품절", "구매할 수 있는", "수량이 늘지 않")
+
+
+def _is_stock_failure(reason: str) -> bool:
+    reason = reason or ""
+    return any(kw in reason for kw in STOCK_FAILURE_KEYWORDS)
 
 
 def _add_single_item_to_cart(store_id: str, item: dict) -> dict:
@@ -324,33 +352,141 @@ def _add_single_item_to_cart(store_id: str, item: dict) -> dict:
     return godomall_bot.add_to_cart(store_id, item["vendor_id"], base_url, login_id, login_pwd, item["item_key"], item["qty"])
 
 
+def _add_item_with_batch_fallback(store_id: str, item: dict, batch_vendors: set) -> tuple[dict, dict, list[dict]]:
+    """최초 선택한(최저가) 도매처에서 담기를 시도한다. 품절류로 실패하면, 이번 발주에
+    이미 포함된 다른 도매처(batch_vendors) 안에서만 조용히 순서대로 재시도한다 -
+    배송을 최대한 한 도매처로 몰아주기 위해, 이번 발주에 안 쓰는 새 도매처로는
+    자동으로 넘어가지 않는다. 그 안에서도 전부 품절이면, 배치 밖의 남은 후보
+    (다른 활성화된 도매처)를 반환해서 사용자가 고를 수 있게 한다.
+
+    반환: (최종 결과, 실제로 시도한 item, 사용자가 골라야 할 배치 밖 대안 목록)"""
+    tried_vendor_ids = {item["vendor_id"]}
+    result = _add_single_item_to_cart(store_id, item)
+    used_item = item
+
+    if not result.get("ok") and _is_stock_failure(result.get("reason", "")):
+        for alt in item.get("alt_offers") or []:
+            if alt["vendor_id"] not in batch_vendors or alt["vendor_id"] in tried_vendor_ids:
+                continue
+            tried_vendor_ids.add(alt["vendor_id"])
+            alt_item = _offer_to_item(item["item_name"], alt, item["qty"])
+            alt_result = _add_single_item_to_cart(store_id, alt_item)
+            result, used_item = alt_result, alt_item
+            if alt_result.get("ok") or not _is_stock_failure(alt_result.get("reason", "")):
+                # 성공했거나, 품절이 아닌 다른 이유(로그인 등)면 더 자동 재시도하지 않는다
+                break
+
+    remaining_alts = []
+    if not result.get("ok") and _is_stock_failure(result.get("reason", "")):
+        remaining_alts = [o for o in (item.get("alt_offers") or []) if o["vendor_id"] not in tried_vendor_ids]
+
+    return result, used_item, remaining_alts
+
+
 def _execute_cart_adds(chat_id, store_id: str, items: list[dict]) -> None:
     """도매처마다 실제 브라우저를 띄우는 작업이라 한 상품이 응답 없이 멈추면 전체가
     영원히 멈출 수 있다. 상품당 시간 제한을 걸어 하나가 멈춰도 나머지는 계속 진행하고,
     무슨 일이 있어도 최종 결과 메시지는 반드시 보낸다."""
     results = []
+    needs_followup = []
+    batch_vendors = {it["vendor_id"] for it in items}
     try:
         for item in items:
             pool = ThreadPoolExecutor(max_workers=1)
             try:
-                future = pool.submit(_add_single_item_to_cart, store_id, item)
-                result = future.result(timeout=ITEM_CART_ADD_TIMEOUT_SECONDS)
+                future = pool.submit(_add_item_with_batch_fallback, store_id, item, batch_vendors)
+                result, used_item, remaining_alts = future.result(timeout=ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS)
             except FutureTimeoutError:
-                result = {"ok": False, "reason": f"{ITEM_CART_ADD_TIMEOUT_SECONDS}초 넘게 응답이 없어 건너뜀. 직접 확인해주세요."}
+                result = {"ok": False, "reason": f"{ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS}초 넘게 응답이 없어 건너뜀. 직접 확인해주세요."}
+                used_item, remaining_alts = item, []
             except Exception as e:
                 result = {"ok": False, "reason": str(e)}
+                used_item, remaining_alts = item, []
             finally:
                 pool.shutdown(wait=False)
 
             if result.get("ok"):
-                results.append(f"✓ {item['item_name']} - {item['vendor_name']} 담기 완료")
-                popularity.log_event(store_id, "wholesale", item["item_key"], item["item_name"], item["qty"])
+                results.append(f"✓ {used_item['item_name']} - {used_item['vendor_name']} 담기 완료")
+                popularity.log_event(store_id, "wholesale", used_item["item_key"], used_item["item_name"], used_item["qty"])
+            elif remaining_alts:
+                results.append(f"⚠ {used_item['item_name']} - {used_item['vendor_name']} 품절 (다른 도매처 대안 확인해서 곧 다시 안내드릴게요)")
+                needs_followup.append({"item_name": used_item["item_name"], "qty": used_item["qty"], "alt_offers": remaining_alts})
             else:
-                results.append(f"✗ {item['item_name']} - {item['vendor_name']} 실패: {result.get('reason', '')}")
+                results.append(f"✗ {used_item['item_name']} - {used_item['vendor_name']} 실패: {result.get('reason', '')}")
     except Exception as e:
         results.append(f"(처리 중 예상치 못한 오류로 중단됨: {e})")
     finally:
         send_message(chat_id, "담기 결과:\n\n" + "\n".join(results))
+
+    if needs_followup:
+        state = {"mode": "stockout", "store_id": store_id, "queue": needs_followup, "results": [], "current": None}
+        _ask_next_stockout(chat_id, state)
+
+
+def _format_stockout_prompt(entry: dict) -> str:
+    lines = [f"'{entry['item_name']}'은(는) 선택된 도매처에서 품절이에요. 다른 도매처에서 담을까요? 번호로 답장해주세요:\n"]
+    for i, o in enumerate(entry["alt_offers"], start=1):
+        price_text = f"{o['price']:,}원" if o.get("price") else "가격 확인 필요"
+        lines.append(f"{i}. {o['vendor_name']} {price_text}")
+    lines.append("\n담지 않으려면 '스킵'이라고 답장해주세요.")
+    return "\n".join(lines)
+
+
+def _ask_next_stockout(chat_id: str, state: dict) -> None:
+    """품절로 대기 중인 상품 큐에서 다음 것을 물어본다. 큐가 비었으면 그동안의
+    대안 담기 결과를 모아서 보낸다."""
+    if not state["queue"]:
+        telegram_store.set_disambig_state(chat_id, None)
+        if state["results"]:
+            send_message(chat_id, "품절 대안 담기 결과:\n\n" + "\n".join(state["results"]))
+        return
+
+    entry = state["queue"][0]
+    state["current"] = entry["item_name"]
+    telegram_store.set_disambig_state(chat_id, state)
+    send_message(chat_id, _format_stockout_prompt(entry))
+
+
+def _process_stockout_choice(chat_id: str, state: dict, alt_offer: dict) -> None:
+    entry = state["queue"][0]
+    item = _offer_to_item(entry["item_name"], alt_offer, entry["qty"])
+    result = _add_single_item_to_cart(state["store_id"], item)
+
+    if result.get("ok"):
+        state["results"].append(f"✓ {item['item_name']} - {item['vendor_name']} 담기 완료")
+        popularity.log_event(state["store_id"], "wholesale", item["item_key"], item["item_name"], item["qty"])
+    else:
+        state["results"].append(f"✗ {item['item_name']} - {item['vendor_name']} 실패: {result.get('reason', '')}")
+
+    state["queue"].pop(0)
+    state["current"] = None
+    _ask_next_stockout(chat_id, state)
+
+
+def _handle_stockout_reply(chat_id: str, state: dict, text: str) -> None:
+    stripped = text.strip()
+    entry = state["queue"][0]
+
+    if stripped.lower() in CANCEL_WORDS:
+        telegram_store.set_disambig_state(chat_id, None)
+        send_message(chat_id, "품절 대안 선택을 취소했습니다.")
+        return
+
+    if stripped in ("스킵", "skip"):
+        state["queue"].pop(0)
+        state["results"].append(f"✗ {entry['item_name']} - 품절(건너뜀)")
+        state["current"] = None
+        _ask_next_stockout(chat_id, state)
+        return
+
+    if not stripped.isdigit() or not (1 <= int(stripped) <= len(entry["alt_offers"])):
+        send_message(chat_id, f"1~{len(entry['alt_offers'])} 사이의 번호로 답장해주세요. (해당 상품이 없으면 '스킵')")
+        return
+
+    alt_offer = entry["alt_offers"][int(stripped) - 1]
+    telegram_store.set_disambig_state(chat_id, state)
+    send_message(chat_id, "장바구니에 담는 중입니다. 잠시만 기다려주세요...")
+    _scheduler.add_job(_process_stockout_choice, args=[chat_id, state, alt_offer])
 
 
 REGISTRATION_PROMPTS = {
@@ -508,7 +644,10 @@ def handle_update(update: dict) -> None:
 
     disambig_state = telegram_store.get_disambig_state(chat_id)
     if disambig_state and disambig_state.get("current"):
-        _handle_disambiguation_reply(chat_id, disambig_state, text)
+        if disambig_state.get("mode") == "stockout":
+            _handle_stockout_reply(chat_id, disambig_state, text)
+        else:
+            _handle_disambiguation_reply(chat_id, disambig_state, text)
         return
 
     if text.strip() in CRED_TRIGGER_WORDS:
