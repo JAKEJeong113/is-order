@@ -467,6 +467,14 @@ def admin_debug_copy_vendor_cred(vendor_id: str, store_id: str, _: bool = Depend
     return {"ok": True}
 
 
+@app.get("/admin/debug-yamimall-login-screenshot")
+def admin_debug_yamimall_login_screenshot(_: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 야미몰 로그인 실패 시 남긴 스크린샷을 확인한다."""
+    if not yamimall_bot.DEBUG_LOGIN_SCREENSHOT_PATH.exists():
+        raise HTTPException(status_code=404, detail="스크린샷이 아직 없습니다.")
+    return FileResponse(str(yamimall_bot.DEBUG_LOGIN_SCREENSHOT_PATH))
+
+
 @app.get("/my-vendors", response_class=HTMLResponse)
 def my_vendors_page(request: Request):
     if not get_current_web_user(request):

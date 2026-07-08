@@ -1,5 +1,7 @@
 import math
+import os
 import re
+from pathlib import Path
 from urllib.parse import quote
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
@@ -8,6 +10,10 @@ import vendors
 
 
 YAMIMALL_URL = "https://xn--352blx12s.com"
+
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
+DEBUG_LOGIN_SCREENSHOT_PATH = DATA_DIR / "debug_yamimall_login_failure.png"
 
 
 def run_yamimall_search(page, keyword: str, base_url: str = YAMIMALL_URL) -> None:
@@ -379,12 +385,24 @@ def login_yamimall(page, username: str, password: str, base_url: str = YAMIMALL_
     """홈페이지에서 로그인 버튼(트리거)을 클릭해 모달/페이지 전환을 유도하는 대신
     로그인 폼이 있는 URL로 바로 이동한다. 홈페이지의 공지 팝업이 트리거를 가려서
     클릭이 기본 타임아웃(30초)까지 멈추는 문제가 실사용에서 재현됐는데, 트리거
-    클릭 자체를 없애서 근본적으로 피한다."""
+    클릭 자체를 없애서 근본적으로 피한다.
+    이 함수는 항상 "새로 로그인해야 하는 상황"에만 불린다(캐시된 세션이 없거나
+    유효하지 않다고 판단된 경우). context에 남아있는 예전 쿠키가 있으면
+    login.php가 "이미 로그인됨"으로 오판해 다른 페이지로 리다이렉트시킬 수 있어,
+    항상 쿠키를 비우고 완전히 새로 시작한다."""
+    page.context.clear_cookies()
     page.goto(f"{base_url}/shop/login.php", wait_until="domcontentloaded", timeout=60000)
     page.wait_for_timeout(1000)
 
-    page.fill("#login_id", username)
-    page.fill("#login_pw", password)
+    try:
+        page.fill("#login_id", username)
+        page.fill("#login_pw", password)
+    except PlaywrightTimeoutError:
+        try:
+            page.screenshot(path=str(DEBUG_LOGIN_SCREENSHOT_PATH))
+        except Exception:
+            pass
+        raise RuntimeError(f"로그인 폼을 찾지 못함 (실제 도착 URL: {page.url})")
 
     page.locator(".login_btn").click()
     page.wait_for_timeout(1000)
