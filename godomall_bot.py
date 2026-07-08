@@ -312,7 +312,14 @@ def add_to_cart(
                 wait_until="domcontentloaded",
                 timeout=30000,
             )
-            page.wait_for_timeout(500)
+            # 상품에 따라 #cartBtn이 뜨는 데 고정 500ms보다 오래 걸릴 수 있어(실사용
+            # 확인: 실제로는 구매 가능한 상품인데 렌더링이 늦어서 "담기 버튼을 찾지
+            # 못함"으로 잘못 실패 처리된 사례 발견). 버튼이 실제로 나타날 때까지 최대
+            # 8초 기다린 뒤에야 없다고 판단한다(진짜 품절 상품은 그래도 안 나타남).
+            try:
+                page.wait_for_selector("#cartBtn", timeout=8000)
+            except PWTimeoutError:
+                pass
 
             before_count = _read_cart_count()
 
