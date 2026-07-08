@@ -689,15 +689,35 @@ def add_to_cart_via_list(
 
             before_count = _read_cart_count()
 
-            if qty > 1:
-                plus_btn = container.locator(".qty_plus_class2, .add_qty_class").first
-                if plus_btn.count() > 0:
-                    for _ in range(qty - 1):
-                        try:
-                            plus_btn.click(timeout=1000)
-                            page.wait_for_timeout(150)
-                        except Exception:
-                            break
+            # 이 목록 카드의 수량 스텝퍼(.qty_plus_class2)는 화면 크기가 0이라
+            # Playwright의 일반 클릭/입력으로는 아예 상호작용이 안 된다(실측
+            # 확인, force=True/dispatch_event도 값이 안 바뀜). 대신 수량 입력칸
+            # (input[name='qty[]'])의 "기본값"을 그대로 "1세트당 개수"로 쓴다 -
+            # 상품에 따라 1(=1타 단위로 담는 상품)이거나 12/24 같은 포장수량
+            # (=낱개 단위로 담고 최소구매수량이 강제되는 상품)일 수 있는데, 어느
+            # 쪽이든 "기본값 × qty"가 사용자가 의도한 "qty세트" 수량과 일치한다.
+            # 이 값을 JS로 직접 넣고 change 이벤트를 발생시켜 반영한다(입력칸도
+            # 화면상 안 보여서 fill()은 안 먹고 evaluate로 값만 바꿔야 한다).
+            qty_field = container.locator("input[name='qty[]']").first
+            if qty_field.count() > 0 and qty > 1:
+                try:
+                    unit_qty = int(qty_field.input_value() or "1")
+                except Exception:
+                    unit_qty = 1
+                target_qty = max(unit_qty, 1) * qty
+                try:
+                    qty_field.evaluate(
+                        """
+                        (el, val) => {
+                            el.value = val;
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                        """,
+                        str(target_qty),
+                    )
+                except Exception:
+                    pass
 
             cart_btn = container.locator(".list_cart2_class, .sct_cart_add").first
             if cart_btn.count() == 0:
