@@ -60,7 +60,7 @@ HELP_TEXT = """사용 가능한 명령어입니다:
 # 도매처마다 실제 브라우저를 띄우는 Playwright 호출이라 30초~수분씩 걸릴 수 있다.
 # 웹훅 요청 안에서 동기로 기다리면 재전송으로 인한 중복 처리가 발생하므로, 카탈로그
 # 크롤링과 동일하게 별도 스레드(APScheduler)에 맡기고 웹훅은 즉시 응답한다.
-_scheduler = BackgroundScheduler()
+_scheduler = BackgroundScheduler(executors={"default": {"type": "threadpool", "max_workers": 20}})
 _scheduler.start()
 
 
