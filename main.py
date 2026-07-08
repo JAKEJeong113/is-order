@@ -547,6 +547,24 @@ def admin_debug_godomall_qty_screenshot(vendor_id: str, goods_no: str, _: bool =
     return FileResponse(str(path))
 
 
+@app.get("/admin/debug-godomall-nocart/{vendor_id}/{goods_no}")
+def admin_debug_godomall_nocart(vendor_id: str, goods_no: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 담기 버튼을 못 찾았을 때 실제로 어떤 상품 페이지가 떴는지 확인한다."""
+    path = godomall_bot.DATA_DIR / f"debug_godomall_nocart_{vendor_id}_{goods_no}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="기록이 아직 없습니다.")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.get("/admin/debug-godomall-nocart-screenshot/{vendor_id}/{goods_no}")
+def admin_debug_godomall_nocart_screenshot(vendor_id: str, goods_no: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 담기 버튼을 못 찾았을 때 화면 스크린샷을 확인한다."""
+    path = godomall_bot.DATA_DIR / f"debug_godomall_nocart_{vendor_id}_{goods_no}.png"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="스크린샷이 아직 없습니다.")
+    return FileResponse(str(path))
+
+
 @app.get("/admin/debug-compare/{keyword}")
 def admin_debug_compare(keyword: str, _: bool = Depends(require_admin)):
     """진단용 임시 엔드포인트: 특정 키워드로 price_compare.compare()가 실제로 몇 개의

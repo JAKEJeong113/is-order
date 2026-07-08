@@ -408,14 +408,21 @@ def _execute_cart_adds(chat_id, store_id: str, items: list[dict]) -> None:
             finally:
                 pool.shutdown(wait=False)
 
+            # 품절 자동 재시도로 최초 견적 때와 다른 도매처에 담기게 되면, 사용자가
+            # "왜 최저가가 아니지?"라고 버그로 오해할 수 있어 그 사실을 명시한다.
+            switched_note = (
+                f" (※최초 선택하신 {item['vendor_name']}이(가) 품절이라 다른 도매처로 자동 변경됨)"
+                if used_item["vendor_id"] != item["vendor_id"] else ""
+            )
+
             if result.get("ok"):
-                results.append(f"✓ {used_item['item_name']} - {used_item['vendor_name']} 담기 완료")
+                results.append(f"✓ {used_item['item_name']} - {used_item['vendor_name']} 담기 완료{switched_note}")
                 popularity.log_event(store_id, "wholesale", used_item["item_key"], used_item["item_name"], used_item["qty"])
             elif remaining_alts:
-                results.append(f"⚠ {used_item['item_name']} - {used_item['vendor_name']} 품절 (다른 도매처 대안 확인해서 곧 다시 안내드릴게요)")
+                results.append(f"⚠ {used_item['item_name']} - {item['vendor_name']} 등 이번 발주에 포함된 도매처 모두 품절 (다른 도매처 대안 확인해서 곧 다시 안내드릴게요)")
                 needs_followup.append({"item_name": used_item["item_name"], "qty": used_item["qty"], "alt_offers": remaining_alts})
             else:
-                results.append(f"✗ {used_item['item_name']} - {used_item['vendor_name']} 실패: {result.get('reason', '')}")
+                results.append(f"✗ {used_item['item_name']} - {used_item['vendor_name']} 실패{switched_note}: {result.get('reason', '')}")
     except Exception as e:
         results.append(f"(처리 중 예상치 못한 오류로 중단됨: {e})")
     finally:

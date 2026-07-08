@@ -345,6 +345,22 @@ def add_to_cart(
             # '함께 보면 좋은 상품' 추천 위젯용이라 다른 상품 goods_no를 가리킴 - 사용 금지)
             cart_btn = page.locator("#cartBtn")
             if cart_btn.count() == 0:
+                # 8초 기다려도 안 나타나면 실제로 이 goods_no가 우리 예상과 다른
+                # 상품(품절 처리된 다른 옵션 등)을 가리키고 있을 가능성이 있어, 실제로
+                # 어떤 페이지가 떴는지 남긴다.
+                try:
+                    debug_info = {
+                        "goods_no": goods_no,
+                        "page_url": page.url,
+                        "page_title": (page.locator("h2, h1").first.inner_text(timeout=2000) if page.locator("h2, h1").count() > 0 else None),
+                        "body_sample": page.locator("body").inner_text(timeout=2000)[:800],
+                    }
+                    (DATA_DIR / f"debug_godomall_nocart_{vendor_id}_{goods_no}.json").write_text(
+                        json.dumps(debug_info, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+                    page.screenshot(path=str(DATA_DIR / f"debug_godomall_nocart_{vendor_id}_{goods_no}.png"), full_page=True)
+                except Exception:
+                    pass
                 return "no_cart_button"
 
             try:
