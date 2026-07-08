@@ -345,36 +345,20 @@ def add_to_cart(
             # '함께 보면 좋은 상품' 추천 위젯용이라 다른 상품 goods_no를 가리킴 - 사용 금지)
             cart_btn = page.locator("#cartBtn")
             if cart_btn.count() == 0:
-                # 8초 기다려도 안 나타나면 실제로 이 goods_no가 우리 예상과 다른
-                # 상품(품절 처리된 다른 옵션 등)을 가리키고 있을 가능성이 있어, 실제로
-                # 어떤 페이지가 떴는지 남긴다. 각 단계를 독립적으로 try/except해서,
-                # 하나(예: 제목 추출)가 실패해도 나머지(URL/본문/스크린샷)는 남게 한다.
-                debug_info = {"goods_no": goods_no, "page_url": "", "page_title": None, "body_sample": "", "capture_error": None}
+                # 파일로 남기는 진단은 이전에 이유 모르게 계속 기록이 안 남아서
+                # (디스크/타이밍 등 원인 특정 실패), 텔레그램 실패 메시지에 바로
+                # 보이도록 URL/본문 일부를 결과 문자열에 직접 실어보낸다.
+                diag_url = ""
+                diag_body = ""
                 try:
-                    debug_info["page_url"] = page.url
-                except Exception as e:
-                    debug_info["capture_error"] = f"page_url: {e}"
-                try:
-                    title_el = page.locator("h2, h1").first
-                    if title_el.count() > 0:
-                        debug_info["page_title"] = title_el.inner_text(timeout=2000)
-                except Exception as e:
-                    debug_info["capture_error"] = f"page_title: {e}"
-                try:
-                    debug_info["body_sample"] = page.locator("body").inner_text(timeout=2000)[:800]
-                except Exception as e:
-                    debug_info["capture_error"] = f"body_sample: {e}"
-                try:
-                    (DATA_DIR / f"debug_godomall_nocart_{vendor_id}_{goods_no}.json").write_text(
-                        json.dumps(debug_info, ensure_ascii=False, indent=2), encoding="utf-8"
-                    )
+                    diag_url = page.url
                 except Exception:
                     pass
                 try:
-                    page.screenshot(path=str(DATA_DIR / f"debug_godomall_nocart_{vendor_id}_{goods_no}.png"), full_page=True)
+                    diag_body = page.locator("body").inner_text(timeout=2000)[:200].replace("\n", " ")
                 except Exception:
                     pass
-                return "no_cart_button"
+                return f"no_cart_button|{diag_url}|{diag_body}"
 
             try:
                 cart_btn.click(timeout=5000)
@@ -419,14 +403,16 @@ def add_to_cart(
                 logged_in_fresh = True
 
             outcome = _try_add()
-            if outcome in ("no_cart_button", "login_required", "not_added") and cached_state:
+            if (outcome.startswith("no_cart_button") or outcome in ("login_required", "not_added")) and cached_state:
                 # 캐시된 세션이 만료됐을 수 있으니 새로 로그인해서 한 번 더 시도
                 login_godomall(page, base_url, login_id, login_pwd)
                 logged_in_fresh = True
                 outcome = _try_add()
 
-            if outcome == "no_cart_button":
-                return {"ok": False, "goods_no": goods_no, "qty": qty, "reason": "담기 버튼(#cartBtn)을 찾지 못함"}
+            if outcome.startswith("no_cart_button"):
+                _, _, diag = outcome.partition("|")
+                diag_note = f" [{diag[:200]}]" if diag else ""
+                return {"ok": False, "goods_no": goods_no, "qty": qty, "reason": f"담기 버튼(#cartBtn)을 찾지 못함{diag_note}"}
             if outcome == "login_required":
                 return {"ok": False, "goods_no": goods_no, "qty": qty, "reason": "로그인이 필요합니다 (아이디/비밀번호를 확인해주세요)"}
             if outcome == "not_added":
