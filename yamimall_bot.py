@@ -613,7 +613,11 @@ def add_to_cart_via_list(
     if not code_match:
         return {"ok": False, "reason": f"상품 코드 추출 실패: {product_url}"}
     item_code = code_match.group(1)
-    search_keyword = keyword or item_code
+    # item_name에는 상품명 아래에 "(타) 16g X 30개 [1박스6타]" 같은 포장단위
+    # 설명이 줄바꿈으로 붙어 있을 수 있다(텔레그램 메시지 표시용으로는 유용하지만
+    # 검색어로 그대로 쓰면 사이트 검색이 매칭되는 상품을 못 찾는다). 첫 줄(순수
+    # 상품명)만 검색어로 쓴다.
+    search_keyword = (keyword or item_code).splitlines()[0].strip()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
