@@ -157,9 +157,11 @@ def _filter_groups_for_store(groups: list[dict], disabled_vendors: set) -> list[
     return filtered
 
 
-# 상품명 뒤에 공백 + 순수 숫자(1~99)만 오면 수량으로 해석한다. "80g", "500ml"처럼
-# 숫자에 단위가 바로 붙어 있으면(공백으로 안 떨어져 있으면) 매칭되지 않아 용량과 헷갈리지 않는다.
-QTY_SUFFIX_RE = re.compile(r"^(.*\S)\s+(\d{1,2})$")
+# 상품명 뒤에 (공백 유무 상관없이) 순수 숫자(1~99)만 오면 수량으로 해석한다.
+# "80g", "500ml"처럼 단위 글자가 붙어 있으면 애초에 끝이 숫자가 아니라 매칭 안 되고,
+# "스위트러브100"처럼 3자리 이상 숫자로 끝나면(직전이 숫자인 1~2자리 부분만 떼어
+# 수량으로 오인하지 않도록) (?<!\d)로 숫자 뭉치 전체 길이가 1~2자리일 때만 매칭한다.
+QTY_SUFFIX_RE = re.compile(r"^(.*\S)\s*(?<!\d)(\d{1,2})$")
 
 
 def _parse_item_line(line: str) -> tuple[str, int]:
