@@ -168,7 +168,7 @@ def _block_heavy_resources(page: Page) -> None:
 
 
 def crawl_full_catalog(
-    base_url: str, login_id: str, login_pwd: str, category_codes: str | list[str], max_pages: int = 60,
+    base_url: str, login_id: str, login_pwd: str, category_codes: str | list[str], max_pages: int = 100,
 ) -> list[dict]:
     """'전체상품' 개념의 카테고리(들)를 끝까지 페이지를 넘기며 전부 수집한다.
     스토어에 따라 전체상품이 단일 cateCd 하나로 되는 곳도 있고(과자생각/삼봉몰),
@@ -193,11 +193,12 @@ def crawl_full_catalog(
             login_godomall(page, base_url, login_id, login_pwd)
 
             for category_code in codes:
-                # 정렬 기준이 실시간 인기도 등으로 안정적이지 않은 카테고리에서는, 크롤링
-                # 도중 상품 순서가 바뀌어 인접한 두 페이지가 우연히 같은 상품들을 보여줄
-                # 수 있다(에낙 시리즈 중 일부만 수집되던 문제로 실제 확인됨). 새 상품이
-                # 없는 페이지를 한 번 만났다고 바로 멈추면 그 뒤에 있는 진짜 새 상품을
-                # 놓칠 수 있어서, 연속으로 여러 번 새 상품이 없을 때만 끝난 것으로 본다.
+                # (실제 원인 확인: 삼봉몰 "에낙" 시리즈 중 2종이 61페이지에 있었는데
+                # max_pages가 60이라 아예 못 갔던 것 - 60 -> 100으로 늘렸다.)
+                # 정렬 기준이 실시간 인기도 등으로 안정적일 거라는 보장이 없어서, 혹시
+                # 크롤링 도중 상품 순서가 바뀌어 인접한 두 페이지가 우연히 같은 상품들을
+                # 보여주더라도 바로 멈추지 않도록, 연속으로 여러 번 새 상품이 없을 때만
+                # 끝난 것으로 보는 안전장치도 같이 둔다.
                 consecutive_empty_pages = 0
                 for page_no in range(1, max_pages + 1):
                     page.goto(
@@ -224,6 +225,15 @@ def crawl_full_catalog(
                             break
                     else:
                         consecutive_empty_pages = 0
+
+                    # 카테고리가 하나뿐인 스토어(과자생각/삼봉몰)는 카테고리 사이에만
+                    # 페이지를 재생성하면 이 카테고리 하나만으로도 max_pages(최대 100)를
+                    # 다 돌 때까지 페이지 하나로 버텨야 해서 OOM 위험이 있다. 카테고리
+                    # 안에서도 일정 페이지마다 재생성한다.
+                    if page_no % 20 == 0:
+                        page.close()
+                        page = context.new_page()
+                        _block_heavy_resources(page)
 
                 page.close()
                 page = context.new_page()
