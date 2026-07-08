@@ -33,15 +33,32 @@ def login_cafe24(page: Page, base_url: str, login_id: str, login_pwd: str) -> No
 
     # 카페24는 <button type=submit>이 아니라 onclick="MemberAction.login(...)"을 쓰는
     # <a class="btnLogin"> 링크로 로그인을 제출한다 (form id는 요청마다 랜덤하게 바뀜).
-    page.locator("a.btnLogin").first.click()
-
+    login_btn = page.locator("a.btnLogin").first
     try:
-        page.wait_for_url(lambda url: "login" not in url.lower(), timeout=8000)
+        login_btn.click(timeout=5000, force=True)
+    except Exception:
+        login_btn.dispatch_event("click")
+
+    # 로그인 처리 중 /exec/front/Member/login/ 같은 중간 처리 URL을 거쳤다가 최종
+    # 목적지로 넘어가는 경우가 있어서(실사용 확인), 리다이렉트가 다 끝날 때까지
+    # networkidle로 기다린 뒤에 최종 URL로 성공/실패를 판단한다.
+    try:
+        page.wait_for_load_state("networkidle", timeout=15000)
     except PWTimeoutError:
         pass
+    page.wait_for_timeout(1000)
 
     if "login" in page.url.lower():
-        raise RuntimeError(f"카페24 로그인 실패 (아이디/비밀번호를 확인해주세요) / URL: {page.url}")
+        error_text = ""
+        try:
+            error_text = page.locator("body").inner_text(timeout=2000)[:300]
+        except Exception:
+            pass
+        try:
+            page.screenshot(path=str(DEBUG_SCREENSHOT_PATH))
+        except Exception:
+            pass
+        raise RuntimeError(f"카페24 로그인 실패 (아이디/비밀번호를 확인해주세요) / URL: {page.url} / 화면: {error_text}")
 
 
 def _parse_price(text: str) -> int | None:
