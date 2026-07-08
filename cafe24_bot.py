@@ -208,7 +208,15 @@ def add_to_cart(store_id: str, base_url: str, login_id: str, login_pwd: str, pro
 
         def _on_dialog(dialog):
             alert_messages.append(dialog.message)
-            dialog.dismiss()
+            # "장바구니에 동일한 상품이 있습니다. 추가하시겠습니까?" confirm은
+            # 거절(dismiss)하면 실제로는 아무 것도 안 담긴 채로 넘어가서(기존
+            # 재테스트로 남아있던 상품과 겹칠 때 실사용에서 재현됨), 사용자 의도대로
+            # 수락(accept)해서 실제로 담기게 한다. 그 외(로그인 필요 등 진짜 오류성
+            # 알림)는 그대로 거절한다.
+            if "동일한 상품" in dialog.message or "이미 장바구니" in dialog.message:
+                dialog.accept()
+            else:
+                dialog.dismiss()
 
         page.on("dialog", _on_dialog)
 
