@@ -547,6 +547,30 @@ def admin_debug_godomall_qty_screenshot(vendor_id: str, goods_no: str, _: bool =
     return FileResponse(str(path))
 
 
+@app.get("/admin/debug-compare/{keyword}")
+def admin_debug_compare(keyword: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 특정 키워드로 price_compare.compare()가 실제로 몇 개의
+    그룹을 만드는지(왜 모호한 상품이 자동으로 하나만 선택됐는지) 확인한다."""
+    result = price_compare.compare(keyword)
+    groups = result.get("groups", [])
+    return {
+        "keyword": keyword,
+        "group_count": len(groups),
+        "groups": [
+            {
+                "representative_name": g.get("representative_name"),
+                "best_price": g.get("best_price"),
+                "best_vendor_name": g.get("best_vendor_name"),
+                "offers": [
+                    {"vendor_id": o.get("vendor_id"), "name": o.get("name"), "price": o.get("price"), "match_score": o.get("match_score")}
+                    for o in g.get("offers", [])
+                ],
+            }
+            for g in groups
+        ],
+    }
+
+
 @app.get("/my-vendors", response_class=HTMLResponse)
 def my_vendors_page(request: Request):
     if not get_current_web_user(request):
