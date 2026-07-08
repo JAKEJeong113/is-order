@@ -22,8 +22,15 @@ def login_cafe24(page: Page, base_url: str, login_id: str, login_pwd: str) -> No
     page.goto(f"{base_url}/member/login.html", wait_until="domcontentloaded", timeout=30000)
 
     try:
-        page.fill("#member_id", login_id)
-        page.fill("#member_passwd", login_pwd)
+        # 이 테마의 로그인 폼은 fw-filter 기반 자체 검증 스크립트가 붙어있는데,
+        # fill()로 값을 한 번에 채우면 이 검증이 "입력됨"으로 감지 못해 버튼을
+        # 눌러도 조용히 아무 반응이 없는 문제가 실사용에서 있었다(에러 메시지도
+        # 없이 로그인 폼에 그대로 남아있었음). 실제 타이핑처럼 한 글자씩 입력해서
+        # 키 이벤트 기반 검증도 확실히 걸리게 한다.
+        page.locator("#member_id").click()
+        page.locator("#member_id").press_sequentially(login_id, delay=30)
+        page.locator("#member_passwd").click()
+        page.locator("#member_passwd").press_sequentially(login_pwd, delay=30)
     except PWTimeoutError:
         try:
             page.screenshot(path=str(DEBUG_SCREENSHOT_PATH))
