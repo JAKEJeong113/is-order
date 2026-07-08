@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import re
@@ -652,10 +653,25 @@ def add_to_cart_via_list(
                 try:
                     # 파일명이 고정이면 동시에 실패하는 다른 상품/스토어 요청이 덮어써서
                     # 엉뚱한 화면을 보게 될 수 있어, 상품 코드를 파일명에 넣어 구분한다.
-                    shot_path = DATA_DIR / f"debug_yamimall_search_not_found_{item_code}.png"
-                    html_path = DATA_DIR / f"debug_yamimall_search_not_found_{item_code}.html"
-                    page.screenshot(path=str(shot_path))
-                    html_path.write_text(page.content(), encoding="utf-8")
+                    all_links = page.locator("a[href*='/shop/item.php?code=']")
+                    all_count = all_links.count()
+                    sample_names = []
+                    for i in range(min(all_count, 10)):
+                        try:
+                            t = all_links.nth(i).evaluate("(el) => el.innerText || ''").strip()
+                            if t:
+                                sample_names.append(t.splitlines()[0][:60])
+                        except Exception:
+                            pass
+                    summary = {
+                        "page_url": page.url,
+                        "search_keyword": search_keyword,
+                        "target_item_code": item_code,
+                        "total_item_links_on_page": all_count,
+                        "sample_product_names": sample_names,
+                    }
+                    summary_path = DATA_DIR / f"debug_yamimall_search_not_found_{item_code}.json"
+                    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
                 except Exception:
                     pass
                 return None

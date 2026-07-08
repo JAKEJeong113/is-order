@@ -490,7 +490,16 @@ def admin_debug_yamimall_search_html(item_code: str, _: bool = Depends(require_a
     path = yamimall_bot.DATA_DIR / f"debug_yamimall_search_not_found_{item_code}.html"
     if not path.exists():
         raise HTTPException(status_code=404, detail="HTML이 아직 없습니다.")
-    return FileResponse(str(path))
+    return FileResponse(str(path), media_type="text/plain")
+
+
+@app.get("/admin/debug-yamimall-search-summary/{item_code}")
+def admin_debug_yamimall_search_summary(item_code: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 목록 방식 담기 실패 요약(검색 결과 개수/샘플 상품명)을 바로 확인한다."""
+    path = yamimall_bot.DATA_DIR / f"debug_yamimall_search_not_found_{item_code}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="요약이 아직 없습니다.")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 @app.get("/my-vendors", response_class=HTMLResponse)
