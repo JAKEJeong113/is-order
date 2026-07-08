@@ -156,6 +156,12 @@ def crawl_full_catalog(
         try:
             login_cafe24(page, base_url, login_id, login_pwd)
 
+            # 정렬 기준이 실시간 인기도 등으로 안정적이지 않으면, 크롤링 도중 상품
+            # 순서가 바뀌어 인접한 두 페이지가 우연히 같은 상품들을 보여줄 수 있다
+            # (고도몰 계열에서 이 때문에 일부 상품이 통째로 누락되던 문제가 실제로
+            # 확인됨). 새 상품이 없는 페이지를 한 번 만났다고 바로 멈추면 그 뒤에
+            # 있는 진짜 새 상품을 놓칠 수 있어서, 연속으로 여러 번 없을 때만 멈춘다.
+            consecutive_empty_pages = 0
             for page_no in range(1, max_pages + 1):
                 page.goto(
                     f"{base_url}/product/list.html?cate_no={category_code}&page={page_no}",
@@ -175,9 +181,12 @@ def crawl_full_catalog(
                         all_products[key] = it
                         new_count += 1
 
-                # 더 이상 새로운 상품이 없으면(마지막 페이지가 반복되는 경우) 종료
                 if new_count == 0:
-                    break
+                    consecutive_empty_pages += 1
+                    if consecutive_empty_pages >= 3:
+                        break
+                else:
+                    consecutive_empty_pages = 0
 
                 if page_no % PAGE_RECYCLE_INTERVAL == 0:
                     page.close()

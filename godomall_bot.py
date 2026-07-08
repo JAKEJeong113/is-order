@@ -193,6 +193,12 @@ def crawl_full_catalog(
             login_godomall(page, base_url, login_id, login_pwd)
 
             for category_code in codes:
+                # 정렬 기준이 실시간 인기도 등으로 안정적이지 않은 카테고리에서는, 크롤링
+                # 도중 상품 순서가 바뀌어 인접한 두 페이지가 우연히 같은 상품들을 보여줄
+                # 수 있다(에낙 시리즈 중 일부만 수집되던 문제로 실제 확인됨). 새 상품이
+                # 없는 페이지를 한 번 만났다고 바로 멈추면 그 뒤에 있는 진짜 새 상품을
+                # 놓칠 수 있어서, 연속으로 여러 번 새 상품이 없을 때만 끝난 것으로 본다.
+                consecutive_empty_pages = 0
                 for page_no in range(1, max_pages + 1):
                     page.goto(
                         f"{base_url}/goods/goods_list.php?cateCd={category_code}&page={page_no}",
@@ -212,9 +218,12 @@ def crawl_full_catalog(
                             all_products[key] = it
                             new_count += 1
 
-                    # 더 이상 새로운 상품이 없으면(마지막 페이지가 반복되는 경우) 다음 카테고리로
                     if new_count == 0:
-                        break
+                        consecutive_empty_pages += 1
+                        if consecutive_empty_pages >= 3:
+                            break
+                    else:
+                        consecutive_empty_pages = 0
 
                 page.close()
                 page = context.new_page()
