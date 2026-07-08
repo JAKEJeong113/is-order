@@ -641,6 +641,12 @@ def add_to_cart_via_list(
 
         def _find_container():
             run_yamimall_search(page, search_keyword, base_url=base_url)
+            # 검색 결과 렌더링이 느릴 수 있어(특히 로그인 직후) 고정 대기시간
+            # 대신 상품 링크가 실제로 나타날 때까지 명시적으로 기다린다.
+            try:
+                page.wait_for_selector("a[href*='/shop/item.php?code=']", timeout=8000)
+            except PlaywrightTimeoutError:
+                pass
             links = page.locator(f"a[href*='code={item_code}']")
             if links.count() == 0:
                 return None
