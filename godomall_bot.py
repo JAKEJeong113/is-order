@@ -320,54 +320,25 @@ def add_to_cart(
             # 매칭이 안 돼 항상 수량이 기본값 1로만 담기고 있었다(진단으로 확인). onchange
             # 핸들러(goodsViewController.input_count_change)가 붙어있어 fill()이 발생시키는
             # input/change 이벤트로 정상적으로 반영된다.
+            #
+            # 상품에 따라 이 입력칸의 기본값이 1이 아니라 "구매 최소수량"(포장단위)으로 이미
+            # 채워져 있는 경우가 있다(예: 16) - 무마켓/또요몰에서 겪은 것과 같은 패턴. qty는
+            # "몇 세트를 담을지"를 의미하므로, 기본값을 그대로 두면 안 되고 "기본값 × qty"를
+            # 채워야 한다(기본값이 1이면 결과도 그대로 qty와 같아서 일반 상품은 영향 없음).
             qty_input = page.locator("input[name='goodsCnt[]'], input[class*='goodsCnt'], input.qty_input").first
             if qty_input.count() > 0:
-                qty_input.fill(str(qty))
+                try:
+                    unit_qty = int(qty_input.input_value() or "1")
+                except Exception:
+                    unit_qty = 1
+                target_qty = max(unit_qty, 1) * qty
+                qty_input.fill(str(target_qty))
 
             # 상세페이지의 실제 담기 버튼은 #cartBtn. (.btn_basket_cart는 상세페이지 하단
             # '함께 보면 좋은 상품' 추천 위젯용이라 다른 상품 goods_no를 가리킴 - 사용 금지)
             cart_btn = page.locator("#cartBtn")
             if cart_btn.count() == 0:
                 return "no_cart_button"
-
-            # 수량이 항상 1로만 담기는 문제가 있어(실사용 확인), qty_input 셀렉터가
-            # 실제 페이지 구조와 안 맞을 가능성이 있다. 로그인 안 된 상태로는 이 페이지
-            # 자체가 "구매불가"로 막혀있어(가격도 안 보임) 재현/확인이 안 돼서, 진단
-            # 정보를 남겨 다음 실사용 테스트에서 실제 구조를 확인한다.
-            if qty > 1:
-                try:
-                    cart_area_html = ""
-                    try:
-                        form_anc = cart_btn.locator("xpath=ancestor::form[1]")
-                        if form_anc.count() > 0:
-                            cart_area_html = form_anc.first.evaluate("el => el.outerHTML")
-                        else:
-                            cart_area_html = cart_btn.locator("xpath=ancestor::*[position()<=8]").nth(7).evaluate("el => el.outerHTML")
-                    except Exception:
-                        pass
-                    qty_stepper_html = ""
-                    try:
-                        stepper = page.locator("input[type=number], input[class*=cnt i], input[class*=qty i], input[class*=spin i]").first
-                        if stepper.count() > 0:
-                            qty_stepper_html = stepper.locator("xpath=ancestor::*[position()<=3]").nth(2).evaluate("el => el.outerHTML")
-                    except Exception:
-                        pass
-                    debug_info = {
-                        "qty_requested": qty,
-                        "qty_input_found": qty_input.count() > 0,
-                        "qty_input_value_after_fill": qty_input.input_value() if qty_input.count() > 0 else None,
-                        "goods_option_cnt": page.locator("#goodsOptionCnt").get_attribute("value") if page.locator("#goodsOptionCnt").count() > 0 else None,
-                        "select_count": page.locator("select").count(),
-                        "number_input_count": page.locator("input[type=number]").count(),
-                        "qty_stepper_html": qty_stepper_html[:2000],
-                        "cart_area_html": cart_area_html[:6000],
-                    }
-                    (DATA_DIR / f"debug_godomall_qty_{vendor_id}_{goods_no}.json").write_text(
-                        json.dumps(debug_info, ensure_ascii=False, indent=2), encoding="utf-8"
-                    )
-                    page.screenshot(path=str(DATA_DIR / f"debug_godomall_qty_{vendor_id}_{goods_no}.png"), full_page=True)
-                except Exception:
-                    pass
 
             try:
                 cart_btn.click(timeout=5000)
