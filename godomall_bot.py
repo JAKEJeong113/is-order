@@ -313,17 +313,23 @@ def add_to_cart(
             # 정보를 남겨 다음 실사용 테스트에서 실제 구조를 확인한다.
             if qty > 1:
                 try:
+                    cart_area_html = ""
+                    try:
+                        cart_area_html = cart_btn.locator("xpath=ancestor::*[position()<=4]").nth(3).evaluate("el => el.outerHTML")
+                    except Exception:
+                        pass
                     debug_info = {
                         "qty_requested": qty,
                         "qty_input_found": qty_input.count() > 0,
                         "qty_input_value_after_fill": qty_input.input_value() if qty_input.count() > 0 else None,
                         "goods_option_cnt": page.locator("#goodsOptionCnt").get_attribute("value") if page.locator("#goodsOptionCnt").count() > 0 else None,
                         "select_count": page.locator("select").count(),
+                        "cart_area_html": cart_area_html[:4000],
                     }
                     (DATA_DIR / f"debug_godomall_qty_{vendor_id}_{goods_no}.json").write_text(
                         json.dumps(debug_info, ensure_ascii=False, indent=2), encoding="utf-8"
                     )
-                    page.screenshot(path=str(DATA_DIR / f"debug_godomall_qty_{vendor_id}_{goods_no}.png"))
+                    page.screenshot(path=str(DATA_DIR / f"debug_godomall_qty_{vendor_id}_{goods_no}.png"), full_page=True)
                 except Exception:
                     pass
 
