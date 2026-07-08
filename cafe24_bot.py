@@ -234,11 +234,17 @@ def add_to_cart(store_id: str, base_url: str, login_id: str, login_pwd: str, pro
                 except Exception:
                     pass
 
-            # 카페24 테마마다 담기 버튼 마크업이 조금씩 달라서 여러 후보를 넓게 찾는다
-            cart_btn = page.locator(
-                "a:has-text('장바구니'), button:has-text('장바구니'), "
-                "#BtnBasket, a.btnBasket, [onclick*='basket' i]"
-            ).first
+            # 헤더에 항상 떠 있는 "장바구니로 이동" 링크(<a href="/order/basket.html">)도
+            # 텍스트가 "장바구니"라 넓은 텍스트 검색으로는 이게 먼저 잡혀서 실제로는
+            # 아무것도 안 담고 장바구니 페이지로만 이동해버리는 문제가 있었다(실사용
+            # 확인). 실제 담기 버튼의 표준 클래스(.btn-basket)를 먼저 찾고, 그게 없을
+            # 때만 헤더 링크를 제외한 텍스트 검색으로 넓힌다.
+            cart_btn = page.locator("a.btn-basket, button.btn-basket, #BtnBasket, a.btnBasket").first
+            if cart_btn.count() == 0:
+                cart_btn = page.locator(
+                    "a:has-text('장바구니'):not([href='/order/basket.html']), "
+                    "button:has-text('장바구니')"
+                ).first
             if cart_btn.count() == 0:
                 try:
                     page.screenshot(path=str(DEBUG_SCREENSHOT_PATH))
