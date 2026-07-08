@@ -165,9 +165,30 @@ def add_to_cart(store_id: str, base_url: str, login_id: str, login_pwd: str, pro
         context = browser.new_context(storage_state=cached_state) if cached_state else browser.new_context()
         page = context.new_page()
 
+        # 야미몰에서 클릭 성공/alert만 믿었다가 실제로는 하나도 안 담기는 문제를
+        # 겪은 뒤로, 여기서도 처음부터 alert 캡처 + 실제 장바구니 개수 확인을 같이 한다.
+        alert_messages: list[str] = []
+
+        def _on_dialog(dialog):
+            alert_messages.append(dialog.message)
+            dialog.dismiss()
+
+        page.on("dialog", _on_dialog)
+
+        def _read_cart_count() -> int:
+            try:
+                text = page.locator(".EC-Layout-Basket-count").first.inner_text(timeout=2000)
+                digits = re.sub(r"[^\d]", "", text or "")
+                return int(digits) if digits else 0
+            except Exception:
+                return -1
+
         def _try_add() -> str:
+            alert_messages.clear()
             page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(800)
+
+            before_count = _read_cart_count()
 
             qty_input = page.locator("input[name='quantity'], input#quantity_1").first
             if qty_input.count() > 0:
@@ -188,8 +209,39 @@ def add_to_cart(store_id: str, base_url: str, login_id: str, login_pwd: str, pro
                     pass
                 return "no_cart_button"
 
-            cart_btn.click(timeout=5000)
+            try:
+                cart_btn.click(timeout=5000)
+            except Exception:
+                pass
             page.wait_for_timeout(1500)
+
+            if "login" in page.url.lower() or any("로그인" in m for m in alert_messages):
+                return "login_required"
+
+            # 확인 팝업(계속쇼핑/장바구니로 이동 등)이 있으면 닫기
+            confirm_btn = page.locator(
+                "button:has-text('확인'), a:has-text('확인'), button:has-text('닫기')"
+            ).first
+            if confirm_btn.count() > 0:
+                try:
+                    confirm_btn.click(timeout=2000)
+                except Exception:
+                    pass
+                page.wait_for_timeout(500)
+
+            # 클릭 성공/alert 없음만으로는 실제로 담겼는지 신뢰할 수 없다는 게 야미몰
+            # 사례로 확인됐다. 새로고침 후 실제 장바구니 개수 배지로 최종 확인한다.
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+            after_count = _read_cart_count()
+
+            if before_count >= 0 and after_count >= 0 and after_count <= before_count:
+                if alert_messages:
+                    return f"blocked:{alert_messages[-1]}"
+                return "not_added"
+
             return "ok"
 
         try:
@@ -199,7 +251,7 @@ def add_to_cart(store_id: str, base_url: str, login_id: str, login_pwd: str, pro
                 logged_in_fresh = True
 
             outcome = _try_add()
-            if outcome == "no_cart_button" and cached_state:
+            if outcome in ("no_cart_button", "login_required", "not_added") and cached_state:
                 # 캐시된 세션이 만료됐을 수 있으니 새로 로그인해서 한 번 더 시도
                 login_cafe24(page, base_url, login_id, login_pwd)
                 logged_in_fresh = True
@@ -207,6 +259,12 @@ def add_to_cart(store_id: str, base_url: str, login_id: str, login_pwd: str, pro
 
             if outcome == "no_cart_button":
                 return {"ok": False, "reason": "장바구니 버튼을 찾지 못함"}
+            if outcome == "login_required":
+                return {"ok": False, "reason": "로그인이 필요합니다 (아이디/비밀번호를 확인해주세요)"}
+            if outcome == "not_added":
+                return {"ok": False, "reason": "담기를 시도했지만 장바구니 수량이 늘지 않음 (재고/최소수량 등 확인 필요)"}
+            if outcome.startswith("blocked:"):
+                return {"ok": False, "reason": outcome[len("blocked:"):]}
 
             if logged_in_fresh:
                 vendors.save_session_state(store_id, "moomarket", context.storage_state())
