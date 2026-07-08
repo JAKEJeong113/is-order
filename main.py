@@ -502,6 +502,15 @@ def admin_debug_yamimall_search_summary(item_code: str, _: bool = Depends(requir
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@app.get("/admin/debug-yamimall-qty/{item_code}")
+def admin_debug_yamimall_qty(item_code: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 목록 방식 담기에서 수량칸에 실제로 어떤 값이 들어갔는지 확인한다."""
+    path = yamimall_bot.DATA_DIR / f"debug_yamimall_qty_{item_code}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="기록이 아직 없습니다.")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 @app.get("/my-vendors", response_class=HTMLResponse)
 def my_vendors_page(request: Request):
     if not get_current_web_user(request):

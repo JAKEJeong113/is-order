@@ -699,12 +699,15 @@ def add_to_cart_via_list(
             # 이 값을 JS로 직접 넣고 change 이벤트를 발생시켜 반영한다(입력칸도
             # 화면상 안 보여서 fill()은 안 먹고 evaluate로 값만 바꿔야 한다).
             qty_field = container.locator("input[name='qty[]']").first
+            qty_debug = {"qty_requested": qty}
             if qty_field.count() > 0 and qty > 1:
                 try:
                     unit_qty = int(qty_field.input_value() or "1")
                 except Exception:
                     unit_qty = 1
                 target_qty = max(unit_qty, 1) * qty
+                qty_debug["unit_qty_before"] = unit_qty
+                qty_debug["target_qty"] = target_qty
                 try:
                     qty_field.evaluate(
                         """
@@ -716,6 +719,15 @@ def add_to_cart_via_list(
                         """,
                         str(target_qty),
                     )
+                except Exception as e:
+                    qty_debug["set_error"] = str(e)
+                try:
+                    qty_debug["qty_value_right_before_click"] = qty_field.input_value()
+                except Exception:
+                    pass
+                try:
+                    debug_path = DATA_DIR / f"debug_yamimall_qty_{item_code}.json"
+                    debug_path.write_text(json.dumps(qty_debug, ensure_ascii=False, indent=2), encoding="utf-8")
                 except Exception:
                     pass
 
