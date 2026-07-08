@@ -14,6 +14,8 @@ YAMIMALL_URL = "https://xn--352blx12s.com"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
 DEBUG_LOGIN_SCREENSHOT_PATH = DATA_DIR / "debug_yamimall_login_failure.png"
+DEBUG_SEARCH_SCREENSHOT_PATH = DATA_DIR / "debug_yamimall_search_not_found.png"
+DEBUG_SEARCH_HTML_PATH = DATA_DIR / "debug_yamimall_search_not_found.html"
 
 
 def run_yamimall_search(page, keyword: str, base_url: str = YAMIMALL_URL) -> None:
@@ -649,6 +651,11 @@ def add_to_cart_via_list(
                 pass
             links = page.locator(f"a[href*='code={item_code}']")
             if links.count() == 0:
+                try:
+                    page.screenshot(path=str(DEBUG_SEARCH_SCREENSHOT_PATH))
+                    DEBUG_SEARCH_HTML_PATH.write_text(page.content(), encoding="utf-8")
+                except Exception:
+                    pass
                 return None
             return links.first.locator("xpath=ancestor::li[1]")
 
