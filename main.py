@@ -580,7 +580,10 @@ def admin_debug_compare(keyword: str, _: bool = Depends(require_admin)):
                 "best_price": g.get("best_price"),
                 "best_vendor_name": g.get("best_vendor_name"),
                 "offers": [
-                    {"vendor_id": o.get("vendor_id"), "name": o.get("name"), "price": o.get("price"), "match_score": o.get("match_score")}
+                    {
+                        "vendor_id": o.get("vendor_id"), "name": o.get("name"), "price": o.get("price"),
+                        "match_score": o.get("match_score"), "goods_no": o.get("goods_no"), "product_url": o.get("product_url"),
+                    }
                     for o in g.get("offers", [])
                 ],
             }
