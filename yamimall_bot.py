@@ -14,8 +14,6 @@ YAMIMALL_URL = "https://xn--352blx12s.com"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
 DEBUG_LOGIN_SCREENSHOT_PATH = DATA_DIR / "debug_yamimall_login_failure.png"
-DEBUG_SEARCH_SCREENSHOT_PATH = DATA_DIR / "debug_yamimall_search_not_found.png"
-DEBUG_SEARCH_HTML_PATH = DATA_DIR / "debug_yamimall_search_not_found.html"
 
 
 def run_yamimall_search(page, keyword: str, base_url: str = YAMIMALL_URL) -> None:
@@ -652,8 +650,12 @@ def add_to_cart_via_list(
             links = page.locator(f"a[href*='code={item_code}']")
             if links.count() == 0:
                 try:
-                    page.screenshot(path=str(DEBUG_SEARCH_SCREENSHOT_PATH))
-                    DEBUG_SEARCH_HTML_PATH.write_text(page.content(), encoding="utf-8")
+                    # 파일명이 고정이면 동시에 실패하는 다른 상품/스토어 요청이 덮어써서
+                    # 엉뚱한 화면을 보게 될 수 있어, 상품 코드를 파일명에 넣어 구분한다.
+                    shot_path = DATA_DIR / f"debug_yamimall_search_not_found_{item_code}.png"
+                    html_path = DATA_DIR / f"debug_yamimall_search_not_found_{item_code}.html"
+                    page.screenshot(path=str(shot_path))
+                    html_path.write_text(page.content(), encoding="utf-8")
                 except Exception:
                     pass
                 return None

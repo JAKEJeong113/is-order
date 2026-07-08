@@ -475,20 +475,22 @@ def admin_debug_yamimall_login_screenshot(_: bool = Depends(require_admin)):
     return FileResponse(str(yamimall_bot.DEBUG_LOGIN_SCREENSHOT_PATH))
 
 
-@app.get("/admin/debug-yamimall-search-screenshot")
-def admin_debug_yamimall_search_screenshot(_: bool = Depends(require_admin)):
-    """진단용 임시 엔드포인트: 목록 방식 담기에서 상품을 못 찾았을 때 남긴 스크린샷을 확인한다."""
-    if not yamimall_bot.DEBUG_SEARCH_SCREENSHOT_PATH.exists():
+@app.get("/admin/debug-yamimall-search-screenshot/{item_code}")
+def admin_debug_yamimall_search_screenshot(item_code: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 목록 방식 담기에서 상품(item_code)을 못 찾았을 때 남긴 스크린샷을 확인한다."""
+    path = yamimall_bot.DATA_DIR / f"debug_yamimall_search_not_found_{item_code}.png"
+    if not path.exists():
         raise HTTPException(status_code=404, detail="스크린샷이 아직 없습니다.")
-    return FileResponse(str(yamimall_bot.DEBUG_SEARCH_SCREENSHOT_PATH))
+    return FileResponse(str(path))
 
 
-@app.get("/admin/debug-yamimall-search-html")
-def admin_debug_yamimall_search_html(_: bool = Depends(require_admin)):
-    """진단용 임시 엔드포인트: 목록 방식 담기에서 상품을 못 찾았을 때 남긴 페이지 HTML을 확인한다."""
-    if not yamimall_bot.DEBUG_SEARCH_HTML_PATH.exists():
+@app.get("/admin/debug-yamimall-search-html/{item_code}")
+def admin_debug_yamimall_search_html(item_code: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 목록 방식 담기에서 상품(item_code)을 못 찾았을 때 남긴 페이지 HTML을 확인한다."""
+    path = yamimall_bot.DATA_DIR / f"debug_yamimall_search_not_found_{item_code}.html"
+    if not path.exists():
         raise HTTPException(status_code=404, detail="HTML이 아직 없습니다.")
-    return FileResponse(str(yamimall_bot.DEBUG_SEARCH_HTML_PATH))
+    return FileResponse(str(path))
 
 
 @app.get("/my-vendors", response_class=HTMLResponse)
