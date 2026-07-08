@@ -315,7 +315,18 @@ def add_to_cart(
                 try:
                     cart_area_html = ""
                     try:
-                        cart_area_html = cart_btn.locator("xpath=ancestor::*[position()<=4]").nth(3).evaluate("el => el.outerHTML")
+                        form_anc = cart_btn.locator("xpath=ancestor::form[1]")
+                        if form_anc.count() > 0:
+                            cart_area_html = form_anc.first.evaluate("el => el.outerHTML")
+                        else:
+                            cart_area_html = cart_btn.locator("xpath=ancestor::*[position()<=8]").nth(7).evaluate("el => el.outerHTML")
+                    except Exception:
+                        pass
+                    qty_stepper_html = ""
+                    try:
+                        stepper = page.locator("input[type=number], input[class*=cnt i], input[class*=qty i], input[class*=spin i]").first
+                        if stepper.count() > 0:
+                            qty_stepper_html = stepper.locator("xpath=ancestor::*[position()<=3]").nth(2).evaluate("el => el.outerHTML")
                     except Exception:
                         pass
                     debug_info = {
@@ -324,7 +335,9 @@ def add_to_cart(
                         "qty_input_value_after_fill": qty_input.input_value() if qty_input.count() > 0 else None,
                         "goods_option_cnt": page.locator("#goodsOptionCnt").get_attribute("value") if page.locator("#goodsOptionCnt").count() > 0 else None,
                         "select_count": page.locator("select").count(),
-                        "cart_area_html": cart_area_html[:4000],
+                        "number_input_count": page.locator("input[type=number]").count(),
+                        "qty_stepper_html": qty_stepper_html[:2000],
+                        "cart_area_html": cart_area_html[:6000],
                     }
                     (DATA_DIR / f"debug_godomall_qty_{vendor_id}_{goods_no}.json").write_text(
                         json.dumps(debug_info, ensure_ascii=False, indent=2), encoding="utf-8"
