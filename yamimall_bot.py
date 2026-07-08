@@ -432,6 +432,12 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
         return {"ok": False, "reason": f"상품 코드 추출 실패: {product_url}"}
     item_code = code_match.group(1)
 
+    # Playwright sync API는 같은 스레드에서 중첩(nested) 사용이 안 된다. 그래서
+    # item.php 방식이 막힌 상품을 목록 방식(add_to_cart_via_list)으로 재시도할 때는
+    # 여기서 바로 호출하지 않고, 아래 with 블록이 완전히 끝난 뒤에 호출한다.
+    needs_list_fallback = False
+    result: dict = {"ok": False, "reason": "알 수 없는 오류"}
+
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
@@ -543,31 +549,36 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
                 outcome = _try_add()
 
             if outcome == "no_qty_button":
-                return {"ok": False, "reason": "수량 조절 버튼을 찾지 못함 (품절이거나 페이지 구조 변경)"}
-            if outcome == "no_cart_button":
-                return {"ok": False, "reason": "장바구니 버튼을 찾지 못함"}
-            if outcome == "login_required":
-                return {"ok": False, "reason": "로그인이 필요합니다 (아이디/비밀번호를 확인해주세요)"}
-            if outcome == "not_added" or outcome.startswith("blocked:"):
+                result = {"ok": False, "reason": "수량 조절 버튼을 찾지 못함 (품절이거나 페이지 구조 변경)"}
+            elif outcome == "no_cart_button":
+                result = {"ok": False, "reason": "장바구니 버튼을 찾지 못함"}
+            elif outcome == "login_required":
+                result = {"ok": False, "reason": "로그인이 필요합니다 (아이디/비밀번호를 확인해주세요)"}
+            elif outcome == "not_added" or outcome.startswith("blocked:"):
                 if keyword:
-                    return add_to_cart_via_list(
-                        store_id, "yamimall", username, password, product_url, qty,
-                        base_url=YAMIMALL_URL, keyword=keyword,
+                    needs_list_fallback = True
+                else:
+                    fallback_reason = (
+                        outcome[len("blocked:"):] if outcome.startswith("blocked:")
+                        else "담기를 시도했지만 장바구니 수량이 늘지 않음 (재고/최소수량 등 확인 필요)"
                     )
-                fallback_reason = (
-                    outcome[len("blocked:"):] if outcome.startswith("blocked:")
-                    else "담기를 시도했지만 장바구니 수량이 늘지 않음 (재고/최소수량 등 확인 필요)"
-                )
-                return {"ok": False, "reason": fallback_reason}
-
-            if logged_in_fresh:
-                vendors.save_session_state(store_id, "yamimall", context.storage_state())
-
-            return {"ok": True, "item_code": item_code, "qty": qty}
+                    result = {"ok": False, "reason": fallback_reason}
+            else:
+                if logged_in_fresh:
+                    vendors.save_session_state(store_id, "yamimall", context.storage_state())
+                result = {"ok": True, "item_code": item_code, "qty": qty}
         except Exception as e:
-            return {"ok": False, "reason": str(e)}
+            result = {"ok": False, "reason": str(e)}
         finally:
             browser.close()
+
+    if needs_list_fallback:
+        return add_to_cart_via_list(
+            store_id, "yamimall", username, password, product_url, qty,
+            base_url=YAMIMALL_URL, keyword=keyword,
+        )
+
+    return result
 
 
 def add_to_cart_via_list(
