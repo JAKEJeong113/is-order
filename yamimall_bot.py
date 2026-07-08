@@ -376,16 +376,11 @@ def calc_yamimall_cart_qty(sold_qty: int, unit_qty: int) -> int:
 
 
 def login_yamimall(page, username: str, password: str, base_url: str = YAMIMALL_URL) -> None:
-    page.goto(base_url, wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_timeout(2000)
-    close_yamimall_popups(page)
-
-    # 같은 플랫폼을 쓰는 다른 스토어(또요몰 등)는 로그인 버튼이 모달을 띄우는 대신
-    # 로그인 페이지로 바로 이동하는 경우가 있어, 트리거를 못 찾으면 텍스트로 한 번 더 찾는다.
-    login_trigger = page.locator(".hdgnb_login_class")
-    if login_trigger.count() == 0:
-        login_trigger = page.locator("a:has-text('로그인')").first
-    login_trigger.first.click()
+    """홈페이지에서 로그인 버튼(트리거)을 클릭해 모달/페이지 전환을 유도하는 대신
+    로그인 폼이 있는 URL로 바로 이동한다. 홈페이지의 공지 팝업이 트리거를 가려서
+    클릭이 기본 타임아웃(30초)까지 멈추는 문제가 실사용에서 재현됐는데, 트리거
+    클릭 자체를 없애서 근본적으로 피한다."""
+    page.goto(f"{base_url}/shop/login.php", wait_until="domcontentloaded", timeout=60000)
     page.wait_for_timeout(1000)
 
     page.fill("#login_id", username)
