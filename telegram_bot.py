@@ -320,7 +320,10 @@ ITEM_CART_ADD_TIMEOUT_SECONDS = 90
 # 한 상품당 예산을 넉넉히 잡는다 (품절 재시도 최대 2~3곳 가정).
 ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS = 240
 
-STOCK_FAILURE_KEYWORDS = ("재고", "품절", "구매할 수 있는", "수량이 늘지 않")
+# "장바구니 버튼을 찾지 못함"도 포함한다 - 품절 상품은 사이트가 담기 버튼 자체를
+# 안 보여주고 "품절" 표시로 바꿔치기하는 경우가 많아서(또요몰에서 실사용 확인),
+# 명시적인 재고 문구 없이 버튼만 사라지는 것도 품절 신호로 취급한다.
+STOCK_FAILURE_KEYWORDS = ("재고", "품절", "구매할 수 있는", "수량이 늘지 않", "버튼을 찾지 못함")
 
 
 def _is_stock_failure(reason: str) -> bool:
