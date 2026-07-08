@@ -529,6 +529,24 @@ def admin_debug_yamimall_after_click(item_code: str, _: bool = Depends(require_a
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@app.get("/admin/debug-godomall-qty/{vendor_id}/{goods_no}")
+def admin_debug_godomall_qty(vendor_id: str, goods_no: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 고도몰 계열 담기에서 수량칸 관련 상태를 확인한다."""
+    path = godomall_bot.DATA_DIR / f"debug_godomall_qty_{vendor_id}_{goods_no}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="기록이 아직 없습니다.")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.get("/admin/debug-godomall-qty-screenshot/{vendor_id}/{goods_no}")
+def admin_debug_godomall_qty_screenshot(vendor_id: str, goods_no: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 고도몰 계열 담기 시점의 화면 스크린샷을 확인한다."""
+    path = godomall_bot.DATA_DIR / f"debug_godomall_qty_{vendor_id}_{goods_no}.png"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="스크린샷이 아직 없습니다.")
+    return FileResponse(str(path))
+
+
 @app.get("/my-vendors", response_class=HTMLResponse)
 def my_vendors_page(request: Request):
     if not get_current_web_user(request):

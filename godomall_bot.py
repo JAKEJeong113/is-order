@@ -1,5 +1,6 @@
 # godomall_bot.py
 """고도몰(Godomall) 플랫폼 공통 봇: 과자생각(ccdome), 삼봉몰(3bong)에서 재사용."""
+import json
 import os
 import re
 from pathlib import Path
@@ -305,6 +306,26 @@ def add_to_cart(
             cart_btn = page.locator("#cartBtn")
             if cart_btn.count() == 0:
                 return "no_cart_button"
+
+            # 수량이 항상 1로만 담기는 문제가 있어(실사용 확인), qty_input 셀렉터가
+            # 실제 페이지 구조와 안 맞을 가능성이 있다. 로그인 안 된 상태로는 이 페이지
+            # 자체가 "구매불가"로 막혀있어(가격도 안 보임) 재현/확인이 안 돼서, 진단
+            # 정보를 남겨 다음 실사용 테스트에서 실제 구조를 확인한다.
+            if qty > 1:
+                try:
+                    debug_info = {
+                        "qty_requested": qty,
+                        "qty_input_found": qty_input.count() > 0,
+                        "qty_input_value_after_fill": qty_input.input_value() if qty_input.count() > 0 else None,
+                        "goods_option_cnt": page.locator("#goodsOptionCnt").get_attribute("value") if page.locator("#goodsOptionCnt").count() > 0 else None,
+                        "select_count": page.locator("select").count(),
+                    }
+                    (DATA_DIR / f"debug_godomall_qty_{vendor_id}_{goods_no}.json").write_text(
+                        json.dumps(debug_info, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+                    page.screenshot(path=str(DATA_DIR / f"debug_godomall_qty_{vendor_id}_{goods_no}.png"))
+                except Exception:
+                    pass
 
             try:
                 cart_btn.click(timeout=5000)
