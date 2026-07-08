@@ -14,9 +14,22 @@ DEBUG_SCREENSHOT_PATH = DATA_DIR / "debug_cafe24_cart_failure.png"
 
 
 def login_cafe24(page: Page, base_url: str, login_id: str, login_pwd: str) -> None:
+    """이 함수는 항상 "새로 로그인해야 하는 상황"에만 불린다. context에 예전
+    쿠키가 남아있으면 login.html이 "이미 로그인됨"으로 오판해 다른 페이지로
+    리다이렉트시켜 로그인 폼 자체가 없을 수 있어(야미몰에서 같은 문제를 겪음),
+    항상 쿠키를 비우고 새로 시작한다."""
+    page.context.clear_cookies()
     page.goto(f"{base_url}/member/login.html", wait_until="domcontentloaded", timeout=30000)
-    page.fill("#member_id", login_id)
-    page.fill("#member_passwd", login_pwd)
+
+    try:
+        page.fill("#member_id", login_id)
+        page.fill("#member_passwd", login_pwd)
+    except PWTimeoutError:
+        try:
+            page.screenshot(path=str(DEBUG_SCREENSHOT_PATH))
+        except Exception:
+            pass
+        raise RuntimeError(f"로그인 폼을 찾지 못함 (실제 도착 URL: {page.url})")
 
     # 카페24는 <button type=submit>이 아니라 onclick="MemberAction.login(...)"을 쓰는
     # <a class="btnLogin"> 링크로 로그인을 제출한다 (form id는 요청마다 랜덤하게 바뀜).
