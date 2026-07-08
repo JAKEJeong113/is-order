@@ -420,10 +420,13 @@ def _parse_price(text: str) -> int | None:
     return int(digits) if digits else None
 
 
-def add_to_cart(store_id: str, username: str, password: str, product_url: str, qty: int = 1) -> dict:
+def add_to_cart(store_id: str, username: str, password: str, product_url: str, qty: int = 1, keyword: str | None = None) -> dict:
     """상품 상세페이지에서 실제로 장바구니에 담는다. product_url은 item.php?code=... 형태.
     지점별 로그인 세션(쿠키)을 캐시해서, 저장된 세션이 있으면 로그인 과정을 건너뛴다.
-    캐시된 세션이 만료됐으면(담기 버튼을 못 찾으면) 새로 로그인해서 한 번 더 시도한다."""
+    캐시된 세션이 만료됐으면(담기 버튼을 못 찾으면) 새로 로그인해서 한 번 더 시도한다.
+    일부 상품(예: 맛/색상별로 카드가 나뉘어 있는 상품)은 상세페이지에서 담기가 막혀있고
+    목록/검색결과의 인라인 담기 버튼으로만 담아지는 게 실사용으로 확인돼서, keyword가 있으면
+    그 경우 add_to_cart_via_list로 자동 재시도한다."""
     code_match = re.search(r"code=(\d+)", product_url or "")
     if not code_match:
         return {"ok": False, "reason": f"상품 코드 추출 실패: {product_url}"}
@@ -545,10 +548,17 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
                 return {"ok": False, "reason": "장바구니 버튼을 찾지 못함"}
             if outcome == "login_required":
                 return {"ok": False, "reason": "로그인이 필요합니다 (아이디/비밀번호를 확인해주세요)"}
-            if outcome == "not_added":
-                return {"ok": False, "reason": "담기를 시도했지만 장바구니 수량이 늘지 않음 (재고/최소수량 등 확인 필요)"}
-            if outcome.startswith("blocked:"):
-                return {"ok": False, "reason": outcome[len("blocked:"):]}
+            if outcome == "not_added" or outcome.startswith("blocked:"):
+                if keyword:
+                    return add_to_cart_via_list(
+                        store_id, "yamimall", username, password, product_url, qty,
+                        base_url=YAMIMALL_URL, keyword=keyword,
+                    )
+                fallback_reason = (
+                    outcome[len("blocked:"):] if outcome.startswith("blocked:")
+                    else "담기를 시도했지만 장바구니 수량이 늘지 않음 (재고/최소수량 등 확인 필요)"
+                )
+                return {"ok": False, "reason": fallback_reason}
 
             if logged_in_fresh:
                 vendors.save_session_state(store_id, "yamimall", context.storage_state())

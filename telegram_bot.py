@@ -310,7 +310,7 @@ def _add_single_item_to_cart(store_id: str, item: dict) -> dict:
     base_url = vendors.VENDORS[item["vendor_id"]]["base_url"]
 
     if item["vendor_id"] == "yamimall":
-        return yamimall_bot.add_to_cart(store_id, login_id, login_pwd, item["product_url"], item["qty"])
+        return yamimall_bot.add_to_cart(store_id, login_id, login_pwd, item["product_url"], item["qty"], keyword=item.get("item_name"))
     if item["vendor_id"] == "moomarket":
         return cafe24_bot.add_to_cart(store_id, base_url, login_id, login_pwd, item["product_url"], item["qty"])
     if item["vendor_id"] == "douyou":

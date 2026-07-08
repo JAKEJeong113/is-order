@@ -426,7 +426,7 @@ def api_cart_add(req: CartAddRequest, user: dict = Depends(require_web_user)):
     login_id, login_pwd = creds
 
     if req.vendor_id == "yamimall":
-        result = yamimall_bot.add_to_cart(store_id, login_id, login_pwd, req.product_url, req.qty)
+        result = yamimall_bot.add_to_cart(store_id, login_id, login_pwd, req.product_url, req.qty, keyword=req.item_name)
     elif req.vendor_id in ("ccdome", "3bong", "hdinter"):
         base_url = vendors.VENDORS[req.vendor_id]["base_url"]
         goods_no_match = re.search(r"goodsNo=(\d+)", req.product_url or "")
