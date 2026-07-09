@@ -774,6 +774,15 @@ def admin_api_beverages_confirm(req: BeverageConfirmRequest, _: bool = Depends(r
     return {"ok": True}
 
 
+@app.delete("/admin/api/beverages/{item_key}")
+def admin_api_beverages_delete(item_key: str, _: bool = Depends(require_admin)):
+    """추천 목록(고객용 /beverages)에서 제거한다. 카탈로그(엑셀)에도 있는 상품이면
+    관리 페이지에는 미완료 상태로 다시 나타난다(카탈로그 자체를 지우는 게 아니라
+    이 상품의 이미지/링크 등록만 지우는 것)."""
+    beverage_ranking.delete_beverage(item_key)
+    return {"ok": True}
+
+
 @app.get("/my-vendors", response_class=HTMLResponse)
 def my_vendors_page(request: Request):
     if not get_current_web_user(request):

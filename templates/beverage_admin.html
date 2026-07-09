@@ -62,6 +62,10 @@
       padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px;
       font-weight: 700; cursor: pointer; background: var(--mint); color: white;
     }
+    .delete-btn {
+      padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 700; cursor: pointer; background: #fee2e2; color: #b91c1c;
+    }
     .status-text { font-size: 11px; color: var(--muted); }
     .status-text.error { color: #b91c1c; }
     .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
@@ -137,6 +141,7 @@
             </div>
             <div class="row-actions">
               <button class="save-btn">저장</button>
+              <button class="delete-btn">삭제</button>
               <span class="status-text"></span>
             </div>
           </div>
@@ -164,10 +169,43 @@
     });
 
     document.getElementById("list").addEventListener("click", async (e) => {
-      if (!e.target.classList.contains("save-btn")) return;
       const row = e.target.closest(".bev-row");
+      if (!row) return;
       const itemKey = row.dataset.itemKey;
       const statusEl = row.querySelector(".row-actions .status-text");
+
+      if (e.target.classList.contains("delete-btn")) {
+        const isUnsavedNew = newItems.some((it) => it.item_key === itemKey);
+        if (isUnsavedNew) {
+          newItems = newItems.filter((it) => it.item_key !== itemKey);
+          render();
+          return;
+        }
+        const itemName = row.querySelector(".name-input").value.trim();
+        if (!confirm(`"${itemName || itemKey}"를 추천 목록에서 삭제할까요?`)) return;
+
+        e.target.disabled = true;
+        statusEl.textContent = "삭제 중...";
+        statusEl.classList.remove("error");
+        try {
+          const res = await fetch(`/admin/api/beverages/${encodeURIComponent(itemKey)}`, { method: "DELETE" });
+          const data = await res.json();
+          if (data.ok) {
+            await loadItems();
+          } else {
+            statusEl.textContent = data.error || "삭제 실패";
+            statusEl.classList.add("error");
+          }
+        } catch (err) {
+          statusEl.textContent = "삭제 중 오류 발생";
+          statusEl.classList.add("error");
+        } finally {
+          e.target.disabled = false;
+        }
+        return;
+      }
+
+      if (!e.target.classList.contains("save-btn")) return;
       const itemName = row.querySelector(".name-input").value.trim();
       const link = row.querySelector(".link-input").value.trim();
       const imageUrl = row.querySelector(".image-input").value.trim();

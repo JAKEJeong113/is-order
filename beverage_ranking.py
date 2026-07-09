@@ -284,3 +284,17 @@ def record_click(item_key: str) -> bool:
     conn.commit()
     conn.close()
     return updated
+
+
+def delete_beverage(item_key: str) -> bool:
+    """추천 목록(고객용 /beverages)에서 제거한다. 카탈로그(엑셀)에도 있는
+    상품이면 관리 페이지에는 "미완료" 상태로 다시 나타난다(카탈로그 자체를
+    지우는 게 아니라 이 상품의 이미지/링크 등록만 지우는 것이기 때문) - 관리
+    페이지에서 직접 추가한 상품(카탈로그에 없음)이면 완전히 사라진다."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM beverage_catalog WHERE item_key = ?", (item_key,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
