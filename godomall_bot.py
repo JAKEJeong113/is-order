@@ -312,6 +312,13 @@ def add_to_cart(
                 wait_until="domcontentloaded",
                 timeout=30000,
             )
+            # goto 직후(t=0) 시점 스냅샷 - 이미 이때부터 리다이렉트된 상태인지, 아니면
+            # 잠시 뒤(지연된 JS 리다이렉트 등)에 벌어지는 일인지 구분하기 위해 기록
+            # (크나버 건: 격리 재현 시엔 정상인데 실제 흐름에선 계속 실패해서 타이밍
+            # 차이를 의심하게 됨).
+            t0_url = page.url
+            t0_cart_btn_count = page.locator("#cartBtn").count()
+
             # 상품에 따라 #cartBtn이 뜨는 데 고정 500ms보다 오래 걸릴 수 있어(실사용
             # 확인: 실제로는 구매 가능한 상품인데 렌더링이 늦어서 "담기 버튼을 찾지
             # 못함"으로 잘못 실패 처리된 사례 발견). 버튼이 실제로 나타날 때까지 최대
@@ -368,7 +375,9 @@ def add_to_cart(
                 except Exception:
                     pass
                 pre_qty_note = (
-                    f"(수량입력전 cartBtn={pre_qty_cart_btn_count}, url={pre_qty_url}, "
+                    f"(attempt={attempt_label} cached_state={bool(cached_state)} / "
+                    f"t0 cartBtn={t0_cart_btn_count} url={t0_url} / "
+                    f"수량입력전 cartBtn={pre_qty_cart_btn_count} url={pre_qty_url}, "
                     f"unit_qty={unit_qty}, target_qty={target_qty})"
                 )
                 return f"no_cart_button|{diag_url}|{pre_qty_note} {diag_body}"
@@ -411,6 +420,7 @@ def add_to_cart(
 
         try:
             logged_in_fresh = False
+            attempt_label = "cached_session" if cached_state else "fresh_login"
             if not cached_state:
                 login_godomall(page, base_url, login_id, login_pwd)
                 logged_in_fresh = True
@@ -429,6 +439,7 @@ def add_to_cart(
                 page.on("dialog", _on_dialog)
                 login_godomall(page, base_url, login_id, login_pwd)
                 logged_in_fresh = True
+                attempt_label = "fresh_context_retry"
                 outcome = _try_add()
 
             if outcome.startswith("no_cart_button"):
