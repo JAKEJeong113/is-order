@@ -639,6 +639,44 @@ def admin_debug_compare(keyword: str, _: bool = Depends(require_admin)):
     }
 
 
+@app.get("/admin/debug-beverage-status")
+def admin_debug_beverage_status(_: bool = Depends(require_admin)):
+    """진단용(읽기 전용): 쿠팡 API를 전혀 호출하지 않고, 카탈로그의 음료수 항목 대비
+    현재 beverage_catalog에 이미지/파트너스링크가 얼마나 채워졌는지만 확인한다.
+    한도 초과로 중단된 뒤 얼마나 남았는지 API 호출 없이 파악하려고 추가."""
+    try:
+        catalog = load_coupang_catalog_xlsx(str(beverage_ranking.COUPANG_CATALOG_XLSX_PATH))
+    except Exception as e:
+        return {"ok": False, "error": f"카탈로그 로드 실패: {e}"}
+
+    beverage_keys = {
+        barcode for barcode, entry in catalog.items()
+        if entry.category.strip() == beverage_ranking.BEVERAGE_CATEGORY
+    }
+
+    conn = beverage_ranking.get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT item_key, item_name, reference_url, partners_link, image_refreshed_at, link_refreshed_at FROM beverage_catalog")
+    rows = cur.fetchall()
+    conn.close()
+
+    by_key = {r[0]: r for r in rows}
+    with_image = sum(1 for r in rows if r[2])
+    with_link = sum(1 for r in rows if r[3])
+    missing = [k for k in beverage_keys if k not in by_key]
+
+    return {
+        "ok": True,
+        "catalog_beverage_count": len(beverage_keys),
+        "backfilled_with_image_count": with_image,
+        "backfilled_with_partners_link_count": with_link,
+        "not_yet_attempted_count": len(missing),
+        "last_image_refresh": max((r[4] for r in rows if r[4]), default=None),
+        "last_link_refresh": max((r[5] for r in rows if r[5]), default=None),
+        "sample_missing": missing[:10],
+    }
+
+
 @app.get("/my-vendors", response_class=HTMLResponse)
 def my_vendors_page(request: Request):
     if not get_current_web_user(request):
