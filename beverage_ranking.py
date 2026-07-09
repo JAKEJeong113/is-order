@@ -3,15 +3,16 @@
 카탈로그의 '음료수' 카테고리 상품을 전부 카드로 보여주고, 카드를 클릭한 횟수를
 기준으로 정렬한다(조회할 때마다 현재 클릭수로 다시 정렬하므로 실시간 반영).
 
-이미지/가격은 쿠팡 상품검색 API(products/search)로 가져오는데, 이 API는 시간당
-호출 한도가 엄격하고(실측 시간당 약 90여회) 초과하면 최대 24시간 잠기며 3회
-누적되면 계정 자체가 제한된다. 그래서 이 API는 "아직 기준 URL이 없는 상품"에
-대해서만 하루 한 번 백필하듯 돌린다 — 카탈로그가 안 바뀌면 둘째 날부터는 처리할
-게 없어서 사실상 호출이 0에 수렴한다.
+이미지/가격/구매링크는 쿠팡 상품검색 API(products/search)로 한 번에 가져온다.
+파트너스 인증키로 호출하므로 결과의 productUrl 자체가 이미 추적 태그가 붙은
+링크라(예: link.coupang.com/re/AFFSDP?lptag=...) 별도 딥링크 변환이 필요 없다
+(오히려 이미 변환된 링크를 딥링크 API에 다시 넣으면 "url convert failed"로
+실패한다는 걸 실측으로 확인함).
 
-파트너스 추적 링크(24시간 유효)는 별도로, 이미 기준 URL이 있는 상품에 한해
-deeplink API로 매일 갱신한다. deeplink API는 발주 임포트 때마다 호출해도 문제
-없었던 걸 이미 확인했기 때문에 매일 돌려도 안전하다.
+이 API는 시간당 호출 한도가 엄격하고(실측 시간당 약 90여회) 초과하면 최대
+24시간 잠기며 3회 누적되면 계정 자체가 제한된다. 그래서 "아직 기준 URL이 없는
+상품"에 대해서만 하루 한 번 백필하듯 돌린다 — 카탈로그가 안 바뀌면 둘째 날부터는
+처리할 게 없어서 사실상 호출이 0에 수렴한다.
 
 클릭수는 순위 집계용이라 어느 갱신 작업에서도 건드리지 않는다."""
 import hashlib
@@ -37,11 +38,9 @@ CP_ACCESS_KEY = os.getenv("CP_ACCESS_KEY", "")
 CP_SECRET_KEY = os.getenv("CP_SECRET_KEY", "")
 CP_DOMAIN = "https://api-gateway.coupang.com"
 CP_SEARCH_PATH = "/v2/providers/affiliate_open_api/apis/openapi/products/search"
-CP_DEEPLINK_PATH = "/v2/providers/affiliate_open_api/apis/openapi/deeplink"
 
 BEVERAGE_CATEGORY = "음료수"
 SEARCH_DELAY_SECONDS = 0.3
-LINK_DELAY_SECONDS = 0.15
 
 
 class CoupangRateLimitError(RuntimeError):
@@ -67,6 +66,13 @@ def init_beverage_ranking_table():
         image_refreshed_at TEXT,
         link_refreshed_at TEXT
     )
+    """)
+    # 딥링크 변환이 항상 실패하는 걸 모르고 먼저 백필된 항목들(reference_url은
+    # 있지만 partners_link가 비어있는 상태로 남은 것)을 자가 복구한다.
+    # reference_url 자체가 이미 추적 태그 붙은 링크라 그대로 써도 된다.
+    cur.execute("""
+    UPDATE beverage_catalog SET partners_link = reference_url
+    WHERE partners_link IS NULL AND reference_url IS NOT NULL
     """)
     conn.commit()
     conn.close()
@@ -113,33 +119,6 @@ def search_coupang_product(keyword: str) -> dict | None:
         "price": top.get("productPrice"),
         "reference_url": top.get("productUrl"),
     }
-
-
-def create_partners_link_for_url(target_url: str) -> str:
-    """이미 알고 있는 쿠팡 상품 URL을 파트너스 추적 링크로 변환한다(24시간 유효)."""
-    if not CP_ACCESS_KEY or not CP_SECRET_KEY:
-        raise RuntimeError("CP_ACCESS_KEY / CP_SECRET_KEY 환경변수가 설정되지 않았습니다.")
-
-    authorization = _make_authorization("POST", CP_DEEPLINK_PATH, "", CP_ACCESS_KEY, CP_SECRET_KEY)
-    resp = requests.post(
-        f"{CP_DOMAIN}{CP_DEEPLINK_PATH}",
-        headers={"Authorization": authorization, "Content-Type": "application/json"},
-        data=json.dumps({"coupangUrls": [target_url]}),
-        timeout=30,
-    )
-    resp.raise_for_status()
-    result = resp.json()
-    if result.get("rCode") != "0":
-        raise RuntimeError(f"파트너스 링크 생성 실패: {result}")
-
-    data = result.get("data", [])
-    if not data:
-        raise RuntimeError(f"파트너스 링크 결과 없음: {result}")
-
-    shorten_url = data[0].get("shortenUrl")
-    if not shorten_url:
-        raise RuntimeError(f"shortenUrl 없음: {result}")
-    return shorten_url
 
 
 def refresh_beverage_products(limit: int | None = None) -> dict:
@@ -195,16 +174,23 @@ def refresh_beverage_products(limit: int | None = None) -> dict:
             continue
 
         now = datetime.now().isoformat(timespec="seconds")
+        # 상품검색 API를 파트너스 인증키로 호출하면 결과 productUrl 자체가 이미
+        # 추적 태그가 붙은 링크로 나온다(예: link.coupang.com/re/AFFSDP?lptag=...) -
+        # 이 URL을 딥링크 변환 API에 다시 넣으면 "이미 변환된 링크"라 실패한다
+        # (실측: rCode 400 "url convert failed"). 그래서 별도 딥링크 변환 없이
+        # reference_url을 그대로 partners_link로 써도 이미 수익 추적이 된다.
         cur.execute("""
-        INSERT INTO beverage_catalog (item_key, item_name, image_url, price, reference_url, click_count, image_refreshed_at)
-        VALUES (?, ?, ?, ?, ?, 0, ?)
+        INSERT INTO beverage_catalog (item_key, item_name, image_url, price, reference_url, partners_link, click_count, image_refreshed_at, link_refreshed_at)
+        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
         ON CONFLICT(item_key) DO UPDATE SET
             item_name=excluded.item_name,
             image_url=excluded.image_url,
             price=excluded.price,
             reference_url=excluded.reference_url,
-            image_refreshed_at=excluded.image_refreshed_at
-        """, (item_key, entry.menu_name, result["image_url"], result["price"], result["reference_url"], now))
+            partners_link=excluded.partners_link,
+            image_refreshed_at=excluded.image_refreshed_at,
+            link_refreshed_at=excluded.link_refreshed_at
+        """, (item_key, entry.menu_name, result["image_url"], result["price"], result["reference_url"], result["reference_url"], now, now))
         conn.commit()
         saved += 1
         time.sleep(SEARCH_DELAY_SECONDS)
@@ -215,37 +201,6 @@ def refresh_beverage_products(limit: int | None = None) -> dict:
         "ok": True, "count": saved, "failed": failed,
         "rate_limited": rate_limited, "remaining": remaining,
     }
-
-
-def refresh_beverage_links() -> dict:
-    """기준 URL이 있는 음료들의 파트너스 추적 링크만 매일 새로 발급한다(24시간 유효)."""
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT item_key, reference_url FROM beverage_catalog WHERE reference_url IS NOT NULL")
-    rows = cur.fetchall()
-
-    now = datetime.now().isoformat(timespec="seconds")
-    saved = 0
-    failed = 0
-    for item_key, reference_url in rows:
-        try:
-            link = create_partners_link_for_url(reference_url)
-        except Exception as e:
-            print(f"[BEVERAGE_RANKING] {item_key} 파트너스 링크 갱신 실패:", e)
-            failed += 1
-            time.sleep(LINK_DELAY_SECONDS)
-            continue
-
-        cur.execute(
-            "UPDATE beverage_catalog SET partners_link = ?, link_refreshed_at = ? WHERE item_key = ?",
-            (link, now, item_key),
-        )
-        saved += 1
-        time.sleep(LINK_DELAY_SECONDS)
-
-    conn.commit()
-    conn.close()
-    return {"ok": True, "count": saved, "failed": failed, "refreshed_at": now}
 
 
 def get_beverage_rankings() -> list[dict]:

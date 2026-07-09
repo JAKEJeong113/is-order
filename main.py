@@ -122,17 +122,14 @@ scheduler.add_job(
     # 호출 한도가 엄격해서(초과 시 최대 24시간 잠기고 3회 누적되면 계정 자체가
     # 제한됨) 자주 돌리면 안 되지만, 이미 채워진 항목은 다시 건드리지 않으므로
     # 카탈로그가 그대로면 둘째 날부터는 호출이 거의 발생하지 않는다.
+    #
+    # 상품검색 결과의 productUrl 자체가 이미 파트너스 추적 태그가 붙은 링크라
+    # (link.coupang.com/re/AFFSDP?lptag=... 형태) 여기서 바로 partners_link로도
+    # 저장한다 - 별도 딥링크 변환 API를 하루 한 번씩 또 부를 필요가 없다(오히려
+    # 이미 변환된 링크를 다시 변환하려 하면 "url convert failed"로 실패한다는
+    # 걸 실측으로 확인함).
     trigger=CronTrigger(hour=4, minute=0, timezone=KST),
     id="daily_beverage_product_backfill",
-    replace_existing=True,
-)
-scheduler.add_job(
-    beverage_ranking.refresh_beverage_links,
-    # 파트너스 추적 링크는 발급 후 24시간만 유효해서 매일 새로 발급해야 한다.
-    # deeplink API는 발주 임포트마다 호출해도 문제없었던 걸 확인했으니 매일
-    # 돌려도 안전하다.
-    trigger=CronTrigger(hour=4, minute=30, timezone=KST),
-    id="daily_beverage_link_refresh",
     replace_existing=True,
 )
 scheduler.start()
@@ -690,28 +687,6 @@ def admin_debug_beverage_status(_: bool = Depends(require_admin)):
     }
 
 
-@app.get("/admin/debug-beverage-link-test")
-def admin_debug_beverage_link_test(_: bool = Depends(require_admin)):
-    """진단용: 파트너스 링크 발급이 50개 전부 실패한 원인을 확인하려고, 이미
-    reference_url이 있는 음료 1개만 골라 딥링크 변환을 시도하고 실제 응답/예외를
-    그대로 보여준다. API 호출 1번뿐이라 한도에 영향 없다."""
-    conn = beverage_ranking.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT item_key, item_name, reference_url FROM beverage_catalog WHERE reference_url IS NOT NULL LIMIT 1")
-    row = cur.fetchone()
-    conn.close()
-
-    if not row:
-        return {"ok": False, "error": "reference_url이 있는 음료가 없습니다."}
-
-    item_key, item_name, reference_url = row
-    try:
-        link = beverage_ranking.create_partners_link_for_url(reference_url)
-        return {"ok": True, "item_key": item_key, "item_name": item_name, "reference_url": reference_url, "link": link}
-    except Exception as e:
-        return {"ok": False, "item_key": item_key, "item_name": item_name, "reference_url": reference_url, "error": str(e)}
-
-
 @app.get("/my-vendors", response_class=HTMLResponse)
 def my_vendors_page(request: Request):
     if not get_current_web_user(request):
@@ -771,12 +746,6 @@ def beverages_page(request: Request):
 @app.get("/api/beverage-ranking")
 def api_beverage_ranking(_: dict = Depends(require_web_user)):
     return {"items": beverage_ranking.get_beverage_rankings()}
-
-
-@app.post("/api/beverage-ranking/refresh")
-def api_beverage_ranking_refresh(_: bool = Depends(require_admin)):
-    """이미 기준 URL이 있는 음료들의 파트너스 링크만 새로 발급(24시간 유효, 매일 자동 실행됨)."""
-    return beverage_ranking.refresh_beverage_links()
 
 
 @app.post("/api/beverage-ranking/refresh-products")
