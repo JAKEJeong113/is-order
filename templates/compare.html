@@ -63,21 +63,20 @@
     .hint-text { font-size: 12px; color: var(--muted); margin: -4px 0 14px; }
 
     .group-card {
-      background: #0f172a; border-radius: 14px;
-      margin-bottom: 14px; overflow: hidden; cursor: pointer;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      margin-bottom: 12px; overflow: hidden; cursor: pointer;
     }
     .group-head {
       display: flex; justify-content: space-between; align-items: center;
-      gap: 12px; padding: 20px;
+      gap: 12px; padding: 18px 20px; border-left: 3px solid var(--mint);
     }
-    .group-title { font-size: 17px; font-weight: 800; color: white; line-height: 1.35; }
-    .group-count { font-size: 12px; color: #94a3b8; margin-top: 4px; }
-    .group-head .price { color: white; font-size: 22px; }
-    .chevron { color: #94a3b8; font-size: 12px; transition: transform .15s; }
+    .group-title { font-size: 15px; font-weight: 700; color: var(--text); line-height: 1.35; }
+    .group-count { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .group-head .price { color: var(--text); font-size: 19px; font-weight: 800; text-align: right; }
+    .chevron { color: #9ca3af; font-size: 12px; transition: transform .15s; }
     .group-card.open .chevron { transform: rotate(180deg); }
     .group-detail {
-      display: none; padding: 10px; background: #e2e8f0;
+      display: none; padding: 14px 16px; background: var(--bg); border-top: 1px solid var(--line);
     }
     .group-card.open .group-detail { display: block; }
     .offer-row {
@@ -90,6 +89,7 @@
     .offer-row.cheapest .offer-vendor,
     .offer-row.cheapest .offer-price { color: white; }
     .offer-row.cheapest .offer-name { color: #e6fffa; }
+    .offer-row.cheapest .price-sub { color: #e6fffa; }
     .offer-row.cheapest .badge { background: white; color: var(--mint-text); }
     .vendor-tag {
       display: inline-block; width: 8px; height: 8px; border-radius: 50%;
@@ -266,15 +266,40 @@
       }
     }
 
+    // 상품명에 포장단위가 "(1묶음 10개입)"처럼 붙어있는 경우가 많아, 개당가/전체가를
+    // 같이 보여주려고 이름 텍스트에서 개수만 뽑아본다(텔레그램 쪽 표시 개선과 동일한
+    // 접근 - 장바구니 담기 수량 계산 로직과는 무관한 표시 전용).
+    const DISPLAY_PACK_QTY_PATTERNS = [/[xX×]\s*(\d+)\s*개/, /(\d+)\s*개입/];
+
+    function extractDisplayPackQty(text) {
+      for (const pattern of DISPLAY_PACK_QTY_PATTERNS) {
+        const m = (text || "").match(pattern);
+        if (m) return parseInt(m[1], 10);
+      }
+      return null;
+    }
+
+    function formatPricePair(price, name) {
+      if (!price) return { main: "가격 확인 필요", sub: "" };
+      const packQty = extractDisplayPackQty(name);
+      if (packQty && packQty > 1) {
+        return {
+          main: `${price.toLocaleString()}원`,
+          sub: `개당 ${Math.floor(price / packQty).toLocaleString()}원`,
+        };
+      }
+      return { main: `${price.toLocaleString()}원`, sub: "" };
+    }
+
     function renderOfferRow(o) {
-      const priceText = o.price ? `${o.price.toLocaleString()}원` : "가격 확인 필요";
+      const nameText = (o.name || "").trim();
+      const { main: priceMain, sub: priceSub } = formatPricePair(o.price, nameText);
       const shipText = o.free_shipping_threshold
         ? `무료배송 ${o.free_shipping_threshold.toLocaleString()}원 이상`
         : "무료배송 기준 미입력";
       const confidencePct = Math.round((o.match_score ?? 0) * 100);
       const rowClass = o.is_cheapest ? "offer-row cheapest" : "offer-row";
       const dotColor = VENDOR_COLORS[o.vendor_id] || "#94a3b8";
-      const nameText = (o.name || "").trim();
 
       const nameHtml = o.product_url
         ? `<a class="product-link" href="${o.product_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${nameText}</a>`
@@ -302,14 +327,18 @@
           <div class="offer-name">${shipText} · 일치도 ${confidencePct}%</div>
           ${cartHtml}
         </div>
-        <div class="offer-price">${priceText}</div>
+        <div>
+          <div class="offer-price">${priceMain}</div>
+          ${priceSub ? `<div class="price-sub">${priceSub}</div>` : ""}
+        </div>
       `;
 
       return `<div class="${rowClass}" onclick="event.stopPropagation()">${inner}</div>`;
     }
 
     function renderGroupCard(g, idx) {
-      const priceText = g.best_price ? `${g.best_price.toLocaleString()}원` : "가격 확인 필요";
+      const name = (g.representative_name || "").trim();
+      const { main: priceMain, sub: priceSub } = formatPricePair(g.best_price, name);
       const compareText = g.vendor_count > 1
         ? `${g.vendor_count}개 도매처 비교 · ${g.best_vendor_name} 최저가`
         : `${g.best_vendor_name}에서만 발견`;
@@ -320,11 +349,14 @@
         <div class="group-card" id="group-${idx}" onclick="toggleGroup(${idx})">
           <div class="group-head">
             <div>
-              <div class="group-title">${(g.representative_name || "").trim()}</div>
+              <div class="group-title">${name}</div>
               <div class="group-count">${compareText}</div>
             </div>
             <div style="display:flex;align-items:center;gap:10px;">
-              <div class="price">${priceText}</div>
+              <div>
+                <div class="price">${priceMain}</div>
+                ${priceSub ? `<div class="price-sub">${priceSub}</div>` : ""}
+              </div>
               <span class="chevron">▼</span>
             </div>
           </div>

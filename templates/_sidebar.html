@@ -1,38 +1,74 @@
 <style>
   .app-shell { display: flex; min-height: 100vh; align-items: stretch; }
   .app-sidebar {
-    width: 180px; flex-shrink: 0; background: var(--card);
+    width: 190px; flex-shrink: 0; background: var(--card);
     border-right: 1px solid var(--line); padding: 20px 12px;
-    display: flex; flex-direction: column; gap: 4px;
+    display: flex; flex-direction: column; gap: 2px;
     position: sticky; top: 0; align-self: flex-start; height: 100vh;
   }
-  .app-sidebar .app-brand { font-size: 15px; font-weight: 700; padding: 0 10px 16px; }
-  .app-nav-item {
-    display: block; padding: 10px; border-radius: 8px; text-decoration: none;
-    color: var(--text); font-size: 13px; font-weight: 600;
+  .app-sidebar .app-brand {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 15px; font-weight: 700; padding: 0 10px 20px;
   }
+  .app-sidebar .app-brand .app-brand-badge {
+    width: 26px; height: 26px; border-radius: 8px; background: var(--mint);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .app-nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px;
+    text-decoration: none; color: #374151; font-size: 13px; font-weight: 600;
+  }
+  .app-nav-item svg { flex-shrink: 0; color: #9ca3af; }
   .app-nav-item:hover { background: var(--bg); }
   .app-nav-item.active { background: var(--mint-soft); color: var(--mint-text); }
+  .app-nav-item.active svg { color: var(--mint-text); }
   .app-sidebar .app-spacer { flex: 1; }
   .app-sidebar .app-footer {
-    font-size: 11px; color: var(--muted); padding: 8px 10px 0;
+    font-size: 11px; color: var(--muted); padding: 10px 10px 0;
     border-top: 1px solid var(--line);
+    display: flex; align-items: center; gap: 6px;
   }
-  .app-sidebar .app-footer a { color: inherit; }
+  .app-sidebar .app-footer a { color: inherit; text-decoration: none; display: flex; align-items: center; gap: 6px; }
   .app-main { flex: 1; padding: 24px; min-width: 0; }
 </style>
 <div class="app-shell">
   <div class="app-sidebar">
-    <div class="app-brand">i'S ORDER</div>
-    <a class="app-nav-item {{ 'active' if active_page == 'home' else '' }}" href="/home">홈</a>
-    <a class="app-nav-item {{ 'active' if active_page == 'order' else '' }}" href="/order">발주 가져오기</a>
-    <a class="app-nav-item {{ 'active' if active_page == 'compare' else '' }}" href="/compare">가격비교</a>
-    <a class="app-nav-item {{ 'active' if active_page == 'popular' else '' }}" href="/popular">인기상품</a>
-    <a class="app-nav-item {{ 'active' if active_page == 'beverages' else '' }}" href="/beverages">음료 추천</a>
-    <a class="app-nav-item {{ 'active' if active_page == 'vendors' else '' }}" href="/my-vendors">내 도매처 계정</a>
+    <div class="app-brand">
+      <span class="app-brand-badge">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21l-6-11h12z"/><path d="M9 10a3 3 0 0 1 6 0"/><circle cx="12" cy="7" r="4"/></svg>
+      </span>
+      i'S ORDER
+    </div>
+    <a class="app-nav-item {{ 'active' if active_page == 'home' else '' }}" href="/home">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      홈
+    </a>
+    <a class="app-nav-item {{ 'active' if active_page == 'order' else '' }}" href="/order">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      발주 가져오기
+    </a>
+    <a class="app-nav-item {{ 'active' if active_page == 'compare' else '' }}" href="/compare">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      가격비교
+    </a>
+    <a class="app-nav-item {{ 'active' if active_page == 'popular' else '' }}" href="/popular">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      인기상품
+    </a>
+    <a class="app-nav-item {{ 'active' if active_page == 'beverages' else '' }}" href="/beverages">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+      음료 추천
+    </a>
+    <a class="app-nav-item {{ 'active' if active_page == 'vendors' else '' }}" href="/my-vendors">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+      내 도매처 계정
+    </a>
     <div class="app-spacer"></div>
     <div class="app-footer" id="appShellUserInfo">
-      <a href="#" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>window.location.href='/login');return false;">로그아웃</a>
+      <a href="#" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>window.location.href='/login');return false;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        로그아웃
+      </a>
     </div>
   </div>
   <div class="app-main">
