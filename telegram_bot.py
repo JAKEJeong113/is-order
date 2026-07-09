@@ -253,12 +253,43 @@ def _classify_order_list(text: str, chat_id: str) -> dict:
     return {"matched": matched, "not_found": not_found, "ambiguous": ambiguous}
 
 
+# 상품명에 포장단위가 "(1묶음 10개입)"/"(1타 16개입)"처럼 별도 줄로 붙어있는 경우가
+# 많아, 개당가/전체가를 같이 보여주려고 이름 텍스트에서 개수만 뽑아본다. 장바구니
+# 담기 수량 계산에 쓰는 unit_qty 추출 로직과는 별개(표시 전용) - 그쪽은 이미 검증
+# 완료된 로직이라 건드리지 않는다.
+_DISPLAY_PACK_QTY_PATTERNS = [
+    re.compile(r"[xX×]\s*(\d+)\s*개"),
+    re.compile(r"(\d+)\s*개입"),
+]
+
+
+def _extract_display_pack_qty(text: str) -> int | None:
+    for pattern in _DISPLAY_PACK_QTY_PATTERNS:
+        match = pattern.search(text or "")
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _format_price_pair(price: int | None, name: str) -> str:
+    if not price:
+        return "가격 확인 필요"
+    pack_qty = _extract_display_pack_qty(name)
+    if pack_qty and pack_qty > 1:
+        return f"개당 {price // pack_qty:,}원 ({pack_qty}개 {price:,}원)"
+    return f"{price:,}원"
+
+
 def _format_disambig_prompt(keyword: str, groups: list[dict]) -> str:
     shown = groups[:8]
     lines = [f"'{keyword}'에 해당하는 상품이 여러 개예요. 번호로 답장해주세요:\n"]
     for i, g in enumerate(shown, start=1):
-        price_text = f"{g['best_price']:,}원" if g.get("best_price") else "가격 확인 필요"
-        lines.append(f"{i}. {g['representative_name'].strip()} ({g['best_vendor_name']} {price_text})")
+        name = g["representative_name"].strip()
+        # 포장단위 표기 때문에 상품명이 줄바꿈되는 경우, 이어지는 줄을 들여써서
+        # 다음 번호와 헷갈리지 않게 한다.
+        name_indented = name.replace("\n", "\n     ")
+        price_text = _format_price_pair(g.get("best_price"), name)
+        lines.append(f"{i}. {name_indented} — {g['best_vendor_name']} {price_text}")
     if len(groups) > len(shown):
         lines.append(f"\n(그 외 {len(groups) - len(shown)}개 더 있어요. 상품명을 더 구체적으로 적어주시면 좁혀져요.)")
     lines.append("\n여러 개를 담으려면 쉼표로 구분해서 답장해주세요. (예: 2,4)")
