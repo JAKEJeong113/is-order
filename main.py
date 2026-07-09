@@ -674,6 +674,13 @@ def admin_debug_beverage_status(_: bool = Depends(require_admin)):
         "last_image_refresh": max((r[4] for r in rows if r[4]), default=None),
         "last_link_refresh": max((r[5] for r in rows if r[5]), default=None),
         "sample_missing": missing[:10],
+        "cp_access_key_set": bool(beverage_ranking.CP_ACCESS_KEY),
+        "cp_secret_key_set": bool(beverage_ranking.CP_SECRET_KEY),
+        "scheduler_running": scheduler.running,
+        "scheduled_jobs": [
+            {"id": j.id, "next_run_time": str(j.next_run_time)}
+            for j in scheduler.get_jobs()
+        ],
     }
 
 
