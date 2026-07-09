@@ -197,34 +197,34 @@
     resultsEl.addEventListener("click", (e) => {
       const btnEl = e.target.closest(".cart-btn");
       if (!btnEl) return;
-      addToCart(
-        btnEl.dataset.vendorId,
-        btnEl.dataset.productUrl,
-        btnEl.dataset.itemName,
-        btnEl.dataset.itemKey,
-        btnEl,
-      );
+      addToIsorderCart(btnEl);
     }, true);
 
-    async function addToCart(vendorId, productUrl, itemName, itemKey, btnEl) {
+    // compare 페이지의 "담기"는 실제 도매몰에 바로 담지 않고 isorder 자체
+    // 장바구니에만 빠르게 저장한다(DB insert만 하므로 즉시 끝남) - 상품마다
+    // Playwright 자동화를 기다려야 하면 여러 개를 빠르게 못 담아서, 실제
+    // 도매몰 담기는 /cart 페이지에서 한 번에 처리하도록 분리했다.
+    async function addToIsorderCart(btnEl) {
       const row = btnEl.closest(".offer-row");
       const qty = parseInt(row.querySelector(".qty-input").value, 10) || 1;
       const statusEl = row.querySelector(".cart-status");
+      const { vendorId, vendorName, productUrl, itemName, itemKey, price } = btnEl.dataset;
 
       btnEl.disabled = true;
       statusEl.textContent = "담는 중...";
 
       try {
-        const res = await fetch("/api/cart-add", {
+        const res = await fetch("/api/isorder-cart/add", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            vendor_id: vendorId, product_url: productUrl, qty,
-            item_name: itemName, item_key: itemKey,
+            vendor_id: vendorId, vendor_name: vendorName, product_url: productUrl,
+            item_key: itemKey, item_name: itemName,
+            price: price ? parseInt(price, 10) : null, qty,
           }),
         });
         const data = await res.json();
-        statusEl.textContent = data.ok ? "담기 완료" : `실패: ${data.reason || ""}`;
+        statusEl.textContent = data.ok ? "장바구니에 담음 (/cart에서 확인)" : `실패: ${data.reason || data.error || ""}`;
       } catch (e) {
         statusEl.textContent = "담기 중 오류 발생";
       } finally {
@@ -310,9 +310,11 @@
           <input type="number" class="qty-input" value="1" min="1" max="99">
           <button class="cart-btn"
             data-vendor-id="${escapeHtml(o.vendor_id)}"
+            data-vendor-name="${escapeHtml(o.vendor_name)}"
             data-product-url="${escapeHtml(o.product_url)}"
             data-item-name="${escapeHtml(nameText)}"
             data-item-key="${escapeHtml(o.goods_no || o.product_url)}"
+            data-price="${o.price || ""}"
           >담기</button>
           <span class="cart-status"></span>
         </div>

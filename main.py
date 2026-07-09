@@ -55,6 +55,7 @@ import telegram_store
 import vendors
 import price_compare
 import web_auth
+import web_cart
 import yamimall_bot
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -112,6 +113,7 @@ vendors.init_session_table()
 web_auth.init_web_auth_tables()
 beverage_ranking.init_beverage_ranking_table()
 patch_notes.init_patch_notes_table()
+web_cart.init_web_cart_table()
 
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 # CronTrigger를 직접 만들어서 trigger=로 넘기면 scheduler의 timezone을 자동으로
@@ -467,6 +469,60 @@ def api_cart_add(req: CartAddRequest, user: dict = Depends(require_web_user)):
         )
 
     return result
+
+
+class IsorderCartAddRequest(BaseModel):
+    vendor_id: str
+    vendor_name: str = ""
+    product_url: str
+    item_key: str = ""
+    item_name: str = ""
+    price: Optional[int] = None
+    qty: int = Field(1, ge=1, le=99)
+
+
+@app.post("/api/isorder-cart/add")
+def api_isorder_cart_add(req: IsorderCartAddRequest, user: dict = Depends(require_web_user)):
+    """compare 페이지의 1차 담기 - 실제 도매몰에 담지 않고 isorder 자체 장바구니에만
+    빠르게 저장한다(DB insert만 하므로 즉시 응답). 실제 도매몰 담기는 /cart
+    페이지에서 실행한다."""
+    store_id = f"web:{user['email']}"
+    item_id = web_cart.add_item(
+        store_id, req.item_name, req.vendor_id, req.vendor_name,
+        req.product_url, req.item_key, req.price, req.qty,
+    )
+    return {"ok": True, "id": item_id}
+
+
+@app.get("/api/isorder-cart")
+def api_isorder_cart_list(user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    return {"items": web_cart.list_items(store_id)}
+
+
+class IsorderCartQtyRequest(BaseModel):
+    qty: int = Field(..., ge=1, le=99)
+
+
+@app.put("/api/isorder-cart/{item_id}")
+def api_isorder_cart_update_qty(item_id: int, req: IsorderCartQtyRequest, user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    ok = web_cart.update_qty(store_id, item_id, req.qty)
+    return {"ok": ok}
+
+
+@app.delete("/api/isorder-cart/{item_id}")
+def api_isorder_cart_delete(item_id: int, user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    ok = web_cart.delete_item(store_id, item_id)
+    return {"ok": ok}
+
+
+@app.get("/cart", response_class=HTMLResponse)
+def cart_page(request: Request):
+    if not get_current_web_user(request):
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("cart.html", {"request": request, "active_page": "cart"})
 
 
 @app.post("/admin/debug-copy-vendor-cred/{vendor_id}/{store_id}")

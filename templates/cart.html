@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>장바구니</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+    }
+    .app-main { padding-bottom: 80px; }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    .sub-note { font-size: 12px; color: var(--muted); margin: 0 0 16px; }
+    .top-actions { display: flex; gap: 8px; margin-bottom: 20px; align-items: center; }
+    .primary-btn {
+      padding: 11px 20px; border: none; border-radius: 10px; font-size: 14px;
+      font-weight: 700; cursor: pointer; background: var(--mint); color: white;
+    }
+    .primary-btn:disabled { background: #a7f3d0; cursor: default; }
+    .top-status { font-size: 12px; color: var(--muted); }
+    .vendor-group {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      margin-bottom: 14px; overflow: hidden;
+    }
+    .vendor-head {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--bg);
+    }
+    .vendor-name { font-weight: 800; font-size: 14px; }
+    .vendor-btn {
+      padding: 7px 14px; border: none; border-radius: 8px; font-size: 12px;
+      font-weight: 700; cursor: pointer; background: var(--text); color: white;
+    }
+    .vendor-btn:disabled { opacity: 0.6; cursor: default; }
+    .item-row {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line);
+    }
+    .item-row:last-child { border-bottom: none; }
+    .item-name { font-size: 13px; font-weight: 600; }
+    .item-price { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .item-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .qty-input {
+      width: 48px; padding: 6px; border: 1px solid var(--line);
+      border-radius: 6px; text-align: center; font-size: 13px;
+    }
+    .item-btn {
+      padding: 6px 12px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 700; cursor: pointer; background: var(--mint); color: white;
+    }
+    .item-btn:disabled { opacity: 0.6; cursor: default; }
+    .remove-btn {
+      padding: 6px 10px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 700; cursor: pointer; background: #fee2e2; color: #b91c1c;
+    }
+    .item-status { font-size: 11px; color: var(--muted); width: 100%; margin-top: 4px; }
+    .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
+  </style>
+</head>
+<body>
+  {% include "_sidebar.html" %}
+  <h1>장바구니</h1>
+  <div class="sub-note">여기 담긴 상품은 아직 도매몰 실제 장바구니에는 담기지 않았습니다. 아래 버튼으로 실제 담기를 실행하세요.</div>
+  <div class="top-actions">
+    <button class="primary-btn" id="addAllBtn">전체 도매몰에 담기</button>
+    <span class="top-status" id="topStatus"></span>
+  </div>
+  <div id="list"></div>
+
+      </div>
+    </div>
+
+  <script>
+    let allItems = [];
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    async function loadCart() {
+      const res = await fetch("/api/isorder-cart");
+      if (res.status === 401) { window.location.href = "/login"; return; }
+      const data = await res.json();
+      allItems = data.items || [];
+      render();
+    }
+
+    function groupByVendor(items) {
+      const groups = new Map();
+      for (const it of items) {
+        if (!groups.has(it.vendor_id)) groups.set(it.vendor_id, []);
+        groups.get(it.vendor_id).push(it);
+      }
+      return groups;
+    }
+
+    function render() {
+      const listEl = document.getElementById("list");
+      if (allItems.length === 0) {
+        listEl.innerHTML = '<div class="empty-text">장바구니가 비어있습니다. 가격비교 페이지에서 상품을 담아보세요.</div>';
+        return;
+      }
+
+      const groups = groupByVendor(allItems);
+      let html = "";
+      for (const [vendorId, items] of groups) {
+        const vendorName = items[0].vendor_name || vendorId;
+        const rows = items.map((it) => `
+          <div class="item-row" data-item-id="${it.id}">
+            <div style="flex:1;min-width:0;">
+              <div class="item-name">${escapeHtml(it.item_name)}</div>
+              <div class="item-price">${it.price ? (it.price.toLocaleString() + "원") : "가격 확인 필요"} · 담은 시각 ${escapeHtml(it.added_at)}</div>
+              <div class="item-status"></div>
+            </div>
+            <div class="item-actions">
+              <input type="number" class="qty-input" value="${it.qty}" min="1" max="99">
+              <button class="item-btn">담기</button>
+              <button class="remove-btn">삭제</button>
+            </div>
+          </div>
+        `).join("");
+
+        html += `
+          <div class="vendor-group" data-vendor-id="${escapeHtml(vendorId)}">
+            <div class="vendor-head">
+              <span class="vendor-name">${escapeHtml(vendorName)} (${items.length}개)</span>
+              <button class="vendor-btn">이 도매처 전체 담기</button>
+            </div>
+            ${rows}
+          </div>
+        `;
+      }
+      listEl.innerHTML = html;
+    }
+
+    async function addOneToRealCart(itemId) {
+      const item = allItems.find((it) => it.id === itemId);
+      if (!item) return { ok: false, reason: "이미 처리됨" };
+
+      const row = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
+      const qtyInput = row.querySelector(".qty-input");
+      const statusEl = row.querySelector(".item-status");
+      const qty = parseInt(qtyInput.value, 10) || 1;
+
+      statusEl.textContent = "담는 중...";
+      try {
+        const res = await fetch("/api/cart-add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            vendor_id: item.vendor_id, product_url: item.product_url,
+            qty, item_name: item.item_name, item_key: item.item_key,
+          }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          statusEl.textContent = "";
+          await fetch(`/api/isorder-cart/${itemId}`, { method: "DELETE" });
+          allItems = allItems.filter((it) => it.id !== itemId);
+        } else {
+          statusEl.textContent = `실패: ${data.reason || ""}`;
+        }
+        return data;
+      } catch (e) {
+        statusEl.textContent = "담기 중 오류 발생";
+        return { ok: false, reason: "오류" };
+      }
+    }
+
+    document.getElementById("list").addEventListener("click", async (e) => {
+      const itemRow = e.target.closest(".item-row");
+
+      if (e.target.classList.contains("remove-btn") && itemRow) {
+        const itemId = parseInt(itemRow.dataset.itemId, 10);
+        e.target.disabled = true;
+        await fetch(`/api/isorder-cart/${itemId}`, { method: "DELETE" });
+        allItems = allItems.filter((it) => it.id !== itemId);
+        render();
+        return;
+      }
+
+      if (e.target.classList.contains("item-btn") && itemRow) {
+        const itemId = parseInt(itemRow.dataset.itemId, 10);
+        e.target.disabled = true;
+        await addOneToRealCart(itemId);
+        e.target.disabled = false;
+        render();
+        return;
+      }
+
+      const vendorGroup = e.target.closest(".vendor-group");
+      if (e.target.classList.contains("vendor-btn") && vendorGroup) {
+        const vendorId = vendorGroup.dataset.vendorId;
+        e.target.disabled = true;
+        const ids = allItems.filter((it) => it.vendor_id === vendorId).map((it) => it.id);
+        for (const id of ids) {
+          await addOneToRealCart(id);
+        }
+        render();
+      }
+    });
+
+    document.getElementById("addAllBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("addAllBtn");
+      const statusEl = document.getElementById("topStatus");
+      btn.disabled = true;
+      const total = allItems.length;
+      let done = 0;
+      for (const item of [...allItems]) {
+        statusEl.textContent = `처리 중... (${done}/${total})`;
+        await addOneToRealCart(item.id);
+        done += 1;
+        render();
+      }
+      statusEl.textContent = `완료 (${done}/${total})`;
+      btn.disabled = false;
+    });
+
+    loadCart();
+  </script>
+</body>
+</html>
