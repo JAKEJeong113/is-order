@@ -162,7 +162,13 @@ def _offer_to_item(item_name: str, best_offer: dict, qty: int = 1, all_offers: l
         "vendor_id": best_offer["vendor_id"],
         "vendor_name": best_offer["vendor_name"],
         "product_url": best_offer["product_url"],
-        "item_key": best_offer.get("goods_no") or best_offer["product_url"],
+        # best_offer가 price_compare 원본 offer면 "goods_no"를, alt_offers 항목(품절
+        # 대체 후보, _offer_to_item이 만든 딕셔너리 재사용)이면 "goods_no" 필드가
+        # 아예 없고 "item_key"에 이미 올바른 값(goods_no 또는 product_url)이 들어있다.
+        # 이 구분 없이 goods_no만 보고 product_url로 폴백하면, 도매처 상세페이지
+        # URL 전체가 goodsNo 파라미터 값으로 들어가 홈으로 리다이렉트되는 버그가
+        # 있었다(크나버 웨이퍼 품절 대체 시도 건에서 발견).
+        "item_key": best_offer.get("goods_no") or best_offer.get("item_key") or best_offer["product_url"],
         "price": best_offer.get("price"),
         "qty": qty,
         "alt_offers": alt_offers,
