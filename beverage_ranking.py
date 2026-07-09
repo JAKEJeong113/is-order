@@ -74,6 +74,37 @@ def init_beverage_ranking_table():
     UPDATE beverage_catalog SET partners_link = reference_url
     WHERE partners_link IS NULL AND reference_url IS NOT NULL
     """)
+
+    # 검색 키워드가 상품명 그대로라 엉뚱한 상품이 매칭되는 경우가 있어(예: 이름은
+    # 비슷한데 다른 상품 이미지가 붙음), 사람이 직접 검증해서 넣은 링크는 이후
+    # 자동 갱신이 절대 건드리지 않도록 표시해두는 플래그.
+    existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(beverage_catalog)").fetchall()}
+    if "manual_override" not in existing_cols:
+        cur.execute("ALTER TABLE beverage_catalog ADD COLUMN manual_override INTEGER NOT NULL DEFAULT 0")
+
+    conn.commit()
+    conn.close()
+
+
+def set_manual_beverage_link(item_key: str, item_name: str, image_url: str, price: int | None, reference_url: str) -> None:
+    """사람이 직접 확인한 상품 링크/이미지를 반영하고, 이후 자동 검색 갱신에서
+    영구적으로 제외한다(엉뚱한 상품으로 재매칭되는 걸 막기 위함)."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    INSERT INTO beverage_catalog (item_key, item_name, image_url, price, reference_url, partners_link, click_count, image_refreshed_at, link_refreshed_at, manual_override)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 1)
+    ON CONFLICT(item_key) DO UPDATE SET
+        item_name=excluded.item_name,
+        image_url=excluded.image_url,
+        price=excluded.price,
+        reference_url=excluded.reference_url,
+        partners_link=excluded.partners_link,
+        image_refreshed_at=excluded.image_refreshed_at,
+        link_refreshed_at=excluded.link_refreshed_at,
+        manual_override=1
+    """, (item_key, item_name, image_url, price, reference_url, reference_url, now, now))
     conn.commit()
     conn.close()
 
@@ -122,33 +153,41 @@ def search_coupang_product(keyword: str) -> dict | None:
 
 
 def refresh_beverage_products(limit: int | None = None) -> dict:
-    """카탈로그의 음료수 상품 중 기준 URL(reference_url)이 아직 없는 것만 상품검색
-    API로 채운다. 한 번 채워지면 다시 건드리지 않으므로, 카탈로그가 그대로면 둘째
-    날부터는 처리할 항목이 없어 호출이 거의 발생하지 않는다. 그래도 시간당 한도를
-    만나면(신규 항목이 한꺼번에 많이 추가된 경우 등) 그 시점에 멈춘다.
+    """카탈로그의 음료수 상품 중 사람이 수동으로 고정(manual_override)하지 않은
+    항목만, 한 번도 안 갱신됐거나 가장 오래 전에 갱신된 것부터 상품검색 API로
+    다시 채운다. limit을 안 주면 그 시점 대상 전체의 절반만 처리한다(2~3일
+    주기로 나눠 돌려서, 링크가 오래돼도 며칠 안에는 항상 새로 갱신되게 하면서도
+    시간당 호출 한도에서 여유를 두기 위함 - 나머지 절반은 다음 예약 실행 때).
 
-    limit을 주면 미처리 항목 중 앞에서부터 그만큼만 처리한다 - 최초 백필처럼
-    미처리 항목이 시간당 한도에 가까울 때, 관리자가 안전한 만큼만 수동으로
-    나눠서 돌려볼 수 있게 하기 위함(나머지는 다음 예약 실행 때 이어서 처리됨)."""
+    limit을 명시하면 그 개수만큼만 처리한다 - 관리자가 수동으로 안전한 만큼만
+    나눠서 돌려볼 수 있게 하기 위함."""
     try:
         catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
     except Exception as e:
         print("[BEVERAGE_RANKING] 카탈로그 로드 실패:", e)
         return {"ok": False, "error": str(e)}
 
-    beverage_entries = [
-        (barcode, entry) for barcode, entry in catalog.items()
+    beverage_entries = {
+        barcode: entry for barcode, entry in catalog.items()
         if entry.category.strip() == BEVERAGE_CATEGORY
-    ]
+    }
 
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT item_key FROM beverage_catalog WHERE reference_url IS NOT NULL")
-    already_backfilled = {r[0] for r in cur.fetchall()}
-    pending_entries = [(k, e) for k, e in beverage_entries if k not in already_backfilled]
-    total_pending = len(pending_entries)
-    if limit is not None:
-        pending_entries = pending_entries[:limit]
+    cur.execute("SELECT item_key FROM beverage_catalog WHERE manual_override = 1")
+    locked = {r[0] for r in cur.fetchall()}
+    cur.execute("SELECT item_key, image_refreshed_at FROM beverage_catalog WHERE manual_override = 0")
+    freshness = {r[0]: r[1] for r in cur.fetchall()}
+
+    # 한 번도 안 채워진 항목(freshness에 없음)을 최우선으로, 그 다음은 갱신
+    # 시각이 오래된 순서로 정렬한다.
+    eligible_keys = [k for k in beverage_entries if k not in locked]
+    eligible_keys.sort(key=lambda k: freshness.get(k) or "")
+    total_eligible = len(eligible_keys)
+
+    batch_size = limit if limit is not None else -(-total_eligible // 2)
+    pending_entries = [(k, beverage_entries[k]) for k in eligible_keys[:batch_size]]
+    total_pending = total_eligible
 
     saved = 0
     failed = 0
