@@ -29,6 +29,8 @@
       background: var(--mint-soft); color: #0f766e;
     }
     .badge.pending { background: #fef3c7; color: #92400e; }
+    .badge.rejected { background: #fee2e2; color: #b91c1c; }
+    .reject-reason { font-size: 12px; color: #b91c1c; margin-top: 6px; }
     .approve-row { display: flex; gap: 8px; margin-top: 10px; }
     .approve-row input {
       flex: 1; padding: 8px 10px; border: 1px solid var(--line);
@@ -40,6 +42,7 @@
     }
     .approve-btn { background: var(--mint); color: white; }
     .revoke-btn { background: #fee2e2; color: #b91c1c; }
+    .reject-btn { background: #fee2e2; color: #b91c1c; }
     .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
   </style>
 </head>
@@ -59,12 +62,15 @@
         return;
       }
 
-      listEl.innerHTML = data.stores.map((s) => `
+      listEl.innerHTML = data.stores.map((s) => {
+        const badgeClass = s.approved ? "" : (s.reject_reason ? "rejected" : "pending");
+        const badgeText = s.approved ? "승인됨" : (s.reject_reason ? "반려됨" : (s.registration_step ? "입력중" : "대기중"));
+        return `
         <div class="store-card">
           <div class="store-head">
             <div>
               <span class="store-name">${s.store_name || s.display_name}</span>
-              <span class="badge ${s.approved ? "" : "pending"}">${s.approved ? "승인됨" : (s.registration_step ? "입력중" : "대기중")}</span>
+              <span class="badge ${badgeClass}">${badgeText}</span>
             </div>
           </div>
           <div class="chat-id">
@@ -72,6 +78,7 @@
             연락처: ${s.phone || "-"} · 사업자번호: ${s.business_number || "-"}<br>
             요청: ${s.requested_at}
           </div>
+          ${s.reject_reason ? `<div class="reject-reason">반려 사유 (${s.rejected_at}): ${s.reject_reason}</div>` : ""}
           ${s.approved ? `
             <div class="approve-row">
               <button class="revoke-btn" onclick="revoke('${s.chat_id}')">승인 취소</button>
@@ -81,9 +88,14 @@
               <input type="text" placeholder="지점명 입력" id="name-${s.chat_id}" value="${s.store_name || s.display_name || ""}">
               <button class="approve-btn" onclick="approve('${s.chat_id}')">승인</button>
             </div>
+            <div class="approve-row">
+              <input type="text" placeholder="반려 사유 입력" id="reject-${s.chat_id}">
+              <button class="reject-btn" onclick="reject('${s.chat_id}')">반려</button>
+            </div>
           `}
         </div>
-      `).join("");
+      `;
+      }).join("");
     }
 
     async function approve(chatId) {
@@ -97,6 +109,21 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ store_name: storeName }),
+      });
+      loadStores();
+    }
+
+    async function reject(chatId) {
+      const input = document.getElementById(`reject-${chatId}`);
+      const reason = input.value.trim();
+      if (!reason) {
+        alert("반려 사유를 입력해주세요.");
+        return;
+      }
+      await fetch(`/api/telegram/stores/${chatId}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
       });
       loadStores();
     }

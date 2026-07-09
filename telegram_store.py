@@ -35,6 +35,7 @@ def init_telegram_tables():
         "phone TEXT", "business_number TEXT", "registration_step TEXT",
         "cred_vendor TEXT", "cred_step TEXT", "cred_temp_id TEXT",
         "preferred_vendor TEXT", "disabled_vendors TEXT", "disambig_state TEXT",
+        "rejected_at TEXT", "reject_reason TEXT",
     ]
     for col_def in new_columns:
         col_name = col_def.split()[0]
@@ -69,7 +70,8 @@ def get_registration(chat_id: str) -> dict | None:
     cur = conn.cursor()
     cur.execute("""
     SELECT chat_id, store_name, display_name, phone, business_number, registration_step, approved,
-           cred_vendor, cred_step, cred_temp_id, preferred_vendor, disabled_vendors
+           cred_vendor, cred_step, cred_temp_id, preferred_vendor, disabled_vendors,
+           rejected_at, reject_reason
     FROM telegram_stores WHERE chat_id = ?
     """, (chat_id,))
     row = cur.fetchone()
@@ -83,6 +85,7 @@ def get_registration(chat_id: str) -> dict | None:
         "cred_vendor": row[7], "cred_step": row[8], "cred_temp_id": row[9],
         "preferred_vendor": row[10],
         "disabled_vendors": [v for v in (row[11] or "").split(",") if v],
+        "rejected_at": row[12], "reject_reason": row[13],
     }
 
 
@@ -220,7 +223,8 @@ def list_stores() -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT chat_id, store_name, display_name, phone, business_number, registration_step, approved, requested_at
+    SELECT chat_id, store_name, display_name, phone, business_number, registration_step, approved,
+           requested_at, rejected_at, reject_reason
     FROM telegram_stores ORDER BY requested_at DESC
     """)
     rows = cur.fetchall()
@@ -230,6 +234,7 @@ def list_stores() -> list[dict]:
             "chat_id": r[0], "store_name": r[1], "display_name": r[2],
             "phone": r[3], "business_number": r[4], "registration_step": r[5],
             "approved": bool(r[6]), "requested_at": r[7],
+            "rejected_at": r[8], "reject_reason": r[9],
         }
         for r in rows
     ]
@@ -239,9 +244,23 @@ def approve_store(chat_id: str, store_name: str) -> None:
     now = datetime.now().isoformat(timespec="seconds")
     conn = get_conn()
     cur = conn.cursor()
+    # 반려 이력이 있다가 뒤늦게 승인하는 경우도 있으니, 승인 시 반려 표시는 지운다.
     cur.execute("""
-    UPDATE telegram_stores SET approved = 1, store_name = ?, approved_at = ? WHERE chat_id = ?
+    UPDATE telegram_stores SET approved = 1, store_name = ?, approved_at = ?,
+        rejected_at = NULL, reject_reason = NULL
+    WHERE chat_id = ?
     """, (store_name, now, chat_id))
+    conn.commit()
+    conn.close()
+
+
+def reject_store(chat_id: str, reason: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    UPDATE telegram_stores SET approved = 0, rejected_at = ?, reject_reason = ? WHERE chat_id = ?
+    """, (now, reason, chat_id))
     conn.commit()
     conn.close()
 

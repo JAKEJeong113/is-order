@@ -900,6 +900,22 @@ def api_telegram_revoke(chat_id: str, _: bool = Depends(require_admin)):
     return {"ok": True}
 
 
+class TelegramRejectRequest(BaseModel):
+    reason: str = Field(..., min_length=1)
+
+
+@app.post("/api/telegram/stores/{chat_id}/reject")
+def api_telegram_reject(chat_id: str, req: TelegramRejectRequest, _: bool = Depends(require_admin)):
+    telegram_store.reject_store(chat_id, req.reason)
+    telegram_bot.send_message(
+        chat_id,
+        "가맹점 등록이 반려됐습니다.\n"
+        f"사유: {req.reason}\n"
+        "문의사항이 있으면 대표님께 직접 연락해주세요.",
+    )
+    return {"ok": True}
+
+
 @app.get("/admin/users", response_class=HTMLResponse)
 def admin_users_page(request: Request, _: bool = Depends(require_admin)):
     return templates.TemplateResponse("admin_users.html", {"request": request})

@@ -700,6 +700,13 @@ def handle_update(update: dict) -> None:
     if not reg["approved"]:
         if reg["registration_step"]:
             _handle_registration(chat_id, reg, text)
+        elif reg.get("reject_reason"):
+            send_message(
+                chat_id,
+                "가맹점 등록이 반려됐습니다.\n"
+                f"사유: {reg['reject_reason']}\n"
+                "문의사항이 있으면 대표님께 직접 연락해주세요.",
+            )
         else:
             send_message(
                 chat_id,
