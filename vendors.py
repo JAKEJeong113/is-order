@@ -53,7 +53,9 @@ def _get_fernet() -> Fernet:
 
 
 def get_conn():
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA busy_timeout = 5000")
+    return conn
 
 
 def init_vendor_table():

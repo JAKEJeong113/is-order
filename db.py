@@ -9,12 +9,21 @@ DB_PATH = DATA_DIR / "inventory.db"
 
 
 def get_conn():
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
+    # 가맹점이 늘면서 동시 쓰기가 겹칠 때 "database is locked"로 즉시 실패하는
+    # 대신 최대 5초까지 기다렸다가 재시도하도록 한다.
+    conn.execute("PRAGMA busy_timeout = 5000")
+    return conn
 
 
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
+
+    # WAL 모드는 DB 파일에 한 번 설정하면 계속 유지되는 파일 단위 설정이라
+    # 앱 시작 시 한 번만 실행하면 된다 - 읽기 작업이 쓰기 작업을 막지 않게
+    # 되어 동시 접속이 늘어날 때 락 경합이 크게 줄어든다.
+    cur.execute("PRAGMA journal_mode=WAL")
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS inventory (

@@ -57,7 +57,9 @@ class CoupangRateLimitError(RuntimeError):
 
 
 def get_conn():
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA busy_timeout = 5000")
+    return conn
 
 
 def init_beverage_ranking_table():
