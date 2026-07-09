@@ -47,6 +47,10 @@ CP_SEARCH_PATH = "/v2/providers/affiliate_open_api/apis/openapi/products/search"
 BEVERAGE_CATEGORY = "음료수"
 SEARCH_DELAY_SECONDS = 0.3
 
+# 음료 추천 페이지 필터/관리 페이지 분류용 - 용기 형태 기준.
+DEFAULT_PACKAGE_TYPE = "미분류"
+PACKAGE_TYPES = ["작은캔", "뚱캔", "페트", "팩", "미분류"]
+
 
 class CoupangRateLimitError(RuntimeError):
     pass
@@ -86,20 +90,27 @@ def init_beverage_ranking_table():
     existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(beverage_catalog)").fetchall()}
     if "manual_override" not in existing_cols:
         cur.execute("ALTER TABLE beverage_catalog ADD COLUMN manual_override INTEGER NOT NULL DEFAULT 0")
+    if "category" not in existing_cols:
+        cur.execute(f"ALTER TABLE beverage_catalog ADD COLUMN category TEXT NOT NULL DEFAULT '{DEFAULT_PACKAGE_TYPE}'")
 
     conn.commit()
     conn.close()
 
 
-def set_manual_beverage_link(item_key: str, item_name: str, image_url: str, price: int | None, reference_url: str) -> None:
-    """사람이 직접 확인한 상품 링크/이미지를 반영하고, 이후 자동 검색 갱신에서
-    영구적으로 제외한다(엉뚱한 상품으로 재매칭되는 걸 막기 위함)."""
+def set_manual_beverage_link(
+    item_key: str, item_name: str, image_url: str, price: int | None, reference_url: str,
+    category: str = DEFAULT_PACKAGE_TYPE,
+) -> None:
+    """사람이 직접 확인한 상품명/분류/이미지/링크를 반영하고, 이후 자동 검색
+    갱신에서 영구적으로 제외한다(엉뚱한 상품으로 재매칭되는 걸 막기 위함)."""
+    if category not in PACKAGE_TYPES:
+        category = DEFAULT_PACKAGE_TYPE
     now = datetime.now().isoformat(timespec="seconds")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    INSERT INTO beverage_catalog (item_key, item_name, image_url, price, reference_url, partners_link, click_count, image_refreshed_at, link_refreshed_at, manual_override)
-    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 1)
+    INSERT INTO beverage_catalog (item_key, item_name, image_url, price, reference_url, partners_link, click_count, image_refreshed_at, link_refreshed_at, manual_override, category)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 1, ?)
     ON CONFLICT(item_key) DO UPDATE SET
         item_name=excluded.item_name,
         image_url=excluded.image_url,
@@ -108,8 +119,9 @@ def set_manual_beverage_link(item_key: str, item_name: str, image_url: str, pric
         partners_link=excluded.partners_link,
         image_refreshed_at=excluded.image_refreshed_at,
         link_refreshed_at=excluded.link_refreshed_at,
-        manual_override=1
-    """, (item_key, item_name, image_url, price, reference_url, reference_url, now, now))
+        manual_override=1,
+        category=excluded.category
+    """, (item_key, item_name, image_url, price, reference_url, reference_url, now, now, category))
     conn.commit()
     conn.close()
 
@@ -247,7 +259,7 @@ def get_beverage_rankings() -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT item_key, item_name, image_url, price, partners_link, click_count, link_refreshed_at
+    SELECT item_key, item_name, image_url, price, partners_link, click_count, link_refreshed_at, category
     FROM beverage_catalog
     WHERE partners_link IS NOT NULL
     ORDER BY click_count DESC, item_name ASC
@@ -258,6 +270,7 @@ def get_beverage_rankings() -> list[dict]:
         {
             "item_key": r[0], "item_name": r[1], "image_url": r[2], "price": r[3],
             "partners_link": r[4], "click_count": r[5], "refreshed_at": r[6],
+            "category": r[7] or DEFAULT_PACKAGE_TYPE,
         }
         for r in rows
     ]

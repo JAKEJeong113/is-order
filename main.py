@@ -723,8 +723,14 @@ def admin_api_beverages_list(_: bool = Depends(require_admin)):
 
     conn = beverage_ranking.get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT item_key, item_name, image_url, price, reference_url, manual_override FROM beverage_catalog")
-    db_rows = {r[0]: {"item_name": r[1], "image_url": r[2], "price": r[3], "reference_url": r[4], "manual_override": bool(r[5])} for r in cur.fetchall()}
+    cur.execute("SELECT item_key, item_name, image_url, price, reference_url, manual_override, category FROM beverage_catalog")
+    db_rows = {
+        r[0]: {
+            "item_name": r[1], "image_url": r[2], "price": r[3], "reference_url": r[4],
+            "manual_override": bool(r[5]), "category": r[6],
+        }
+        for r in cur.fetchall()
+    }
     conn.close()
 
     # 카탈로그 96개(직접 추가한 이름은 없을 수 있음) + DB에만 있는 관리 페이지
@@ -734,36 +740,19 @@ def admin_api_beverages_list(_: bool = Depends(require_admin)):
     items = []
     for item_key in all_keys:
         state = db_rows.get(item_key, {})
+        # 관리자가 직접 수정한 상품명(DB)이 있으면 카탈로그 원본 이름보다 우선한다 -
+        # 카드에 노출되는 이름은 관리자가 마지막으로 저장한 값이어야 하기 때문.
         items.append({
             "item_key": item_key,
-            "item_name": catalog_names.get(item_key) or state.get("item_name") or "",
+            "item_name": state.get("item_name") or catalog_names.get(item_key) or "",
             "image_url": state.get("image_url"),
             "price": state.get("price"),
             "reference_url": state.get("reference_url"),
             "manual_override": state.get("manual_override", False),
+            "category": state.get("category") or beverage_ranking.DEFAULT_PACKAGE_TYPE,
         })
     items.sort(key=lambda it: it["item_name"])
-    return {"ok": True, "items": items}
-
-
-class BeveragePreviewRequest(BaseModel):
-    keyword: str
-
-
-@app.post("/admin/api/beverages/preview")
-def admin_api_beverages_preview(req: BeveragePreviewRequest, _: bool = Depends(require_admin)):
-    """검색어로 쿠팡 상품을 1건 미리 조회한다(공식 파트너스 검색 API 사용, 관리자가
-    직접 확인 버튼을 누를 때만 호출되므로 사람 조작 속도로 자연히 제한됨)."""
-    try:
-        result = beverage_ranking.search_coupang_product(req.keyword)
-    except beverage_ranking.CoupangRateLimitError as e:
-        return {"ok": False, "error": f"API 호출 한도 초과: {e}"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-    if not result or not result.get("reference_url"):
-        return {"ok": False, "error": "검색 결과가 없습니다."}
-    return {"ok": True, **result}
+    return {"ok": True, "items": items, "package_types": beverage_ranking.PACKAGE_TYPES}
 
 
 class BeverageConfirmRequest(BaseModel):
@@ -772,14 +761,15 @@ class BeverageConfirmRequest(BaseModel):
     image_url: str = ""
     price: Optional[int] = None
     reference_url: str
+    category: str = beverage_ranking.DEFAULT_PACKAGE_TYPE
 
 
 @app.post("/admin/api/beverages/confirm")
 def admin_api_beverages_confirm(req: BeverageConfirmRequest, _: bool = Depends(require_admin)):
-    """관리자가 미리보기로 확인한 상품을 확정 저장한다. 이후 자동 검색 갱신에서
-    영구 제외된다(엉뚱한 상품으로 재매칭되는 걸 막기 위함)."""
+    """관리자가 직접 입력한 상품명/분류/이미지/링크를 확정 저장한다. 이후 자동
+    검색 갱신에서 영구 제외된다(엉뚱한 상품으로 재매칭되는 걸 막기 위함)."""
     beverage_ranking.set_manual_beverage_link(
-        req.item_key, req.item_name, req.image_url, req.price, req.reference_url,
+        req.item_key, req.item_name, req.image_url, req.price, req.reference_url, req.category,
     )
     return {"ok": True}
 

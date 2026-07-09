@@ -55,12 +55,19 @@
       background: var(--mint); color: white; font-weight: 700; flex-shrink: 0;
     }
     .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
+    .filter-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+    .filter-btn {
+      padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px;
+      font-size: 12px; font-weight: 700; cursor: pointer; background: var(--card); color: var(--muted);
+    }
+    .filter-btn.active { background: var(--mint); border-color: var(--mint); color: white; }
   </style>
 </head>
 <body>
   {% include "_sidebar.html" %}
   <h1>음료 추천</h1>
   <div class="sub-note" id="refreshedNote">선택 많이 받은 순 · 매일 자동 갱신</div>
+  <div class="filter-row" id="filterRow"></div>
   <div id="grid" class="bev-grid"></div>
 
       </div>
@@ -76,22 +83,56 @@
         .replace(/'/g, "&#39;");
     }
 
+    const PACKAGE_TYPES = ["작은캔", "뚱캔", "페트", "팩", "미분류"];
+    let allItems = [];
+    let activeFilter = "전체보기";
+
+    function renderFilterRow() {
+      const filterEl = document.getElementById("filterRow");
+      const options = ["전체보기", ...PACKAGE_TYPES];
+      filterEl.innerHTML = options.map((opt) =>
+        `<button class="filter-btn ${opt === activeFilter ? "active" : ""}" data-filter="${escapeHtml(opt)}">${escapeHtml(opt)}</button>`
+      ).join("");
+      filterEl.querySelectorAll(".filter-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          activeFilter = btn.dataset.filter;
+          renderFilterRow();
+          renderGrid();
+        });
+      });
+    }
+
     async function load() {
       const gridEl = document.getElementById("grid");
       gridEl.innerHTML = '<div class="empty-text">불러오는 중...</div>';
 
       const res = await fetch("/api/beverage-ranking");
       const data = await res.json();
-      const items = data.items || [];
+      allItems = data.items || [];
 
-      if (items.length === 0) {
+      if (allItems.length === 0) {
         gridEl.innerHTML = '<div class="empty-text">아직 준비된 음료 카드가 없습니다.</div>';
         return;
       }
 
-      if (items[0].refreshed_at) {
+      if (allItems[0].refreshed_at) {
         document.getElementById("refreshedNote").textContent =
-          `선택 많이 받은 순 · 최근 갱신 ${items[0].refreshed_at} (매일 자동 갱신됩니다)`;
+          `선택 많이 받은 순 · 최근 갱신 ${allItems[0].refreshed_at} (매일 자동 갱신됩니다)`;
+      }
+
+      renderFilterRow();
+      renderGrid();
+    }
+
+    function renderGrid() {
+      const gridEl = document.getElementById("grid");
+      const items = activeFilter === "전체보기"
+        ? allItems
+        : allItems.filter((it) => (it.category || "미분류") === activeFilter);
+
+      if (items.length === 0) {
+        gridEl.innerHTML = '<div class="empty-text">해당 분류의 음료가 없습니다.</div>';
+        return;
       }
 
       gridEl.innerHTML = items.map((item, i) => {
