@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>과자 링크 관리</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+    .top-row { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; }
+    .top-row input {
+      flex: 1; max-width: 360px; padding: 10px 12px; border: 1px solid var(--line);
+      border-radius: 8px; font-size: 13px;
+    }
+    .add-btn {
+      padding: 10px 16px; border: none; border-radius: 8px; font-size: 13px;
+      font-weight: 700; cursor: pointer; background: var(--mint); color: white; flex-shrink: 0;
+    }
+    .bev-row {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px 14px; margin-bottom: 10px; display: flex; gap: 12px; align-items: flex-start;
+    }
+    .bev-row.locked { border-color: var(--mint); }
+    .thumb {
+      width: 56px; height: 56px; border-radius: 8px; background: #f3f4f6;
+      flex-shrink: 0; object-fit: contain; border: 1px solid var(--line);
+    }
+    .thumb-placeholder {
+      width: 56px; height: 56px; border-radius: 8px; background: #f3f4f6;
+      flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+      color: var(--muted); font-size: 10px; border: 1px solid var(--line); text-align: center;
+    }
+    .bev-main { flex: 1; min-width: 0; }
+    .bev-top-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .badge {
+      font-size: 10px; padding: 2px 7px; border-radius: 999px; font-weight: 700;
+      background: #f3f4f6; color: var(--muted); flex-shrink: 0;
+    }
+    .badge.locked { background: var(--mint); color: white; }
+    .badge.auto { background: var(--mint-soft); color: var(--mint-text); }
+    .field-grid {
+      display: grid; grid-template-columns: 90px 1fr; gap: 6px 8px; align-items: center;
+      margin-bottom: 8px;
+    }
+    .field-grid label { font-size: 11px; color: var(--muted); }
+    .field-grid input, .field-grid select {
+      padding: 7px 9px; border: 1px solid var(--line);
+      border-radius: 6px; font-size: 12px; width: 100%;
+    }
+    .row-actions { display: flex; gap: 8px; align-items: center; }
+    .save-btn {
+      padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 700; cursor: pointer; background: var(--mint); color: white;
+    }
+    .delete-btn {
+      padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 700; cursor: pointer; background: #fee2e2; color: #b91c1c;
+    }
+    .status-text { font-size: 11px; color: var(--muted); }
+    .status-text.error { color: #b91c1c; }
+    .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
+  </style>
+</head>
+<body>
+  <h1>과자 링크 관리</h1>
+  <div class="hint-text">
+    분류/상품명/쿠팡 링크/이미지 링크를 직접 입력하고 저장하세요. 저장된 항목(초록 배지)은 이후 자동 갱신에서 다시 검색되지 않습니다.
+  </div>
+  <div class="top-row">
+    <input id="filterInput" type="text" placeholder="상품명으로 목록 필터링..." />
+    <button class="add-btn" id="addNewBtn">+ 새 과자 추가</button>
+  </div>
+  <div id="list"></div>
+
+  <script>
+    let allItems = [];
+    let newItems = [];
+    let packageTypes = ["봉지", "박스", "낱개", "미분류"];
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    async function loadItems() {
+      const res = await fetch("/admin/api/snacks");
+      const data = await res.json();
+      if (!data.ok) {
+        document.getElementById("list").innerHTML = `<div class="empty-text">${escapeHtml(data.error || "불러오기 실패")}</div>`;
+        return;
+      }
+      allItems = data.items;
+      if (data.package_types) packageTypes = data.package_types;
+      newItems = [];
+      render();
+    }
+
+    function categoryOptions(selected) {
+      return packageTypes.map((t) =>
+        `<option value="${escapeHtml(t)}" ${t === selected ? "selected" : ""}>${escapeHtml(t)}</option>`
+      ).join("");
+    }
+
+    function renderRow(it) {
+      const thumb = it.image_url
+        ? `<img class="thumb" src="${escapeHtml(it.image_url)}" alt="">`
+        : `<div class="thumb-placeholder">이미지<br>없음</div>`;
+      const badge = it.manual_override
+        ? '<span class="badge locked">저장됨</span>'
+        : (it.reference_url ? '<span class="badge auto">자동매칭</span>' : '<span class="badge">미완료</span>');
+      const priceText = it.price ? `${it.price.toLocaleString()}원` : "가격 없음";
+
+      return `
+        <div class="bev-row ${it.manual_override ? "locked" : ""}" data-item-key="${escapeHtml(it.item_key)}">
+          ${thumb}
+          <div class="bev-main">
+            <div class="bev-top-row">
+              ${badge}
+              <span class="status-text">${priceText}</span>
+            </div>
+            <div class="field-grid">
+              <label>분류</label>
+              <select class="category-input">${categoryOptions(it.category || "미분류")}</select>
+              <label>상품명</label>
+              <input type="text" class="name-input" placeholder="상품명" value="${escapeHtml(it.item_name || "")}" />
+              <label>쿠팡 링크</label>
+              <input type="text" class="link-input" placeholder="쿠팡 파트너스 링크" value="${escapeHtml(it.reference_url || "")}" />
+              <label>이미지 링크</label>
+              <input type="text" class="image-input" placeholder="이미지 URL" value="${escapeHtml(it.image_url || "")}" />
+              <label>가격</label>
+              <input type="number" class="price-input" placeholder="가격(원)" value="${it.price ?? ""}" />
+            </div>
+            <div class="row-actions">
+              <button class="save-btn">저장</button>
+              <button class="delete-btn">삭제</button>
+              <span class="status-text"></span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function render() {
+      const filterText = document.getElementById("filterInput").value.trim().toLowerCase();
+      const listEl = document.getElementById("list");
+      const items = allItems.filter((it) => !filterText || it.item_name.toLowerCase().includes(filterText));
+
+      let html = newItems.map(renderRow).join("");
+      html += items.map(renderRow).join("");
+
+      listEl.innerHTML = html || '<div class="empty-text">일치하는 상품이 없습니다.</div>';
+    }
+
+    document.getElementById("filterInput").addEventListener("input", render);
+
+    document.getElementById("addNewBtn").addEventListener("click", () => {
+      const itemKey = "manual_" + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random());
+      newItems.unshift({ item_key: itemKey, item_name: "", image_url: "", price: null, reference_url: "", manual_override: false, category: "미분류" });
+      render();
+    });
+
+    document.getElementById("list").addEventListener("click", async (e) => {
+      const row = e.target.closest(".bev-row");
+      if (!row) return;
+      const itemKey = row.dataset.itemKey;
+      const statusEl = row.querySelector(".row-actions .status-text");
+
+      if (e.target.classList.contains("delete-btn")) {
+        const isUnsavedNew = newItems.some((it) => it.item_key === itemKey);
+        if (isUnsavedNew) {
+          newItems = newItems.filter((it) => it.item_key !== itemKey);
+          render();
+          return;
+        }
+        const itemName = row.querySelector(".name-input").value.trim();
+        if (!confirm(`"${itemName || itemKey}"를 추천 목록에서 삭제할까요?`)) return;
+
+        e.target.disabled = true;
+        statusEl.textContent = "삭제 중...";
+        statusEl.classList.remove("error");
+        try {
+          const res = await fetch(`/admin/api/snacks/${encodeURIComponent(itemKey)}`, { method: "DELETE" });
+          const data = await res.json();
+          if (data.ok) {
+            await loadItems();
+          } else {
+            statusEl.textContent = data.error || "삭제 실패";
+            statusEl.classList.add("error");
+          }
+        } catch (err) {
+          statusEl.textContent = "삭제 중 오류 발생";
+          statusEl.classList.add("error");
+        } finally {
+          e.target.disabled = false;
+        }
+        return;
+      }
+
+      if (!e.target.classList.contains("save-btn")) return;
+      const itemName = row.querySelector(".name-input").value.trim();
+      const link = row.querySelector(".link-input").value.trim();
+      const imageUrl = row.querySelector(".image-input").value.trim();
+      const category = row.querySelector(".category-input").value;
+      const priceRaw = row.querySelector(".price-input").value.trim();
+      const price = priceRaw ? parseInt(priceRaw, 10) : null;
+
+      if (!itemName) {
+        statusEl.textContent = "상품명을 입력해주세요.";
+        statusEl.classList.add("error");
+        return;
+      }
+      if (!link) {
+        statusEl.textContent = "쿠팡 링크를 입력해주세요.";
+        statusEl.classList.add("error");
+        return;
+      }
+
+      e.target.disabled = true;
+      statusEl.textContent = "저장 중...";
+      statusEl.classList.remove("error");
+      try {
+        const res = await fetch("/admin/api/snacks/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            item_key: itemKey,
+            item_name: itemName,
+            image_url: imageUrl,
+            reference_url: link,
+            category: category,
+            price: price,
+          }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          statusEl.textContent = "저장 완료";
+          await loadItems();
+        } else {
+          statusEl.textContent = data.error || "저장 실패";
+          statusEl.classList.add("error");
+        }
+      } catch (err) {
+        statusEl.textContent = "저장 중 오류 발생";
+        statusEl.classList.add("error");
+      } finally {
+        e.target.disabled = false;
+      }
+    });
+
+    loadItems();
+  </script>
+</body>
+</html>

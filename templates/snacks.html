@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>과자 추천</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+    }
+    .app-main { padding-bottom: 80px; }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    .sub-note { font-size: 12px; color: var(--muted); margin: 0 0 16px; }
+    .bev-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 14px;
+    }
+    @media (max-width: 640px) {
+      .bev-grid { grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); gap: 8px; }
+      .bev-body { padding: 8px 8px 10px; }
+      .bev-name { font-size: 12px; min-height: 2.5em; }
+      .bev-price { font-size: 12px; }
+      .buy-badge { font-size: 10px; padding: 3px 7px; }
+    }
+    .bev-card {
+      display: block; background: var(--card); border: 1px solid var(--line);
+      border-radius: 12px; overflow: hidden; text-decoration: none; color: inherit;
+      position: relative; transition: border-color .15s, transform .15s;
+    }
+    .bev-card:hover { border-color: var(--mint); transform: translateY(-2px); }
+    .bev-rank {
+      position: absolute; top: 8px; left: 8px; z-index: 1;
+      width: 24px; height: 24px; border-radius: 50%; background: rgba(17,24,39,.55);
+      color: #fff; font-weight: 800; font-size: 12px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .bev-rank.top3 { background: var(--mint); }
+    .bev-img-wrap {
+      width: 100%; aspect-ratio: 1 / 1; background: #f3f4f6;
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+    }
+    .bev-img-wrap img { width: 100%; height: 100%; object-fit: contain; }
+    .bev-body { padding: 10px 12px 12px; }
+    .bev-name {
+      font-weight: 600; font-size: 13px; line-height: 1.35;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+      min-height: 2.7em;
+    }
+    .bev-meta {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 6px;
+    }
+    .bev-price { font-weight: 700; font-size: 13px; }
+    .buy-badge {
+      font-size: 11px; padding: 3px 9px; border-radius: 999px;
+      background: var(--mint); color: white; font-weight: 700; flex-shrink: 0;
+    }
+    .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
+    .filter-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+    .filter-btn {
+      padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px;
+      font-size: 12px; font-weight: 700; cursor: pointer; background: var(--card); color: var(--muted);
+    }
+    .filter-btn.active { background: var(--mint); border-color: var(--mint); color: white; }
+  </style>
+</head>
+<body>
+  {% include "_sidebar.html" %}
+  <h1>과자 추천</h1>
+  <div class="sub-note" id="refreshedNote">선택 많이 받은 순 · 매일 자동 갱신</div>
+  <div class="filter-row" id="filterRow"></div>
+  <div id="grid" class="bev-grid"></div>
+
+      </div>
+    </div>
+
+  <script>
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    const PACKAGE_TYPES = ["봉지", "박스", "낱개", "미분류"];
+    let allItems = [];
+    let activeFilter = "전체보기";
+
+    function renderFilterRow() {
+      const filterEl = document.getElementById("filterRow");
+      const options = ["전체보기", ...PACKAGE_TYPES];
+      filterEl.innerHTML = options.map((opt) =>
+        `<button class="filter-btn ${opt === activeFilter ? "active" : ""}" data-filter="${escapeHtml(opt)}">${escapeHtml(opt)}</button>`
+      ).join("");
+      filterEl.querySelectorAll(".filter-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          activeFilter = btn.dataset.filter;
+          renderFilterRow();
+          renderGrid();
+        });
+      });
+    }
+
+    async function load() {
+      const gridEl = document.getElementById("grid");
+      gridEl.innerHTML = '<div class="empty-text">불러오는 중...</div>';
+
+      const res = await fetch("/api/snack-ranking");
+      const data = await res.json();
+      allItems = data.items || [];
+
+      if (allItems.length === 0) {
+        gridEl.innerHTML = '<div class="empty-text">아직 준비된 과자 카드가 없습니다.</div>';
+        return;
+      }
+
+      if (allItems[0].refreshed_at) {
+        document.getElementById("refreshedNote").textContent =
+          `선택 많이 받은 순 · 최근 갱신 ${allItems[0].refreshed_at} (매일 자동 갱신됩니다)`;
+      }
+
+      renderFilterRow();
+      renderGrid();
+    }
+
+    function renderGrid() {
+      const gridEl = document.getElementById("grid");
+      const items = activeFilter === "전체보기"
+        ? allItems
+        : allItems.filter((it) => (it.category || "미분류") === activeFilter);
+
+      if (items.length === 0) {
+        gridEl.innerHTML = '<div class="empty-text">해당 분류의 과자가 없습니다.</div>';
+        return;
+      }
+
+      gridEl.innerHTML = items.map((item, i) => {
+        const name = item.item_name || "(이름 없음)";
+        const priceText = item.price ? `${item.price.toLocaleString()}원` : "";
+        const imgTag = item.image_url
+          ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(name)}" loading="lazy">`
+          : "";
+        return `
+          <a class="bev-card" href="${escapeHtml(item.partners_link)}" target="_blank" rel="noopener"
+             data-item-key="${escapeHtml(item.item_key)}">
+            <div class="bev-rank ${i < 3 ? "top3" : ""}">${i + 1}</div>
+            <div class="bev-img-wrap">${imgTag}</div>
+            <div class="bev-body">
+              <div class="bev-name">${escapeHtml(name)}</div>
+              <div class="bev-meta">
+                <span class="bev-price">${priceText}</span>
+                <span class="buy-badge">구매하기</span>
+              </div>
+            </div>
+          </a>
+        `;
+      }).join("");
+
+      gridEl.querySelectorAll(".bev-card").forEach((card) => {
+        card.addEventListener("click", () => {
+          const itemKey = card.getAttribute("data-item-key");
+          try {
+            fetch(`/api/snack-click/${encodeURIComponent(itemKey)}`, { method: "POST", keepalive: true });
+          } catch (e) {}
+        });
+      });
+    }
+
+    load();
+  </script>
+</body>
+</html>

@@ -4,13 +4,14 @@ from __future__ import annotations
 import os
 from dotenv import load_dotenv
 
-# 프로젝트 내부 모듈들(beverage_ranking, telegram_bot 등)이 import 시점에
+# 프로젝트 내부 모듈들(product_ranking, telegram_bot 등)이 import 시점에
 # os.getenv로 API 키를 읽기 때문에, load_dotenv()는 그 import보다 먼저 실행돼야
 # 한다 - 순서가 뒤바뀌면 로컬 개발 환경(.env 파일)에서는 항상 빈 값으로 읽힌다
 # (Render 배포 환경은 .env 없이 실제 환경변수를 바로 주입하므로 이 순서 문제와
 # 무관하게 정상 동작해서 지금까지 드러나지 않았음).
 load_dotenv()
 
+import functools
 import math
 import re
 import uuid
@@ -42,7 +43,6 @@ from mapping import load_coupang_catalog_xlsx, select_representative_item
 from db import init_db, get_inventory, upsert_inventory, change_stock
 
 from yamimall_bot import add_yamimall_cart
-import beverage_ranking
 import browser_limit
 import cafe24_bot
 import cart_add_logic
@@ -51,6 +51,7 @@ import catalog_crawler
 import godomall_bot
 import patch_notes
 import popularity
+import product_ranking
 import telegram_bot
 import telegram_store
 import vendors
@@ -113,7 +114,8 @@ vendors.init_store_vendor_table()
 vendors.init_session_table()
 vendors.init_store_vendor_prefs_table()
 web_auth.init_web_auth_tables()
-beverage_ranking.init_beverage_ranking_table()
+product_ranking.init_table(product_ranking.BEVERAGE)
+product_ranking.init_table(product_ranking.SNACK)
 patch_notes.init_patch_notes_table()
 web_cart.init_web_cart_table()
 
@@ -130,22 +132,28 @@ scheduler.add_job(
     id="daily_catalog_refresh",
     replace_existing=True,
 )
+# 쿠팡 상품검색 API로 아직 기준 URL이 없는 상품만 채운다. 파트너스 링크는
+# 만료되지 않는 고정 링크라 한 번 채워지면(또는 사람이 수동 고정하면)
+# 다시 검색하지 않는다 - 카탈로그가 그대로면 둘째 날부터는 호출이 0에
+# 수렴한다. 이 API는 시간당 호출 한도가 엄격해서(초과 시 최대 24시간
+# 잠기고 3회 누적되면 계정 자체가 제한됨) 자주 돌리면 안 되지만, 위와
+# 같은 이유로 매일 돌려도 안전하다.
+#
+# 상품검색 결과의 productUrl 자체가 이미 파트너스 추적 태그가 붙은 링크라
+# (link.coupang.com/re/AFFSDP?lptag=... 형태) 여기서 바로 partners_link로도
+# 저장한다 - 별도 딥링크 변환 API를 부를 필요가 없다(오히려 이미 변환된
+# 링크를 다시 변환하려 하면 "url convert failed"로 실패한다는 걸 실측으로
+# 확인함).
 scheduler.add_job(
-    beverage_ranking.refresh_beverage_products,
-    # 쿠팡 상품검색 API로 아직 기준 URL이 없는 음료만 채운다. 파트너스 링크는
-    # 만료되지 않는 고정 링크라 한 번 채워지면(또는 사람이 수동 고정하면)
-    # 다시 검색하지 않는다 - 카탈로그가 그대로면 둘째 날부터는 호출이 0에
-    # 수렴한다. 이 API는 시간당 호출 한도가 엄격해서(초과 시 최대 24시간
-    # 잠기고 3회 누적되면 계정 자체가 제한됨) 자주 돌리면 안 되지만, 위와
-    # 같은 이유로 매일 돌려도 안전하다.
-    #
-    # 상품검색 결과의 productUrl 자체가 이미 파트너스 추적 태그가 붙은 링크라
-    # (link.coupang.com/re/AFFSDP?lptag=... 형태) 여기서 바로 partners_link로도
-    # 저장한다 - 별도 딥링크 변환 API를 부를 필요가 없다(오히려 이미 변환된
-    # 링크를 다시 변환하려 하면 "url convert failed"로 실패한다는 걸 실측으로
-    # 확인함).
+    functools.partial(product_ranking.refresh_products, product_ranking.BEVERAGE),
     trigger=CronTrigger(hour=4, minute=0, timezone=KST),
     id="daily_beverage_product_backfill",
+    replace_existing=True,
+)
+scheduler.add_job(
+    functools.partial(product_ranking.refresh_products, product_ranking.SNACK),
+    trigger=CronTrigger(hour=4, minute=10, timezone=KST),
+    id="daily_snack_product_backfill",
     replace_existing=True,
 )
 scheduler.start()
@@ -762,59 +770,159 @@ def admin_debug_compare(keyword: str, _: bool = Depends(require_admin)):
     }
 
 
-@app.get("/admin/debug-beverage-status")
-def admin_debug_beverage_status(_: bool = Depends(require_admin)):
-    """진단용(읽기 전용): 쿠팡 API를 전혀 호출하지 않고, 카탈로그의 음료수 항목 대비
-    현재 beverage_catalog에 이미지/파트너스링크가 얼마나 채워졌는지만 확인한다.
-    한도 초과로 중단된 뒤 얼마나 남았는지 API 호출 없이 파악하려고 추가."""
-    try:
-        catalog = load_coupang_catalog_xlsx(str(beverage_ranking.COUPANG_CATALOG_XLSX_PATH))
-    except Exception as e:
-        return {"ok": False, "error": f"카탈로그 로드 실패: {e}"}
+class ProductConfirmRequest(BaseModel):
+    item_key: str
+    item_name: str
+    image_url: str = ""
+    price: Optional[int] = None
+    reference_url: str
+    category: Optional[str] = None
 
-    beverage_keys = {
-        barcode for barcode, entry in catalog.items()
-        if entry.category.strip() == beverage_ranking.BEVERAGE_CATEGORY
-    }
 
-    conn = beverage_ranking.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT item_key, item_name, reference_url, partners_link, image_refreshed_at, link_refreshed_at FROM beverage_catalog")
-    rows = cur.fetchall()
-    conn.close()
+def register_product_routes(pt: product_ranking.ProductType, *, slug: str, page_template: str, admin_template: str):
+    """음료 추천/과자 추천처럼 ProductType 하나에 필요한 페이지+API 전부를
+    등록한다. slug는 URL 경로 조각(예: beverage, snack)으로 쓰인다. 두 상품군이
+    거의 동일한 라우트를 갖기 때문에(compare 페이지 요청: "모든 기능 동일하게
+    구성") 라우트 코드를 두 번 쓰지 않고 여기서 한 번만 정의해 pt별로 호출한다."""
 
-    by_key = {r[0]: r for r in rows}
-    with_image = sum(1 for r in rows if r[2])
-    with_link = sum(1 for r in rows if r[3])
-    missing = [k for k in beverage_keys if k not in by_key]
+    @app.get(f"/admin/debug-{slug}-status")
+    def _debug_status(_: bool = Depends(require_admin)):
+        """진단용(읽기 전용): 쿠팡 API를 전혀 호출하지 않고, 카탈로그의 해당 상품군
+        항목 대비 현재 DB에 이미지/파트너스링크가 얼마나 채워졌는지만 확인한다."""
+        try:
+            catalog = load_coupang_catalog_xlsx(str(product_ranking.COUPANG_CATALOG_XLSX_PATH))
+        except Exception as e:
+            return {"ok": False, "error": f"카탈로그 로드 실패: {e}"}
 
-    return {
-        "ok": True,
-        "catalog_beverage_count": len(beverage_keys),
-        "backfilled_with_image_count": with_image,
-        "backfilled_with_partners_link_count": with_link,
-        "not_yet_attempted_count": len(missing),
-        "last_image_refresh": max((r[4] for r in rows if r[4]), default=None),
-        "last_link_refresh": max((r[5] for r in rows if r[5]), default=None),
-        "sample_missing": missing[:10],
-        "cp_access_key_set": bool(beverage_ranking.CP_ACCESS_KEY),
-        "cp_secret_key_set": bool(beverage_ranking.CP_SECRET_KEY),
-        "scheduler_running": scheduler.running,
-        "scheduled_jobs": [
-            {"id": j.id, "next_run_time": str(j.next_run_time)}
-            for j in scheduler.get_jobs()
-        ],
-    }
+        keys = {
+            barcode for barcode, entry in catalog.items()
+            if entry.category.strip() == pt.catalog_category
+        }
+
+        conn = product_ranking.get_conn()
+        cur = conn.cursor()
+        cur.execute(f"SELECT item_key, item_name, reference_url, partners_link, image_refreshed_at, link_refreshed_at FROM {pt.table_name}")
+        rows = cur.fetchall()
+        conn.close()
+
+        by_key = {r[0]: r for r in rows}
+        with_image = sum(1 for r in rows if r[2])
+        with_link = sum(1 for r in rows if r[3])
+        missing = [k for k in keys if k not in by_key]
+
+        return {
+            "ok": True,
+            "catalog_count": len(keys),
+            "backfilled_with_image_count": with_image,
+            "backfilled_with_partners_link_count": with_link,
+            "not_yet_attempted_count": len(missing),
+            "last_image_refresh": max((r[4] for r in rows if r[4]), default=None),
+            "last_link_refresh": max((r[5] for r in rows if r[5]), default=None),
+            "sample_missing": missing[:10],
+            "cp_access_key_set": bool(product_ranking.CP_ACCESS_KEY),
+            "cp_secret_key_set": bool(product_ranking.CP_SECRET_KEY),
+            "scheduler_running": scheduler.running,
+            "scheduled_jobs": [
+                {"id": j.id, "next_run_time": str(j.next_run_time)}
+                for j in scheduler.get_jobs()
+            ],
+        }
+
+    @app.get(f"/admin/{slug}s", response_class=HTMLResponse)
+    def _admin_page(request: Request, _: bool = Depends(require_admin)):
+        return templates.TemplateResponse(admin_template, {"request": request})
+
+    @app.get(f"/admin/api/{slug}s")
+    def _admin_list(_: bool = Depends(require_admin)):
+        """카탈로그의 해당 상품군 + 관리 페이지에서 직접 추가한 상품(카탈로그엔
+        없고 DB에만 있는 것) 전체를, 각각의 현재 DB 상태(이미지/가격/링크/수동고정
+        여부)와 합쳐서 반환한다. 관리 페이지의 목록 렌더링용."""
+        try:
+            catalog = load_coupang_catalog_xlsx(str(product_ranking.COUPANG_CATALOG_XLSX_PATH))
+        except Exception as e:
+            return {"ok": False, "error": f"카탈로그 로드 실패: {e}"}
+
+        catalog_names = {
+            barcode: entry.menu_name for barcode, entry in catalog.items()
+            if entry.category.strip() == pt.catalog_category
+        }
+
+        conn = product_ranking.get_conn()
+        cur = conn.cursor()
+        cur.execute(f"SELECT item_key, item_name, image_url, price, reference_url, manual_override, category FROM {pt.table_name}")
+        db_rows = {
+            r[0]: {
+                "item_name": r[1], "image_url": r[2], "price": r[3], "reference_url": r[4],
+                "manual_override": bool(r[5]), "category": r[6],
+            }
+            for r in cur.fetchall()
+        }
+        conn.close()
+
+        # 카탈로그 원본(직접 추가한 이름은 없을 수 있음) + DB에만 있는 관리 페이지
+        # 직접 추가분(카탈로그엔 없음)을 합집합으로 합친다.
+        all_keys = set(catalog_names) | set(db_rows)
+
+        items = []
+        for item_key in all_keys:
+            state = db_rows.get(item_key, {})
+            # 관리자가 직접 수정한 상품명(DB)이 있으면 카탈로그 원본 이름보다 우선한다 -
+            # 카드에 노출되는 이름은 관리자가 마지막으로 저장한 값이어야 하기 때문.
+            items.append({
+                "item_key": item_key,
+                "item_name": state.get("item_name") or catalog_names.get(item_key) or "",
+                "image_url": state.get("image_url"),
+                "price": state.get("price"),
+                "reference_url": state.get("reference_url"),
+                "manual_override": state.get("manual_override", False),
+                "category": state.get("category") or pt.default_package_type,
+            })
+        items.sort(key=lambda it: it["item_name"])
+        return {"ok": True, "items": items, "package_types": pt.package_types}
+
+    @app.post(f"/admin/api/{slug}s/confirm")
+    def _admin_confirm(req: ProductConfirmRequest, _: bool = Depends(require_admin)):
+        """관리자가 직접 입력한 상품명/분류/이미지/링크를 확정 저장한다. 이후 자동
+        검색 갱신에서 영구 제외된다(엉뚱한 상품으로 재매칭되는 걸 막기 위함)."""
+        product_ranking.set_manual_link(
+            pt, req.item_key, req.item_name, req.image_url, req.price, req.reference_url, req.category,
+        )
+        return {"ok": True}
+
+    @app.delete(f"/admin/api/{slug}s/{{item_key}}")
+    def _admin_delete(item_key: str, _: bool = Depends(require_admin)):
+        """추천 목록(고객용 페이지)에서 제거한다. 카탈로그(엑셀)에도 있는 상품이면
+        관리 페이지에는 미완료 상태로 다시 나타난다(카탈로그 자체를 지우는 게 아니라
+        이 상품의 이미지/링크 등록만 지우는 것)."""
+        product_ranking.delete_product(pt, item_key)
+        return {"ok": True}
+
+    @app.get(f"/{slug}s", response_class=HTMLResponse)
+    def _store_page(request: Request):
+        if not get_current_web_user(request):
+            return RedirectResponse(url="/login")
+        return templates.TemplateResponse(page_template, {"request": request, "active_page": f"{slug}s"})
+
+    @app.get(f"/api/{slug}-ranking")
+    def _store_ranking(_: dict = Depends(require_web_user)):
+        return {"items": product_ranking.get_rankings(pt)}
+
+    @app.post(f"/api/{slug}-ranking/refresh-products")
+    def _store_refresh(limit: int | None = Query(None, ge=1, le=200), _: bool = Depends(require_admin)):
+        """카탈로그에 새로 추가된 상품의 이미지/가격을 쿠팡 상품검색으로 채운다.
+        이 API는 시간당 호출 한도가 엄격해서 자주 누르면 안 되고, 매일 자동으로도
+        한 번 돌아간다(카탈로그가 그대로면 처리할 게 없어 거의 즉시 끝남)."""
+        return product_ranking.refresh_products(pt, limit=limit)
+
+    @app.post(f"/api/{slug}-click/{{item_key}}")
+    def _store_click(item_key: str, _: dict = Depends(require_web_user)):
+        ok = product_ranking.record_click(pt, item_key)
+        return {"ok": ok}
 
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin_index_page(request: Request, _: bool = Depends(require_admin)):
     return templates.TemplateResponse("admin_index.html", {"request": request})
-
-
-@app.get("/admin/beverages", response_class=HTMLResponse)
-def admin_beverages_page(request: Request, _: bool = Depends(require_admin)):
-    return templates.TemplateResponse("beverage_admin.html", {"request": request})
 
 
 @app.get("/admin/patch-notes", response_class=HTMLResponse)
@@ -839,81 +947,8 @@ def admin_api_patch_notes_delete(note_id: int, _: bool = Depends(require_admin))
     return {"ok": True}
 
 
-@app.get("/admin/api/beverages")
-def admin_api_beverages_list(_: bool = Depends(require_admin)):
-    """카탈로그의 음료수 상품 + 관리 페이지에서 직접 추가한 상품(카탈로그엔 없고
-    DB에만 있는 것) 전체를, 각각의 현재 DB 상태(이미지/가격/링크/수동고정 여부)와
-    합쳐서 반환한다. 관리 페이지의 목록 렌더링용."""
-    try:
-        catalog = load_coupang_catalog_xlsx(str(beverage_ranking.COUPANG_CATALOG_XLSX_PATH))
-    except Exception as e:
-        return {"ok": False, "error": f"카탈로그 로드 실패: {e}"}
-
-    catalog_names = {
-        barcode: entry.menu_name for barcode, entry in catalog.items()
-        if entry.category.strip() == beverage_ranking.BEVERAGE_CATEGORY
-    }
-
-    conn = beverage_ranking.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT item_key, item_name, image_url, price, reference_url, manual_override, category FROM beverage_catalog")
-    db_rows = {
-        r[0]: {
-            "item_name": r[1], "image_url": r[2], "price": r[3], "reference_url": r[4],
-            "manual_override": bool(r[5]), "category": r[6],
-        }
-        for r in cur.fetchall()
-    }
-    conn.close()
-
-    # 카탈로그 96개(직접 추가한 이름은 없을 수 있음) + DB에만 있는 관리 페이지
-    # 직접 추가분(카탈로그엔 없음)을 합집합으로 합친다.
-    all_keys = set(catalog_names) | set(db_rows)
-
-    items = []
-    for item_key in all_keys:
-        state = db_rows.get(item_key, {})
-        # 관리자가 직접 수정한 상품명(DB)이 있으면 카탈로그 원본 이름보다 우선한다 -
-        # 카드에 노출되는 이름은 관리자가 마지막으로 저장한 값이어야 하기 때문.
-        items.append({
-            "item_key": item_key,
-            "item_name": state.get("item_name") or catalog_names.get(item_key) or "",
-            "image_url": state.get("image_url"),
-            "price": state.get("price"),
-            "reference_url": state.get("reference_url"),
-            "manual_override": state.get("manual_override", False),
-            "category": state.get("category") or beverage_ranking.DEFAULT_PACKAGE_TYPE,
-        })
-    items.sort(key=lambda it: it["item_name"])
-    return {"ok": True, "items": items, "package_types": beverage_ranking.PACKAGE_TYPES}
-
-
-class BeverageConfirmRequest(BaseModel):
-    item_key: str
-    item_name: str
-    image_url: str = ""
-    price: Optional[int] = None
-    reference_url: str
-    category: str = beverage_ranking.DEFAULT_PACKAGE_TYPE
-
-
-@app.post("/admin/api/beverages/confirm")
-def admin_api_beverages_confirm(req: BeverageConfirmRequest, _: bool = Depends(require_admin)):
-    """관리자가 직접 입력한 상품명/분류/이미지/링크를 확정 저장한다. 이후 자동
-    검색 갱신에서 영구 제외된다(엉뚱한 상품으로 재매칭되는 걸 막기 위함)."""
-    beverage_ranking.set_manual_beverage_link(
-        req.item_key, req.item_name, req.image_url, req.price, req.reference_url, req.category,
-    )
-    return {"ok": True}
-
-
-@app.delete("/admin/api/beverages/{item_key}")
-def admin_api_beverages_delete(item_key: str, _: bool = Depends(require_admin)):
-    """추천 목록(고객용 /beverages)에서 제거한다. 카탈로그(엑셀)에도 있는 상품이면
-    관리 페이지에는 미완료 상태로 다시 나타난다(카탈로그 자체를 지우는 게 아니라
-    이 상품의 이미지/링크 등록만 지우는 것)."""
-    beverage_ranking.delete_beverage(item_key)
-    return {"ok": True}
+register_product_routes(product_ranking.BEVERAGE, slug="beverage", page_template="beverages.html", admin_template="beverage_admin.html")
+register_product_routes(product_ranking.SNACK, slug="snack", page_template="snacks.html", admin_template="snack_admin.html")
 
 
 @app.get("/my-vendors", response_class=HTMLResponse)
@@ -990,13 +1025,6 @@ def api_popular(category: str = Query(...), limit: int = Query(30, ge=1, le=100)
     return {"items": popularity.get_top_items(category, limit=limit)}
 
 
-@app.get("/beverages", response_class=HTMLResponse)
-def beverages_page(request: Request):
-    if not get_current_web_user(request):
-        return RedirectResponse(url="/login")
-    return templates.TemplateResponse("beverages.html", {"request": request, "active_page": "beverages"})
-
-
 @app.get("/patch-notes", response_class=HTMLResponse)
 def patch_notes_page(request: Request):
     if not get_current_web_user(request):
@@ -1007,31 +1035,6 @@ def patch_notes_page(request: Request):
 @app.get("/api/patch-notes")
 def api_patch_notes(_: dict = Depends(require_web_user)):
     return {"items": patch_notes.list_patch_notes()}
-
-
-@app.get("/api/beverage-ranking")
-def api_beverage_ranking(_: dict = Depends(require_web_user)):
-    return {"items": beverage_ranking.get_beverage_rankings()}
-
-
-@app.post("/api/beverage-ranking/refresh-products")
-def api_beverage_ranking_refresh_products(
-    limit: int | None = Query(None, ge=1, le=200),
-    _: bool = Depends(require_admin),
-):
-    """카탈로그에 새로 추가된 음료의 이미지/가격을 쿠팡 상품검색으로 채운다.
-    이 API는 시간당 호출 한도가 엄격해서 자주 누르면 안 되고, 매일 자동으로도
-    한 번 돌아간다(카탈로그가 그대로면 처리할 게 없어 거의 즉시 끝남).
-    limit을 주면 미처리 항목 중 그만큼만 처리하고 나머지는 다음 예약 실행
-    때 이어서 처리한다(최초 백필처럼 미처리 항목이 시간당 한도에 가까울 때
-    안전하게 나눠 돌리기 위함)."""
-    return beverage_ranking.refresh_beverage_products(limit=limit)
-
-
-@app.post("/api/beverage-click/{item_key}")
-def api_beverage_click(item_key: str, _: dict = Depends(require_web_user)):
-    ok = beverage_ranking.record_click(item_key)
-    return {"ok": ok}
 
 
 @app.post("/telegram/webhook")
