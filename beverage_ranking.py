@@ -142,11 +142,15 @@ def create_partners_link_for_url(target_url: str) -> str:
     return shorten_url
 
 
-def refresh_beverage_products() -> dict:
+def refresh_beverage_products(limit: int | None = None) -> dict:
     """카탈로그의 음료수 상품 중 기준 URL(reference_url)이 아직 없는 것만 상품검색
     API로 채운다. 한 번 채워지면 다시 건드리지 않으므로, 카탈로그가 그대로면 둘째
     날부터는 처리할 항목이 없어 호출이 거의 발생하지 않는다. 그래도 시간당 한도를
-    만나면(신규 항목이 한꺼번에 많이 추가된 경우 등) 그 시점에 멈춘다."""
+    만나면(신규 항목이 한꺼번에 많이 추가된 경우 등) 그 시점에 멈춘다.
+
+    limit을 주면 미처리 항목 중 앞에서부터 그만큼만 처리한다 - 최초 백필처럼
+    미처리 항목이 시간당 한도에 가까울 때, 관리자가 안전한 만큼만 수동으로
+    나눠서 돌려볼 수 있게 하기 위함(나머지는 다음 예약 실행 때 이어서 처리됨)."""
     try:
         catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
     except Exception as e:
@@ -163,6 +167,9 @@ def refresh_beverage_products() -> dict:
     cur.execute("SELECT item_key FROM beverage_catalog WHERE reference_url IS NOT NULL")
     already_backfilled = {r[0] for r in cur.fetchall()}
     pending_entries = [(k, e) for k, e in beverage_entries if k not in already_backfilled]
+    total_pending = len(pending_entries)
+    if limit is not None:
+        pending_entries = pending_entries[:limit]
 
     saved = 0
     failed = 0
@@ -198,12 +205,12 @@ def refresh_beverage_products() -> dict:
             reference_url=excluded.reference_url,
             image_refreshed_at=excluded.image_refreshed_at
         """, (item_key, entry.menu_name, result["image_url"], result["price"], result["reference_url"], now))
+        conn.commit()
         saved += 1
         time.sleep(SEARCH_DELAY_SECONDS)
 
-    conn.commit()
     conn.close()
-    remaining = len(pending_entries) - saved - failed
+    remaining = total_pending - saved - failed
     return {
         "ok": True, "count": saved, "failed": failed,
         "rate_limited": rate_limited, "remaining": remaining,

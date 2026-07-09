@@ -758,11 +758,17 @@ def api_beverage_ranking_refresh(_: bool = Depends(require_admin)):
 
 
 @app.post("/api/beverage-ranking/refresh-products")
-def api_beverage_ranking_refresh_products(_: bool = Depends(require_admin)):
+def api_beverage_ranking_refresh_products(
+    limit: int | None = Query(None, ge=1, le=200),
+    _: bool = Depends(require_admin),
+):
     """카탈로그에 새로 추가된 음료의 이미지/가격을 쿠팡 상품검색으로 채운다.
     이 API는 시간당 호출 한도가 엄격해서 자주 누르면 안 되고, 매일 자동으로도
-    한 번 돌아간다(카탈로그가 그대로면 처리할 게 없어 거의 즉시 끝남)."""
-    return beverage_ranking.refresh_beverage_products()
+    한 번 돌아간다(카탈로그가 그대로면 처리할 게 없어 거의 즉시 끝남).
+    limit을 주면 미처리 항목 중 그만큼만 처리하고 나머지는 다음 예약 실행
+    때 이어서 처리한다(최초 백필처럼 미처리 항목이 시간당 한도에 가까울 때
+    안전하게 나눠 돌리기 위함)."""
+    return beverage_ranking.refresh_beverage_products(limit=limit)
 
 
 @app.post("/api/beverage-click/{item_key}")
