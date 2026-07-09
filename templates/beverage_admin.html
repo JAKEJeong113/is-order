@@ -138,6 +138,8 @@
               <input type="text" class="link-input" placeholder="쿠팡 파트너스 링크" value="${escapeHtml(it.reference_url || "")}" />
               <label>이미지 링크</label>
               <input type="text" class="image-input" placeholder="이미지 URL" value="${escapeHtml(it.image_url || "")}" />
+              <label>가격</label>
+              <input type="number" class="price-input" placeholder="가격(원)" value="${it.price ?? ""}" />
             </div>
             <div class="row-actions">
               <button class="save-btn">저장</button>
@@ -210,6 +212,8 @@
       const link = row.querySelector(".link-input").value.trim();
       const imageUrl = row.querySelector(".image-input").value.trim();
       const category = row.querySelector(".category-input").value;
+      const priceRaw = row.querySelector(".price-input").value.trim();
+      const price = priceRaw ? parseInt(priceRaw, 10) : null;
 
       if (!itemName) {
         statusEl.textContent = "상품명을 입력해주세요.";
@@ -235,6 +239,7 @@
             image_url: imageUrl,
             reference_url: link,
             category: category,
+            price: price,
           }),
         });
         const data = await res.json();

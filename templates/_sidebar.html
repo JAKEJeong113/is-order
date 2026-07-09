@@ -5,11 +5,14 @@
     border-right: 1px solid var(--line); padding: 20px 12px;
     display: flex; flex-direction: column; gap: 2px;
     position: sticky; top: 0; align-self: flex-start; height: 100vh;
+    transition: width .15s; overflow: hidden;
   }
+  .app-sidebar.collapsed { width: 60px; padding: 20px 8px; }
   .app-sidebar .app-brand {
     display: flex; align-items: center; gap: 8px;
     font-size: 15px; font-weight: 700; padding: 0 10px 20px;
   }
+  .app-sidebar.collapsed .app-brand { padding: 0 0 20px 2px; }
   .app-sidebar .app-brand .app-brand-badge {
     width: 26px; height: 26px; border-radius: 8px; background: var(--mint);
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
@@ -17,58 +20,92 @@
   .app-nav-item {
     display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px;
     text-decoration: none; color: #374151; font-size: 13px; font-weight: 600;
+    white-space: nowrap;
   }
+  .app-sidebar.collapsed .app-nav-item { padding: 9px; justify-content: center; }
   .app-nav-item svg { flex-shrink: 0; color: #9ca3af; }
   .app-nav-item:hover { background: var(--bg); }
   .app-nav-item.active { background: var(--mint-soft); color: var(--mint-text); }
   .app-nav-item.active svg { color: var(--mint-text); }
+  .app-sidebar.collapsed .nav-label,
+  .app-sidebar.collapsed .app-brand-text,
+  .app-sidebar.collapsed .footer-label { display: none; }
   .app-sidebar .app-spacer { flex: 1; }
+  .app-toggle-row { display: flex; justify-content: flex-end; padding: 0 2px 6px; }
+  .app-sidebar.collapsed .app-toggle-row { justify-content: center; }
+  .app-toggle-btn {
+    width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--card); color: var(--muted); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .app-toggle-btn:hover { background: var(--bg); }
+  .app-toggle-btn svg { transition: transform .15s; }
+  .app-sidebar.collapsed .app-toggle-btn svg { transform: rotate(180deg); }
   .app-sidebar .app-footer {
     font-size: 11px; color: var(--muted); padding: 10px 10px 0;
     border-top: 1px solid var(--line);
     display: flex; align-items: center; gap: 6px;
   }
-  .app-sidebar .app-footer a { color: inherit; text-decoration: none; display: flex; align-items: center; gap: 6px; }
+  .app-sidebar.collapsed .app-footer { padding: 10px 0 0; justify-content: center; }
+  .app-sidebar .app-footer a { color: inherit; text-decoration: none; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   .app-main { flex: 1; padding: 24px; min-width: 0; }
 </style>
 <div class="app-shell">
-  <div class="app-sidebar">
+  <div class="app-sidebar" id="appSidebar">
+    <div class="app-toggle-row">
+      <button class="app-toggle-btn" id="sidebarToggleBtn" aria-label="사이드바 접기/펴기">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+    </div>
     <div class="app-brand">
       <span class="app-brand-badge">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21l-6-11h12z"/><path d="M9 10a3 3 0 0 1 6 0"/><circle cx="12" cy="7" r="4"/></svg>
       </span>
-      i'S ORDER
+      <span class="app-brand-text">i'S ORDER</span>
     </div>
-    <a class="app-nav-item {{ 'active' if active_page == 'home' else '' }}" href="/home">
+    <a class="app-nav-item {{ 'active' if active_page == 'home' else '' }}" href="/home" title="홈">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      홈
+      <span class="nav-label">홈</span>
     </a>
-    <a class="app-nav-item {{ 'active' if active_page == 'order' else '' }}" href="/order">
+    <a class="app-nav-item {{ 'active' if active_page == 'order' else '' }}" href="/order" title="발주 가져오기">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      발주 가져오기
+      <span class="nav-label">발주 가져오기</span>
     </a>
-    <a class="app-nav-item {{ 'active' if active_page == 'compare' else '' }}" href="/compare">
+    <a class="app-nav-item {{ 'active' if active_page == 'compare' else '' }}" href="/compare" title="가격비교">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-      가격비교
+      <span class="nav-label">가격비교</span>
     </a>
-    <a class="app-nav-item {{ 'active' if active_page == 'popular' else '' }}" href="/popular">
+    <a class="app-nav-item {{ 'active' if active_page == 'popular' else '' }}" href="/popular" title="인기상품">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-      인기상품
+      <span class="nav-label">인기상품</span>
     </a>
-    <a class="app-nav-item {{ 'active' if active_page == 'beverages' else '' }}" href="/beverages">
+    <a class="app-nav-item {{ 'active' if active_page == 'beverages' else '' }}" href="/beverages" title="음료 추천">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
-      음료 추천
+      <span class="nav-label">음료 추천</span>
     </a>
-    <a class="app-nav-item {{ 'active' if active_page == 'vendors' else '' }}" href="/my-vendors">
+    <a class="app-nav-item {{ 'active' if active_page == 'vendors' else '' }}" href="/my-vendors" title="내 도매처 계정">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-      내 도매처 계정
+      <span class="nav-label">내 도매처 계정</span>
     </a>
     <div class="app-spacer"></div>
     <div class="app-footer" id="appShellUserInfo">
-      <a href="#" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>window.location.href='/login');return false;">
+      <a href="#" title="로그아웃" onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>window.location.href='/login');return false;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        로그아웃
+        <span class="footer-label">로그아웃</span>
       </a>
     </div>
   </div>
+  <script>
+    (function () {
+      const sidebar = document.getElementById("appSidebar");
+      const toggleBtn = document.getElementById("sidebarToggleBtn");
+      if (localStorage.getItem("appSidebarCollapsed") === "1") {
+        sidebar.classList.add("collapsed");
+      }
+      toggleBtn.addEventListener("click", () => {
+        sidebar.classList.toggle("collapsed");
+        localStorage.setItem("appSidebarCollapsed", sidebar.classList.contains("collapsed") ? "1" : "0");
+      });
+    })();
+  </script>
   <div class="app-main">
