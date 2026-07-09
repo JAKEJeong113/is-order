@@ -404,7 +404,16 @@ def add_to_cart(
 
             outcome = _try_add()
             if (outcome.startswith("no_cart_button") or outcome in ("login_required", "not_added")) and cached_state:
-                # 캐시된 세션이 만료됐을 수 있으니 새로 로그인해서 한 번 더 시도
+                # 캐시된 세션이 만료됐을 수 있으니 새로 로그인해서 한 번 더 시도.
+                # login_godomall은 쿠키만 지우고 같은 page 객체를 재사용하는데,
+                # 실사용 중 쿠키를 지우고 재로그인해도 상품 상세페이지 대신 홈으로
+                # 리다이렉트되며 재시도까지 실패하는 사례가 있었다(크나버 건) -
+                # localStorage/sessionStorage 등 쿠키 외의 잔여 상태가 원인일 수
+                # 있어, 재시도는 쿠키 지우기 대신 아예 새 컨텍스트로 시작한다.
+                context.close()
+                context = browser.new_context()
+                page = context.new_page()
+                page.on("dialog", _on_dialog)
                 login_godomall(page, base_url, login_id, login_pwd)
                 logged_in_fresh = True
                 outcome = _try_add()
