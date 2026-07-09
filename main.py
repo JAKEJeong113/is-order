@@ -703,35 +703,41 @@ def admin_beverages_page(request: Request, _: bool = Depends(require_admin)):
 
 @app.get("/admin/api/beverages")
 def admin_api_beverages_list(_: bool = Depends(require_admin)):
-    """카탈로그의 음료수 96개 전체 + 각각의 현재 DB 상태(이미지/가격/링크/수동고정
-    여부)를 합쳐서 반환한다. 관리 페이지의 목록 렌더링용."""
+    """카탈로그의 음료수 상품 + 관리 페이지에서 직접 추가한 상품(카탈로그엔 없고
+    DB에만 있는 것) 전체를, 각각의 현재 DB 상태(이미지/가격/링크/수동고정 여부)와
+    합쳐서 반환한다. 관리 페이지의 목록 렌더링용."""
     try:
         catalog = load_coupang_catalog_xlsx(str(beverage_ranking.COUPANG_CATALOG_XLSX_PATH))
     except Exception as e:
         return {"ok": False, "error": f"카탈로그 로드 실패: {e}"}
 
-    beverage_entries = {
-        barcode: entry for barcode, entry in catalog.items()
+    catalog_names = {
+        barcode: entry.menu_name for barcode, entry in catalog.items()
         if entry.category.strip() == beverage_ranking.BEVERAGE_CATEGORY
     }
 
     conn = beverage_ranking.get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT item_key, image_url, price, reference_url, manual_override FROM beverage_catalog")
-    by_key = {r[0]: {"image_url": r[1], "price": r[2], "reference_url": r[3], "manual_override": bool(r[4])} for r in cur.fetchall()}
+    cur.execute("SELECT item_key, item_name, image_url, price, reference_url, manual_override FROM beverage_catalog")
+    db_rows = {r[0]: {"item_name": r[1], "image_url": r[2], "price": r[3], "reference_url": r[4], "manual_override": bool(r[5])} for r in cur.fetchall()}
     conn.close()
 
+    # 카탈로그 96개(직접 추가한 이름은 없을 수 있음) + DB에만 있는 관리 페이지
+    # 직접 추가분(카탈로그엔 없음)을 합집합으로 합친다.
+    all_keys = set(catalog_names) | set(db_rows)
+
     items = []
-    for item_key, entry in sorted(beverage_entries.items(), key=lambda kv: kv[1].menu_name):
-        state = by_key.get(item_key, {})
+    for item_key in all_keys:
+        state = db_rows.get(item_key, {})
         items.append({
             "item_key": item_key,
-            "item_name": entry.menu_name,
+            "item_name": catalog_names.get(item_key) or state.get("item_name") or "",
             "image_url": state.get("image_url"),
             "price": state.get("price"),
             "reference_url": state.get("reference_url"),
             "manual_override": state.get("manual_override", False),
         })
+    items.sort(key=lambda it: it["item_name"])
     return {"ok": True, "items": items}
 
 
