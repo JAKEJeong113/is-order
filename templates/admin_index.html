@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>관리자</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    h2 { font-size: 14px; margin: 24px 0 10px; color: var(--muted); }
+    .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+    a.menu-card {
+      display: block; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px; text-decoration: none; color: inherit;
+      transition: border-color .15s, transform .15s;
+    }
+    a.menu-card:hover { border-color: var(--mint); transform: translateY(-1px); }
+    .menu-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+    .menu-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .tool-list { font-size: 13px; }
+    .tool-list a { color: var(--mint-text); text-decoration: none; }
+    .tool-list li { margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <h1>관리자 메뉴</h1>
+  <div class="hint-text">관리자 비밀번호로만 접근 가능한 페이지 모음입니다.</div>
+
+  <h2>관리 페이지</h2>
+  <div class="menu-grid">
+    <a class="menu-card" href="/admin/beverages">
+      <div class="menu-title">음료 링크 관리</div>
+      <div class="menu-desc">음료 추천 카드의 쿠팡 파트너스 링크/이미지를 직접 확인하고 등록합니다.</div>
+    </a>
+    <a class="menu-card" href="/telegram/admin">
+      <div class="menu-title">텔레그램 가맹점 승인</div>
+      <div class="menu-desc">텔레그램 발주봇에 요청이 들어온 가맹점을 승인/해제합니다.</div>
+    </a>
+    <a class="menu-card" href="/admin/users">
+      <div class="menu-title">웹 회원 - 가맹점 연결</div>
+      <div class="menu-desc">웹 로그인 계정을 텔레그램에서 승인된 가맹점과 연결합니다.</div>
+    </a>
+  </div>
+
+  <h2>진단 도구</h2>
+  <div class="hint-text">문제 확인용 읽기 전용 도구입니다.</div>
+  <ul class="tool-list">
+    <li><a href="/admin/debug-beverage-status">음료 백필 진행상황 확인</a></li>
+  </ul>
+</body>
+</html>

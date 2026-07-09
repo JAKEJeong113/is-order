@@ -696,6 +696,11 @@ def admin_debug_beverage_status(_: bool = Depends(require_admin)):
     }
 
 
+@app.get("/admin", response_class=HTMLResponse)
+def admin_index_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("admin_index.html", {"request": request})
+
+
 @app.get("/admin/beverages", response_class=HTMLResponse)
 def admin_beverages_page(request: Request, _: bool = Depends(require_admin)):
     return templates.TemplateResponse("beverage_admin.html", {"request": request})
