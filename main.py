@@ -104,9 +104,15 @@ web_auth.init_web_auth_tables()
 beverage_ranking.init_beverage_ranking_table()
 
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
+# CronTrigger를 직접 만들어서 trigger=로 넘기면 scheduler의 timezone을 자동으로
+# 물려받지 않고 CronTrigger 자체의 기본값(서버의 로컬 타임존)을 쓴다 - Render
+# 서버가 UTC라 "새벽 4시"로 짠 작업들이 실제로는 UTC 4시(=한국시간 오후 1시,
+# 한창 영업시간)에 돌고 있었다(음료 추천 백필이 한 번도 안 된 원인). 각
+# CronTrigger에 timezone을 명시해서 실제로 한국시간 새벽 4시에 돌도록 고친다.
+KST = "Asia/Seoul"
 scheduler.add_job(
     catalog_crawler.crawl_all_enabled,
-    trigger=CronTrigger(hour=4, minute=0),
+    trigger=CronTrigger(hour=4, minute=0, timezone=KST),
     id="daily_catalog_refresh",
     replace_existing=True,
 )
@@ -116,7 +122,7 @@ scheduler.add_job(
     # 호출 한도가 엄격해서(초과 시 최대 24시간 잠기고 3회 누적되면 계정 자체가
     # 제한됨) 자주 돌리면 안 되지만, 이미 채워진 항목은 다시 건드리지 않으므로
     # 카탈로그가 그대로면 둘째 날부터는 호출이 거의 발생하지 않는다.
-    trigger=CronTrigger(hour=4, minute=0),
+    trigger=CronTrigger(hour=4, minute=0, timezone=KST),
     id="daily_beverage_product_backfill",
     replace_existing=True,
 )
@@ -125,7 +131,7 @@ scheduler.add_job(
     # 파트너스 추적 링크는 발급 후 24시간만 유효해서 매일 새로 발급해야 한다.
     # deeplink API는 발주 임포트마다 호출해도 문제없었던 걸 확인했으니 매일
     # 돌려도 안전하다.
-    trigger=CronTrigger(hour=4, minute=30),
+    trigger=CronTrigger(hour=4, minute=30, timezone=KST),
     id="daily_beverage_link_refresh",
     replace_existing=True,
 )
