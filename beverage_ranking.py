@@ -12,7 +12,12 @@
 이 API는 시간당 호출 한도가 엄격하고(실측 시간당 약 90여회) 초과하면 최대
 24시간 잠기며 3회 누적되면 계정 자체가 제한된다. 그래서 "아직 기준 URL이 없는
 상품"에 대해서만 하루 한 번 백필하듯 돌린다 — 카탈로그가 안 바뀌면 둘째 날부터는
-처리할 게 없어서 사실상 호출이 0에 수렴한다.
+처리할 게 없어서 사실상 호출이 0에 수렴한다. 파트너스 링크는 만료되지 않는
+고정 링크라 한 번 채워지면 다시 검색하지 않는다(재검색은 이미 맞는 매칭을
+엉뚱한 상품으로 잘못 덮어쓸 위험만 있다).
+
+검색어가 상품명 그대로라 가끔 엉뚱한 상품이 매칭되는 경우, 사람이 직접 확인한
+링크를 set_manual_beverage_link()로 반영하면 이후 자동 검색에서 영구 제외된다.
 
 클릭수는 순위 집계용이라 어느 갱신 작업에서도 건드리지 않는다."""
 import hashlib
@@ -153,14 +158,16 @@ def search_coupang_product(keyword: str) -> dict | None:
 
 
 def refresh_beverage_products(limit: int | None = None) -> dict:
-    """카탈로그의 음료수 상품 중 사람이 수동으로 고정(manual_override)하지 않은
-    항목만, 한 번도 안 갱신됐거나 가장 오래 전에 갱신된 것부터 상품검색 API로
-    다시 채운다. limit을 안 주면 그 시점 대상 전체의 절반만 처리한다(2~3일
-    주기로 나눠 돌려서, 링크가 오래돼도 며칠 안에는 항상 새로 갱신되게 하면서도
-    시간당 호출 한도에서 여유를 두기 위함 - 나머지 절반은 다음 예약 실행 때).
+    """카탈로그의 음료수 상품 중 기준 URL(reference_url)이 아직 없고 사람이
+    수동으로 고정(manual_override)하지도 않은 항목만 상품검색 API로 채운다.
+    쿠팡 파트너스 링크는 만료되지 않는 고정 링크라 한 번 채워지면(또는 수동
+    고정되면) 다시 건드리지 않는다 - 재검색은 이미 맞게 매칭된 상품을 엉뚱한
+    상품으로 잘못 덮어쓸 위험만 있고 얻는 이득이 없다. 카탈로그가 그대로면
+    둘째 날부터는 처리할 항목이 없어 호출이 거의 발생하지 않는다.
 
-    limit을 명시하면 그 개수만큼만 처리한다 - 관리자가 수동으로 안전한 만큼만
-    나눠서 돌려볼 수 있게 하기 위함."""
+    limit을 주면 미처리 항목 중 앞에서부터 그만큼만 처리한다 - 최초 백필처럼
+    미처리 항목이 시간당 한도에 가까울 때, 관리자가 안전한 만큼만 수동으로
+    나눠서 돌려볼 수 있게 하기 위함(나머지는 다음 예약 실행 때 이어서 처리됨)."""
     try:
         catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
     except Exception as e:
@@ -174,20 +181,13 @@ def refresh_beverage_products(limit: int | None = None) -> dict:
 
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT item_key FROM beverage_catalog WHERE manual_override = 1")
-    locked = {r[0] for r in cur.fetchall()}
-    cur.execute("SELECT item_key, image_refreshed_at FROM beverage_catalog WHERE manual_override = 0")
-    freshness = {r[0]: r[1] for r in cur.fetchall()}
+    cur.execute("SELECT item_key FROM beverage_catalog WHERE reference_url IS NOT NULL OR manual_override = 1")
+    already_done = {r[0] for r in cur.fetchall()}
 
-    # 한 번도 안 채워진 항목(freshness에 없음)을 최우선으로, 그 다음은 갱신
-    # 시각이 오래된 순서로 정렬한다.
-    eligible_keys = [k for k in beverage_entries if k not in locked]
-    eligible_keys.sort(key=lambda k: freshness.get(k) or "")
-    total_eligible = len(eligible_keys)
-
-    batch_size = limit if limit is not None else -(-total_eligible // 2)
-    pending_entries = [(k, beverage_entries[k]) for k in eligible_keys[:batch_size]]
-    total_pending = total_eligible
+    pending_entries = [(k, e) for k, e in beverage_entries.items() if k not in already_done]
+    total_pending = len(pending_entries)
+    if limit is not None:
+        pending_entries = pending_entries[:limit]
 
     saved = 0
     failed = 0

@@ -18,7 +18,6 @@ import pandas as pd
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
 import secrets
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
@@ -104,15 +103,6 @@ vendors.init_session_table()
 web_auth.init_web_auth_tables()
 beverage_ranking.init_beverage_ranking_table()
 
-def _next_4am_kst() -> datetime:
-    """KST는 DST가 없어 UTC+9 고정이라 별도 tz 라이브러리 없이 계산한다."""
-    kst_now = datetime.now(timezone.utc) + timedelta(hours=9)
-    candidate = kst_now.replace(hour=4, minute=0, second=0, microsecond=0)
-    if candidate <= kst_now:
-        candidate += timedelta(days=1)
-    return candidate.replace(tzinfo=None)
-
-
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 # CronTrigger를 직접 만들어서 trigger=로 넘기면 scheduler의 timezone을 자동으로
 # 물려받지 않고 CronTrigger 자체의 기본값(서버의 로컬 타임존)을 쓴다 - Render
@@ -128,19 +118,20 @@ scheduler.add_job(
 )
 scheduler.add_job(
     beverage_ranking.refresh_beverage_products,
-    # 쿠팡 상품검색 API로 이미지/가격/구매링크를 채운다. 이 API는 시간당 호출
-    # 한도가 엄격해서(초과 시 최대 24시간 잠기고 3회 누적되면 계정 자체가
-    # 제한됨) 자주 돌리면 안 된다. 사람이 직접 확인해서 고정한(manual_override)
-    # 항목은 절대 다시 검색하지 않고, 나머지 대상만 매번 절반씩 나눠 처리한다
-    # (3일 주기 = 최대 6일 안에는 항상 한 번씩 갱신됨).
+    # 쿠팡 상품검색 API로 아직 기준 URL이 없는 음료만 채운다. 파트너스 링크는
+    # 만료되지 않는 고정 링크라 한 번 채워지면(또는 사람이 수동 고정하면)
+    # 다시 검색하지 않는다 - 카탈로그가 그대로면 둘째 날부터는 호출이 0에
+    # 수렴한다. 이 API는 시간당 호출 한도가 엄격해서(초과 시 최대 24시간
+    # 잠기고 3회 누적되면 계정 자체가 제한됨) 자주 돌리면 안 되지만, 위와
+    # 같은 이유로 매일 돌려도 안전하다.
     #
     # 상품검색 결과의 productUrl 자체가 이미 파트너스 추적 태그가 붙은 링크라
     # (link.coupang.com/re/AFFSDP?lptag=... 형태) 여기서 바로 partners_link로도
-    # 저장한다 - 별도 딥링크 변환 API를 또 부를 필요가 없다(오히려 이미 변환된
+    # 저장한다 - 별도 딥링크 변환 API를 부를 필요가 없다(오히려 이미 변환된
     # 링크를 다시 변환하려 하면 "url convert failed"로 실패한다는 걸 실측으로
     # 확인함).
-    trigger=IntervalTrigger(days=3, start_date=_next_4am_kst(), timezone=KST),
-    id="beverage_product_refresh_every_3_days",
+    trigger=CronTrigger(hour=4, minute=0, timezone=KST),
+    id="daily_beverage_product_backfill",
     replace_existing=True,
 )
 scheduler.start()
