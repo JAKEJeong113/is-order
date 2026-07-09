@@ -321,6 +321,13 @@ def add_to_cart(
             except PWTimeoutError:
                 pass
 
+            # 수량 입력(아래 target_qty 채우기) 전에 이미 #cartBtn이 없는 건지,
+            # 아니면 수량을 채우는 순간(예: 재고 초과) 리다이렉트가 발생하는
+            # 건지 구분하기 위한 스냅샷 (크나버 건: 완전히 새 세션으로도 실패가
+            # 재현돼 세션 문제가 아닐 가능성이 커져서 추가).
+            pre_qty_cart_btn_count = page.locator("#cartBtn").count()
+            pre_qty_url = page.url
+
             before_count = _read_cart_count()
 
             # 실제 필드명은 "goodsCnt[]"(대괄호 포함, 배열 표기)라 input[name='goodsCnt']로는
@@ -333,6 +340,8 @@ def add_to_cart(
             # "몇 세트를 담을지"를 의미하므로, 기본값을 그대로 두면 안 되고 "기본값 × qty"를
             # 채워야 한다(기본값이 1이면 결과도 그대로 qty와 같아서 일반 상품은 영향 없음).
             qty_input = page.locator("input[name='goodsCnt[]'], input[class*='goodsCnt'], input.qty_input").first
+            unit_qty = None
+            target_qty = None
             if qty_input.count() > 0:
                 try:
                     unit_qty = int(qty_input.input_value() or "1")
@@ -358,7 +367,11 @@ def add_to_cart(
                     diag_body = page.locator("body").inner_text(timeout=2000)[:200].replace("\n", " ")
                 except Exception:
                     pass
-                return f"no_cart_button|{diag_url}|{diag_body}"
+                pre_qty_note = (
+                    f"(수량입력전 cartBtn={pre_qty_cart_btn_count}, url={pre_qty_url}, "
+                    f"unit_qty={unit_qty}, target_qty={target_qty})"
+                )
+                return f"no_cart_button|{diag_url}|{pre_qty_note} {diag_body}"
 
             try:
                 cart_btn.click(timeout=5000)
