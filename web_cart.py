@@ -124,3 +124,13 @@ def delete_item(store_id: str, item_id: int) -> bool:
     conn.commit()
     conn.close()
     return deleted
+
+
+def delete_all_items(store_id: str) -> int:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM web_cart_items WHERE store_id = ?", (store_id,))
+    count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return count

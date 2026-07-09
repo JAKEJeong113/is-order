@@ -253,11 +253,77 @@ def list_store_vendor_status(store_id: str) -> list[dict]:
     registered = {r[0] for r in cur.fetchall()}
     conn.close()
 
+    disabled, preferred = get_store_vendor_prefs(store_id)
+
     return [
-        {"vendor_id": vid, "name": meta["name"], "registered": vid in registered}
+        {
+            "vendor_id": vid, "name": meta["name"], "registered": vid in registered,
+            "enabled": vid not in disabled, "is_preferred": vid == preferred,
+        }
         for vid, meta in VENDORS.items()
         if vid in STORE_MANAGED_VENDOR_IDS
     ]
+
+
+# --- 지점별 도매처 활성화/비활성화 + 주 도매처 설정. 텔레그램 봇은 telegram_stores
+# 테이블에 같은 개념을 별도로 갖고 있다(store_id 형식이 chat_id라 이 테이블과
+# 자연스럽게 공유하기보다는, 웹(store_id="web:이메일")용으로 새로 둔다). ---
+
+def init_store_vendor_prefs_table() -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS store_vendor_prefs (
+        store_id TEXT PRIMARY KEY,
+        disabled_vendors TEXT,
+        preferred_vendor TEXT
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def get_store_vendor_prefs(store_id: str) -> tuple[set, str | None]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT disabled_vendors, preferred_vendor FROM store_vendor_prefs WHERE store_id = ?", (store_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return set(), None
+    disabled = {v for v in (row[0] or "").split(",") if v}
+    return disabled, row[1]
+
+
+def _save_store_vendor_prefs(store_id: str, disabled: set, preferred: str | None) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    INSERT INTO store_vendor_prefs (store_id, disabled_vendors, preferred_vendor)
+    VALUES (?, ?, ?)
+    ON CONFLICT(store_id) DO UPDATE SET
+        disabled_vendors = excluded.disabled_vendors,
+        preferred_vendor = excluded.preferred_vendor
+    """, (store_id, ",".join(sorted(disabled)), preferred))
+    conn.commit()
+    conn.close()
+
+
+def set_vendor_enabled_for_store(store_id: str, vendor_id: str, enabled: bool) -> None:
+    disabled, preferred = get_store_vendor_prefs(store_id)
+    if enabled:
+        disabled.discard(vendor_id)
+    else:
+        disabled.add(vendor_id)
+        # 비활성화한 도매처가 주 도매처였으면 그 지정도 같이 풀어준다.
+        if preferred == vendor_id:
+            preferred = None
+    _save_store_vendor_prefs(store_id, disabled, preferred)
+
+
+def set_preferred_vendor_for_store(store_id: str, vendor_id: str | None) -> None:
+    disabled, _ = get_store_vendor_prefs(store_id)
+    _save_store_vendor_prefs(store_id, disabled, vendor_id)
 
 
 # --- 담기 속도 개선용: 지점별 로그인 세션(쿠키) 캐시. 매번 새로 로그인하는 대신

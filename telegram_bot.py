@@ -158,28 +158,8 @@ def _store_prefs(chat_id: str) -> tuple[set, str | None]:
     return set(reg.get("disabled_vendors") or []), reg.get("preferred_vendor")
 
 
-def _filter_groups_for_store(groups: list[dict], disabled_vendors: set) -> list[dict]:
-    """비활성화한 도매처는 가격비교/후보 목록에서 아예 안 보이게 거른다.
-    걸러내고 나서 살 수 있는 도매처가 하나도 안 남는 그룹은 통째로 제거하고,
-    대표 이름/가격도 남은 오퍼 기준으로 다시 뽑는다(offers는 이미 단가순 정렬돼 있음)."""
-    if not disabled_vendors:
-        return groups
-
-    filtered = []
-    for g in groups:
-        offers = [o for o in g["offers"] if o["vendor_id"] not in disabled_vendors]
-        if not offers:
-            continue
-        best = offers[0]
-        filtered.append({
-            **g,
-            "offers": offers,
-            "representative_name": best["name"],
-            "best_price": best.get("price"),
-            "best_vendor_name": best["vendor_name"],
-            "vendor_count": len(offers),
-        })
-    return filtered
+# 웹 compare 페이지와 공유(price_compare.py가 단일 소스).
+_filter_groups_for_store = price_compare.filter_groups_for_store
 
 
 # 상품명 뒤에 (공백 유무 상관없이) 순수 숫자(1~99)만 오면 수량으로 해석한다.

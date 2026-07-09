@@ -111,6 +111,7 @@ popularity.init_popularity_table()
 telegram_store.init_telegram_tables()
 vendors.init_store_vendor_table()
 vendors.init_session_table()
+vendors.init_store_vendor_prefs_table()
 web_auth.init_web_auth_tables()
 beverage_ranking.init_beverage_ranking_table()
 patch_notes.init_patch_notes_table()
@@ -401,13 +402,16 @@ def compare_page(request: Request):
 
 
 @app.post("/api/price-compare")
-def api_price_compare(req: PriceCompareRequest, _: dict = Depends(require_web_user)):
+def api_price_compare(req: PriceCompareRequest, user: dict = Depends(require_web_user)):
     keyword = req.keyword.strip()
     if not keyword:
         return {"keyword": "", "vendors": [], "groups": []}
 
+    store_id = f"web:{user['email']}"
     result = price_compare.compare(keyword)
-    return {"keyword": keyword, **result}
+    disabled_vendors, _ = vendors.get_store_vendor_prefs(store_id)
+    groups = price_compare.filter_groups_for_store(result.get("groups", []), disabled_vendors)
+    return {"keyword": keyword, "vendors": result.get("vendors", []), "groups": groups}
 
 
 @app.get("/api/catalog/status")
@@ -503,6 +507,13 @@ def api_isorder_cart_add(req: IsorderCartAddRequest, user: dict = Depends(requir
 def api_isorder_cart_list(user: dict = Depends(require_web_user)):
     store_id = f"web:{user['email']}"
     return {"items": web_cart.list_items(store_id)}
+
+
+@app.delete("/api/isorder-cart")
+def api_isorder_cart_delete_all(user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    count = web_cart.delete_all_items(store_id)
+    return {"ok": True, "count": count}
 
 
 class IsorderCartQtyRequest(BaseModel):
@@ -930,6 +941,31 @@ def api_my_vendors_save(vendor_id: str, req: MyVendorCredentialsRequest, user: d
         vendors.set_store_vendor_credentials(store_id, vendor_id, req.login_id, req.login_pwd)
     except ValueError as e:
         return {"ok": False, "message": str(e)}
+    return {"ok": True}
+
+
+class MyVendorToggleRequest(BaseModel):
+    enabled: bool
+
+
+@app.post("/api/my-vendors/{vendor_id}/toggle")
+def api_my_vendors_toggle(vendor_id: str, req: MyVendorToggleRequest, user: dict = Depends(require_web_user)):
+    """가격비교에서 이 도매처를 켜고 끈다(텔레그램의 "도매처 활성화/비활성화"와
+    동일한 개념, 웹 계정용 저장소는 별도)."""
+    store_id = f"web:{user['email']}"
+    vendors.set_vendor_enabled_for_store(store_id, vendor_id, req.enabled)
+    return {"ok": True}
+
+
+class MyVendorPreferredRequest(BaseModel):
+    vendor_id: Optional[str] = None
+
+
+@app.post("/api/my-vendors/preferred")
+def api_my_vendors_set_preferred(req: MyVendorPreferredRequest, user: dict = Depends(require_web_user)):
+    """가격이 동률일 때 우선으로 볼 주 도매처를 지정한다. vendor_id를 비우면 해제."""
+    store_id = f"web:{user['email']}"
+    vendors.set_preferred_vendor_for_store(store_id, req.vendor_id)
     return {"ok": True}
 
 
