@@ -44,6 +44,10 @@ VENDORS = {
     },
 }
 
+# 실제 자동 담기(add_to_cart)가 구현된 도매처 목록. 텔레그램 봇/웹 장바구니
+# 양쪽에서 공유해서 쓴다(둘 다 이 목록 밖 도매처는 자동 담기 후보로 보지 않음).
+CART_SUPPORTED_VENDORS = ("yamimall", "ccdome", "3bong", "hdinter", "moomarket", "douyou")
+
 
 def _get_fernet() -> Fernet:
     key = os.getenv("VENDOR_CRED_KEY")

@@ -8,13 +8,11 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 
-import cafe24_bot
-import godomall_bot
+import cart_add_logic
 import popularity
 import price_compare
 import telegram_store
 import vendors
-import yamimall_bot
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -46,9 +44,8 @@ CANCEL_WORDS = {"취소", "아니", "아니오", "no", "cancel"}
 CRED_TRIGGER_WORDS = {"계정등록", "도매처등록", "도매처계정등록", "계정 등록"}
 HELP_WORDS = {"도움말", "명령어", "help", "도움", "명령"}
 
-# 실제 자동 담기(add_to_cart)가 구현된 도매처만 포함. 또요몰은 계정 등록은
-# 받되(KOREAN_TO_VENDOR_ID), 봇 감지 우회가 되기 전까지는 담기 자동화 대상에서 제외한다.
-CART_SUPPORTED_VENDORS = ("yamimall", "ccdome", "3bong", "hdinter", "moomarket", "douyou")
+# 웹 장바구니(/cart)와 공유(vendors.py가 단일 소스).
+CART_SUPPORTED_VENDORS = vendors.CART_SUPPORTED_VENDORS
 KOREAN_TO_VENDOR_ID = {
     "야미몰": "yamimall", "과자생각": "ccdome", "삼봉몰": "3bong",
     "현동몰": "hdinter", "무마켓": "moomarket", "또요몰": "douyou",
@@ -142,33 +139,14 @@ def _pick_best_offer(offers: list[dict], preferred_vendor: str | None) -> dict |
 def _offer_to_item(item_name: str, best_offer: dict, qty: int = 1, all_offers: list[dict] | None = None) -> dict:
     """all_offers를 넘기면(그룹 전체 후보), 선택된 도매처가 품절일 때 시도해볼 다른
     도매처 후보들을 alt_offers로 같이 담아둔다(이미 개당가 오름차순 정렬돼 있음)."""
-    alt_offers = []
-    if all_offers:
-        seen_vendors = {best_offer["vendor_id"]}
-        for o in all_offers:
-            if o["vendor_id"] in seen_vendors or o["vendor_id"] not in CART_SUPPORTED_VENDORS or not o.get("product_url"):
-                continue
-            seen_vendors.add(o["vendor_id"])
-            alt_offers.append({
-                "vendor_id": o["vendor_id"],
-                "vendor_name": o["vendor_name"],
-                "product_url": o["product_url"],
-                "item_key": o.get("goods_no") or o["product_url"],
-                "price": o.get("price"),
-            })
+    alt_offers = cart_add_logic.build_alt_offers(best_offer["vendor_id"], all_offers) if all_offers else []
 
     return {
         "item_name": item_name,
         "vendor_id": best_offer["vendor_id"],
         "vendor_name": best_offer["vendor_name"],
         "product_url": best_offer["product_url"],
-        # best_offer가 price_compare 원본 offer면 "goods_no"를, alt_offers 항목(품절
-        # 대체 후보, _offer_to_item이 만든 딕셔너리 재사용)이면 "goods_no" 필드가
-        # 아예 없고 "item_key"에 이미 올바른 값(goods_no 또는 product_url)이 들어있다.
-        # 이 구분 없이 goods_no만 보고 product_url로 폴백하면, 도매처 상세페이지
-        # URL 전체가 goodsNo 파라미터 값으로 들어가 홈으로 리다이렉트되는 버그가
-        # 있었다(크나버 웨이퍼 품절 대체 시도 건에서 발견).
-        "item_key": best_offer.get("goods_no") or best_offer.get("item_key") or best_offer["product_url"],
+        "item_key": cart_add_logic.offer_item_key(best_offer),
         "price": best_offer.get("price"),
         "qty": qty,
         "alt_offers": alt_offers,
@@ -380,74 +358,6 @@ ITEM_CART_ADD_TIMEOUT_SECONDS = 90
 # 한 상품당 예산을 넉넉히 잡는다 (품절 재시도 최대 2~3곳 가정).
 ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS = 240
 
-# "...찾지 못함"도 포함한다 - 품절 상품은 사이트가 담기 버튼/상품 자체를 안
-# 보여주고 "품절" 표시로 바꿔치기하는 경우가 많아서(또요몰에서 실사용 확인),
-# 명시적인 재고 문구 없이 버튼만 사라지는 것도 품절 신호로 취급한다. 도매처마다
-# 정확한 문구가 조금씩 달라서("장바구니 버튼을 찾지 못함" vs "담기
-# 버튼(#cartBtn)을 찾지 못함") 공통 부분인 "찾지 못함"만으로 느슨하게 잡는다.
-STOCK_FAILURE_KEYWORDS = ("재고", "품절", "구매할 수 있는", "수량이 늘지 않", "찾지 못함")
-
-
-def _is_stock_failure(reason: str) -> bool:
-    reason = reason or ""
-    return any(kw in reason for kw in STOCK_FAILURE_KEYWORDS)
-
-
-def _add_single_item_to_cart(store_id: str, item: dict) -> dict:
-    creds = vendors.get_store_vendor_credentials(store_id, item["vendor_id"])
-    if not creds:
-        return {
-            "ok": False,
-            "reason": "계정 미등록 ('계정등록'이라고 보내서 먼저 등록해주세요)",
-        }
-
-    login_id, login_pwd = creds
-    base_url = vendors.VENDORS[item["vendor_id"]]["base_url"]
-
-    if item["vendor_id"] == "yamimall":
-        return yamimall_bot.add_to_cart(store_id, login_id, login_pwd, item["product_url"], item["qty"], keyword=item.get("item_name"))
-    if item["vendor_id"] == "moomarket":
-        return cafe24_bot.add_to_cart(store_id, base_url, login_id, login_pwd, item["product_url"], item["qty"])
-    if item["vendor_id"] == "douyou":
-        return yamimall_bot.add_to_cart_via_list(
-            store_id, item["vendor_id"], login_id, login_pwd, item["product_url"], item["qty"],
-            base_url=base_url, keyword=item.get("item_name"),
-        )
-
-    return godomall_bot.add_to_cart(store_id, item["vendor_id"], base_url, login_id, login_pwd, item["item_key"], item["qty"])
-
-
-def _add_item_with_batch_fallback(store_id: str, item: dict, batch_vendors: set) -> tuple[dict, dict, list[dict]]:
-    """최초 선택한(최저가) 도매처에서 담기를 시도한다. 품절류로 실패하면, 이번 발주에
-    이미 포함된 다른 도매처(batch_vendors) 안에서만 조용히 순서대로 재시도한다 -
-    배송을 최대한 한 도매처로 몰아주기 위해, 이번 발주에 안 쓰는 새 도매처로는
-    자동으로 넘어가지 않는다. 그 안에서도 전부 품절이면, 배치 밖의 남은 후보
-    (다른 활성화된 도매처)를 반환해서 사용자가 고를 수 있게 한다.
-
-    반환: (최종 결과, 실제로 시도한 item, 사용자가 골라야 할 배치 밖 대안 목록)"""
-    tried_vendor_ids = {item["vendor_id"]}
-    result = _add_single_item_to_cart(store_id, item)
-    used_item = item
-
-    if not result.get("ok") and _is_stock_failure(result.get("reason", "")):
-        for alt in item.get("alt_offers") or []:
-            if alt["vendor_id"] not in batch_vendors or alt["vendor_id"] in tried_vendor_ids:
-                continue
-            tried_vendor_ids.add(alt["vendor_id"])
-            alt_item = _offer_to_item(item["item_name"], alt, item["qty"])
-            alt_result = _add_single_item_to_cart(store_id, alt_item)
-            result, used_item = alt_result, alt_item
-            if alt_result.get("ok") or not _is_stock_failure(alt_result.get("reason", "")):
-                # 성공했거나, 품절이 아닌 다른 이유(로그인 등)면 더 자동 재시도하지 않는다
-                break
-
-    remaining_alts = []
-    if not result.get("ok") and _is_stock_failure(result.get("reason", "")):
-        remaining_alts = [o for o in (item.get("alt_offers") or []) if o["vendor_id"] not in tried_vendor_ids]
-
-    return result, used_item, remaining_alts
-
-
 def _execute_cart_adds(chat_id, store_id: str, items: list[dict]) -> None:
     """도매처마다 실제 브라우저를 띄우는 작업이라 한 상품이 응답 없이 멈추면 전체가
     영원히 멈출 수 있다. 상품당 시간 제한을 걸어 하나가 멈춰도 나머지는 계속 진행하고,
@@ -459,7 +369,7 @@ def _execute_cart_adds(chat_id, store_id: str, items: list[dict]) -> None:
         for item in items:
             pool = ThreadPoolExecutor(max_workers=1)
             try:
-                future = pool.submit(_add_item_with_batch_fallback, store_id, item, batch_vendors)
+                future = pool.submit(cart_add_logic.add_item_with_batch_fallback, store_id, item, batch_vendors)
                 result, used_item, remaining_alts = future.result(timeout=ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS)
             except FutureTimeoutError:
                 result = {"ok": False, "reason": f"{ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS}초 넘게 응답이 없어 건너뜀. 직접 확인해주세요."}
@@ -523,7 +433,7 @@ def _ask_next_stockout(chat_id: str, state: dict) -> None:
 def _process_stockout_choice(chat_id: str, state: dict, alt_offer: dict) -> None:
     entry = state["queue"][0]
     item = _offer_to_item(entry["item_name"], alt_offer, entry["qty"])
-    result = _add_single_item_to_cart(state["store_id"], item)
+    result = cart_add_logic.add_single_item_to_cart(state["store_id"], item)
 
     if result.get("ok"):
         state["results"].append(f"✓ {item['item_name']} - {item['vendor_name']} 담기 완료")

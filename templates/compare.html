@@ -208,7 +208,7 @@
       const row = btnEl.closest(".offer-row");
       const qty = parseInt(row.querySelector(".qty-input").value, 10) || 1;
       const statusEl = row.querySelector(".cart-status");
-      const { vendorId, vendorName, productUrl, itemName, itemKey, price } = btnEl.dataset;
+      const { vendorId, vendorName, productUrl, itemName, itemKey, price, allOffers } = btnEl.dataset;
 
       btnEl.disabled = true;
       statusEl.textContent = "담는 중...";
@@ -221,6 +221,7 @@
             vendor_id: vendorId, vendor_name: vendorName, product_url: productUrl,
             item_key: itemKey, item_name: itemName,
             price: price ? parseInt(price, 10) : null, qty,
+            all_offers: allOffers ? JSON.parse(allOffers) : [],
           }),
         });
         const data = await res.json();
@@ -291,7 +292,7 @@
       return { main: `${price.toLocaleString()}원`, sub: "" };
     }
 
-    function renderOfferRow(o) {
+    function renderOfferRow(o, allOffers) {
       const nameText = (o.name || "").trim();
       const { main: priceMain, sub: priceSub } = formatPricePair(o.price, nameText);
       const shipText = o.free_shipping_threshold
@@ -305,6 +306,9 @@
         ? `<a class="product-link" href="${o.product_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${nameText}</a>`
         : nameText;
 
+      // 품절 시 자동으로 시도해볼 다른 도매처 후보(alt_offers)를 계산할 수 있게,
+      // 같은 그룹의 다른 offer들을 통째로 같이 담아둔다(텔레그램 봇과 동일한
+      // 자동 전환 로직을 서버에서 쓸 수 있게).
       const cartHtml = CART_SUPPORTED_VENDORS.includes(o.vendor_id) && o.product_url ? `
         <div class="offer-actions" onclick="event.stopPropagation()">
           <input type="number" class="qty-input" value="1" min="1" max="99">
@@ -315,6 +319,7 @@
             data-item-name="${escapeHtml(nameText)}"
             data-item-key="${escapeHtml(o.goods_no || o.product_url)}"
             data-price="${o.price || ""}"
+            data-all-offers="${escapeHtml(JSON.stringify(allOffers || []))}"
           >담기</button>
           <span class="cart-status"></span>
         </div>
@@ -345,7 +350,7 @@
         ? `${g.vendor_count}개 도매처 비교 · ${g.best_vendor_name} 최저가`
         : `${g.best_vendor_name}에서만 발견`;
 
-      const offersHtml = g.offers.map(renderOfferRow).join("");
+      const offersHtml = g.offers.map((o) => renderOfferRow(o, g.offers)).join("");
 
       return `
         <div class="group-card" id="group-${idx}" onclick="toggleGroup(${idx})">

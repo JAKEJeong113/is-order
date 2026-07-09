@@ -45,6 +45,7 @@ from yamimall_bot import add_yamimall_cart
 import beverage_ranking
 import browser_limit
 import cafe24_bot
+import cart_add_logic
 import catalog_cache
 import catalog_crawler
 import godomall_bot
@@ -479,6 +480,9 @@ class IsorderCartAddRequest(BaseModel):
     item_name: str = ""
     price: Optional[int] = None
     qty: int = Field(1, ge=1, le=99)
+    # 같은 상품의 가격비교 그룹 전체 offers(compare.html이 렌더링할 때 이미 갖고
+    # 있음) - 품절 시 자동 전환할 대안(alt_offers)을 계산하는 데 쓰인다.
+    all_offers: list[dict] = []
 
 
 @app.post("/api/isorder-cart/add")
@@ -487,9 +491,10 @@ def api_isorder_cart_add(req: IsorderCartAddRequest, user: dict = Depends(requir
     빠르게 저장한다(DB insert만 하므로 즉시 응답). 실제 도매몰 담기는 /cart
     페이지에서 실행한다."""
     store_id = f"web:{user['email']}"
+    alt_offers = cart_add_logic.build_alt_offers(req.vendor_id, req.all_offers)
     item_id = web_cart.add_item(
         store_id, req.item_name, req.vendor_id, req.vendor_name,
-        req.product_url, req.item_key, req.price, req.qty,
+        req.product_url, req.item_key, req.price, req.qty, alt_offers,
     )
     return {"ok": True, "id": item_id}
 
@@ -516,6 +521,42 @@ def api_isorder_cart_delete(item_id: int, user: dict = Depends(require_web_user)
     store_id = f"web:{user['email']}"
     ok = web_cart.delete_item(store_id, item_id)
     return {"ok": ok}
+
+
+@app.post("/api/isorder-cart/{item_id}/add-to-vendor")
+def api_isorder_cart_add_to_vendor(item_id: int, user: dict = Depends(require_web_user)):
+    """장바구니에 담아둔 상품 하나를 실제 도매몰에 담는다(Playwright 자동화,
+    시간이 걸림). 선택된 도매처가 품절이면, 지금 장바구니에 이미 담긴 다른
+    상품들이 쓰는 도매처 중에서만 조용히 자동 전환을 시도한다(텔레그램 봇과
+    동일한 로직 - cart_add_logic 공유, 배송을 최대한 한 도매처로 몰아주기 위함).
+    그래도 다 품절이면 remaining_alts로 배치 밖 대안을 돌려줘서 화면에서
+    사용자가 고를 수 있게 한다. 성공하면 장바구니에서 자동으로 제거한다."""
+    store_id = f"web:{user['email']}"
+    item = web_cart.get_item(store_id, item_id)
+    if not item:
+        return {"ok": False, "reason": "장바구니에서 찾을 수 없습니다."}
+
+    batch_vendors = {it["vendor_id"] for it in web_cart.list_items(store_id)}
+    cart_item = {
+        "item_name": item["item_name"], "vendor_id": item["vendor_id"],
+        "vendor_name": item["vendor_name"], "product_url": item["product_url"],
+        "item_key": item["item_key"], "price": item["price"], "qty": item["qty"],
+        "alt_offers": item["alt_offers"],
+    }
+    result, used_item, remaining_alts = cart_add_logic.add_item_with_batch_fallback(store_id, cart_item, batch_vendors)
+
+    if result.get("ok"):
+        popularity.log_event(store_id, "wholesale", used_item["item_key"], used_item["item_name"], used_item["qty"])
+        web_cart.delete_item(store_id, item_id)
+
+    return {
+        "ok": result.get("ok", False),
+        "reason": result.get("reason"),
+        "used_vendor_id": used_item["vendor_id"],
+        "used_vendor_name": used_item["vendor_name"],
+        "switched": used_item["vendor_id"] != item["vendor_id"],
+        "remaining_alts": remaining_alts,
+    }
 
 
 @app.get("/cart", response_class=HTMLResponse)
