@@ -1,14 +1,22 @@
 # main.py
 from __future__ import annotations
 
+import os
+from dotenv import load_dotenv
+
+# 프로젝트 내부 모듈들(beverage_ranking, telegram_bot 등)이 import 시점에
+# os.getenv로 API 키를 읽기 때문에, load_dotenv()는 그 import보다 먼저 실행돼야
+# 한다 - 순서가 뒤바뀌면 로컬 개발 환경(.env 파일)에서는 항상 빈 값으로 읽힌다
+# (Render 배포 환경은 .env 없이 실제 환경변수를 바로 주입하므로 이 순서 문제와
+# 무관하게 정상 동작해서 지금까지 드러나지 않았음).
+load_dotenv()
+
 import math
 import re
 import uuid
 import hmac
 import hashlib
 import json
-import os
-from dotenv import load_dotenv
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -47,7 +55,6 @@ import price_compare
 import web_auth
 import yamimall_bot
 
-load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 EXPORT_DIR = BASE_DIR / "exports"
@@ -689,7 +696,66 @@ def admin_debug_beverage_status(_: bool = Depends(require_admin)):
     }
 
 
-class BeverageManualLink(BaseModel):
+@app.get("/admin/beverages", response_class=HTMLResponse)
+def admin_beverages_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("beverage_admin.html", {"request": request})
+
+
+@app.get("/admin/api/beverages")
+def admin_api_beverages_list(_: bool = Depends(require_admin)):
+    """카탈로그의 음료수 96개 전체 + 각각의 현재 DB 상태(이미지/가격/링크/수동고정
+    여부)를 합쳐서 반환한다. 관리 페이지의 목록 렌더링용."""
+    try:
+        catalog = load_coupang_catalog_xlsx(str(beverage_ranking.COUPANG_CATALOG_XLSX_PATH))
+    except Exception as e:
+        return {"ok": False, "error": f"카탈로그 로드 실패: {e}"}
+
+    beverage_entries = {
+        barcode: entry for barcode, entry in catalog.items()
+        if entry.category.strip() == beverage_ranking.BEVERAGE_CATEGORY
+    }
+
+    conn = beverage_ranking.get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT item_key, image_url, price, reference_url, manual_override FROM beverage_catalog")
+    by_key = {r[0]: {"image_url": r[1], "price": r[2], "reference_url": r[3], "manual_override": bool(r[4])} for r in cur.fetchall()}
+    conn.close()
+
+    items = []
+    for item_key, entry in sorted(beverage_entries.items(), key=lambda kv: kv[1].menu_name):
+        state = by_key.get(item_key, {})
+        items.append({
+            "item_key": item_key,
+            "item_name": entry.menu_name,
+            "image_url": state.get("image_url"),
+            "price": state.get("price"),
+            "reference_url": state.get("reference_url"),
+            "manual_override": state.get("manual_override", False),
+        })
+    return {"ok": True, "items": items}
+
+
+class BeveragePreviewRequest(BaseModel):
+    keyword: str
+
+
+@app.post("/admin/api/beverages/preview")
+def admin_api_beverages_preview(req: BeveragePreviewRequest, _: bool = Depends(require_admin)):
+    """검색어로 쿠팡 상품을 1건 미리 조회한다(공식 파트너스 검색 API 사용, 관리자가
+    직접 확인 버튼을 누를 때만 호출되므로 사람 조작 속도로 자연히 제한됨)."""
+    try:
+        result = beverage_ranking.search_coupang_product(req.keyword)
+    except beverage_ranking.CoupangRateLimitError as e:
+        return {"ok": False, "error": f"API 호출 한도 초과: {e}"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    if not result or not result.get("reference_url"):
+        return {"ok": False, "error": "검색 결과가 없습니다."}
+    return {"ok": True, **result}
+
+
+class BeverageConfirmRequest(BaseModel):
     item_key: str
     item_name: str
     image_url: str = ""
@@ -697,19 +763,14 @@ class BeverageManualLink(BaseModel):
     reference_url: str
 
 
-class BeverageManualLinksRequest(BaseModel):
-    items: list[BeverageManualLink]
-
-
-@app.post("/admin/beverage-manual-links")
-def admin_set_beverage_manual_links(req: BeverageManualLinksRequest, _: bool = Depends(require_admin)):
-    """사람이 직접 확인한 음료 링크/이미지를 반영한다. 반영된 항목은 이후 자동
-    검색 갱신에서 영구 제외된다(엉뚱한 상품으로 재매칭되는 걸 막기 위함)."""
-    for item in req.items:
-        beverage_ranking.set_manual_beverage_link(
-            item.item_key, item.item_name, item.image_url, item.price, item.reference_url,
-        )
-    return {"ok": True, "count": len(req.items)}
+@app.post("/admin/api/beverages/confirm")
+def admin_api_beverages_confirm(req: BeverageConfirmRequest, _: bool = Depends(require_admin)):
+    """관리자가 미리보기로 확인한 상품을 확정 저장한다. 이후 자동 검색 갱신에서
+    영구 제외된다(엉뚱한 상품으로 재매칭되는 걸 막기 위함)."""
+    beverage_ranking.set_manual_beverage_link(
+        req.item_key, req.item_name, req.image_url, req.price, req.reference_url,
+    )
+    return {"ok": True}
 
 
 @app.get("/my-vendors", response_class=HTMLResponse)
