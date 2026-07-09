@@ -48,6 +48,7 @@ import cafe24_bot
 import catalog_cache
 import catalog_crawler
 import godomall_bot
+import patch_notes
 import popularity
 import telegram_bot
 import telegram_store
@@ -110,6 +111,7 @@ vendors.init_store_vendor_table()
 vendors.init_session_table()
 web_auth.init_web_auth_tables()
 beverage_ranking.init_beverage_ranking_table()
+patch_notes.init_patch_notes_table()
 
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 # CronTrigger를 직접 만들어서 trigger=로 넘기면 scheduler의 timezone을 자동으로
@@ -707,6 +709,28 @@ def admin_beverages_page(request: Request, _: bool = Depends(require_admin)):
     return templates.TemplateResponse("beverage_admin.html", {"request": request})
 
 
+@app.get("/admin/patch-notes", response_class=HTMLResponse)
+def admin_patch_notes_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("patch_notes_admin.html", {"request": request})
+
+
+class PatchNoteCreateRequest(BaseModel):
+    version: str = Field(..., min_length=1)
+    summary: str = Field(..., min_length=1)
+
+
+@app.post("/admin/api/patch-notes")
+def admin_api_patch_notes_create(req: PatchNoteCreateRequest, _: bool = Depends(require_admin)):
+    note_id = patch_notes.add_patch_note(req.version, req.summary)
+    return {"ok": True, "id": note_id}
+
+
+@app.delete("/admin/api/patch-notes/{note_id}")
+def admin_api_patch_notes_delete(note_id: int, _: bool = Depends(require_admin)):
+    patch_notes.delete_patch_note(note_id)
+    return {"ok": True}
+
+
 @app.get("/admin/api/beverages")
 def admin_api_beverages_list(_: bool = Depends(require_admin)):
     """카탈로그의 음료수 상품 + 관리 페이지에서 직접 추가한 상품(카탈로그엔 없고
@@ -838,6 +862,18 @@ def beverages_page(request: Request):
     if not get_current_web_user(request):
         return RedirectResponse(url="/login")
     return templates.TemplateResponse("beverages.html", {"request": request, "active_page": "beverages"})
+
+
+@app.get("/patch-notes", response_class=HTMLResponse)
+def patch_notes_page(request: Request):
+    if not get_current_web_user(request):
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("patch_notes.html", {"request": request, "active_page": "patch_notes"})
+
+
+@app.get("/api/patch-notes")
+def api_patch_notes(_: dict = Depends(require_web_user)):
+    return {"items": patch_notes.list_patch_notes()}
 
 
 @app.get("/api/beverage-ranking")

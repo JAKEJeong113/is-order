@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>패치노트 관리</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    h2 { font-size: 14px; margin: 24px 0 10px; color: var(--muted); }
+    .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+    .form-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px 18px; margin-bottom: 24px;
+    }
+    .field-row { margin-bottom: 10px; }
+    .field-row label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .field-row input, .field-row textarea {
+      width: 100%; padding: 9px 11px; border: 1px solid var(--line);
+      border-radius: 8px; font-size: 13px; font-family: inherit;
+    }
+    .field-row textarea { min-height: 100px; resize: vertical; }
+    .save-btn {
+      padding: 9px 18px; border: none; border-radius: 8px; font-size: 13px;
+      font-weight: 700; cursor: pointer; background: var(--mint); color: white;
+    }
+    .status-text { font-size: 12px; color: var(--muted); margin-left: 10px; }
+    .status-text.error { color: #b91c1c; }
+    .note-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 14px 16px; margin-bottom: 10px;
+    }
+    .note-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .note-version {
+      font-size: 12px; font-weight: 800; color: var(--mint-text);
+      background: var(--mint-soft); padding: 3px 10px; border-radius: 999px;
+    }
+    .note-date { font-size: 11px; color: var(--muted); flex: 1; }
+    .note-summary { font-size: 13px; line-height: 1.6; white-space: pre-line; margin-bottom: 8px; }
+    .delete-btn {
+      padding: 6px 12px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 700; cursor: pointer; background: #fee2e2; color: #b91c1c;
+    }
+    .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
+  </style>
+</head>
+<body>
+  <h1>패치노트 관리</h1>
+  <div class="hint-text">등록하면 로그인한 모든 가맹점이 /patch-notes 페이지에서 바로 볼 수 있습니다.</div>
+
+  <div class="form-card">
+    <div class="field-row">
+      <label>버전</label>
+      <input type="text" id="versionInput" placeholder="예: v1.4.0 또는 2026-07-10" />
+    </div>
+    <div class="field-row">
+      <label>요약 (줄바꿈으로 여러 항목 구분 가능)</label>
+      <textarea id="summaryInput" placeholder="- 품절 상품 자동 대체 기능 추가&#10;- 음료 추천 페이지 필터 추가"></textarea>
+    </div>
+    <button class="save-btn" id="addBtn">등록</button>
+    <span class="status-text" id="addStatus"></span>
+  </div>
+
+  <h2>등록된 패치노트</h2>
+  <div id="list"></div>
+
+  <script>
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    async function loadNotes() {
+      const res = await fetch("/api/patch-notes");
+      const data = await res.json();
+      const items = data.items || [];
+      const listEl = document.getElementById("list");
+
+      if (items.length === 0) {
+        listEl.innerHTML = '<div class="empty-text">아직 등록된 패치노트가 없습니다.</div>';
+        return;
+      }
+
+      listEl.innerHTML = items.map((item) => `
+        <div class="note-card">
+          <div class="note-head">
+            <span class="note-version">${escapeHtml(item.version)}</span>
+            <span class="note-date">${escapeHtml(item.created_at)}</span>
+          </div>
+          <div class="note-summary">${escapeHtml(item.summary)}</div>
+          <button class="delete-btn" onclick="deleteNote(${item.id})">삭제</button>
+        </div>
+      `).join("");
+    }
+
+    async function addNote() {
+      const versionInput = document.getElementById("versionInput");
+      const summaryInput = document.getElementById("summaryInput");
+      const statusEl = document.getElementById("addStatus");
+      const version = versionInput.value.trim();
+      const summary = summaryInput.value.trim();
+
+      if (!version || !summary) {
+        statusEl.textContent = "버전과 요약을 모두 입력해주세요.";
+        statusEl.classList.add("error");
+        return;
+      }
+
+      statusEl.textContent = "등록 중...";
+      statusEl.classList.remove("error");
+      try {
+        const res = await fetch("/admin/api/patch-notes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version, summary }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          versionInput.value = "";
+          summaryInput.value = "";
+          statusEl.textContent = "등록 완료";
+          await loadNotes();
+        } else {
+          statusEl.textContent = data.error || "등록 실패";
+          statusEl.classList.add("error");
+        }
+      } catch (err) {
+        statusEl.textContent = "등록 중 오류 발생";
+        statusEl.classList.add("error");
+      }
+    }
+
+    async function deleteNote(id) {
+      if (!confirm("이 패치노트를 삭제할까요?")) return;
+      await fetch(`/admin/api/patch-notes/${id}`, { method: "DELETE" });
+      loadNotes();
+    }
+
+    document.getElementById("addBtn").addEventListener("click", addNote);
+    loadNotes();
+  </script>
+</body>
+</html>
