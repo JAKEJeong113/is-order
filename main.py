@@ -565,6 +565,53 @@ def admin_debug_godomall_nocart_screenshot(vendor_id: str, goods_no: str, _: boo
     return FileResponse(str(path))
 
 
+@app.get("/admin/debug-godomall-isolated/{vendor_id}/{goods_no}")
+def admin_debug_godomall_isolated(vendor_id: str, goods_no: str, _: bool = Depends(require_admin)):
+    """진단용 임시 엔드포인트: 장바구니 담기 흐름과 완전히 분리된 별도 브라우저로
+    로그인 + 상품페이지 접속만 단독 실행한다. 다른 요청(동시 로그인 등)과 절대
+    겹치지 않는 상태에서도 상품페이지 대신 홈으로 리다이렉트되는지 확인해서,
+    동시 세션 충돌 때문인지 아니면 이 흐름 자체의 문제인지 구분한다."""
+    from playwright.sync_api import sync_playwright
+
+    stores = telegram_store.list_stores()
+    approved = [s for s in stores if s["approved"]]
+    if not approved:
+        return {"ok": False, "reason": "승인된 가맹점이 없습니다"}
+    store_id = approved[0]["store_name"]
+
+    creds = vendors.get_store_vendor_credentials(store_id, vendor_id)
+    if not creds:
+        return {"ok": False, "reason": f"{vendor_id} 계정 정보가 없습니다 (store_id={store_id})"}
+    login_id, login_pwd = creds
+
+    vendor_info = vendors.VENDORS.get(vendor_id, {})
+    base_url = vendor_info.get("base_url", "")
+    if not base_url:
+        return {"ok": False, "reason": f"알 수 없는 vendor_id: {vendor_id}"}
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"])
+        context = browser.new_context()
+        page = context.new_page()
+        try:
+            godomall_bot.login_godomall(page, base_url, login_id, login_pwd)
+            login_landed_url = page.url
+            page.goto(f"{base_url}/goods/goods_view.php?goodsNo={goods_no}", wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(2000)
+            return {
+                "ok": True,
+                "store_id": store_id,
+                "login_landed_url": login_landed_url,
+                "final_url": page.url,
+                "cart_btn_count": page.locator("#cartBtn").count(),
+                "body_sample": page.locator("body").inner_text()[:400],
+            }
+        except Exception as e:
+            return {"ok": False, "reason": str(e)}
+        finally:
+            browser.close()
+
+
 @app.get("/admin/debug-compare/{keyword}")
 def admin_debug_compare(keyword: str, _: bool = Depends(require_admin)):
     """진단용 임시 엔드포인트: 특정 키워드로 price_compare.compare()가 실제로 몇 개의
