@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from playwright.sync_api import Page, sync_playwright, TimeoutError as PWTimeoutError
 
+import browser_limit
 import vendors
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -177,7 +178,7 @@ def crawl_full_catalog(
     codes = [category_codes] if isinstance(category_codes, str) else category_codes
     all_products: dict[str, dict] = {}
 
-    with sync_playwright() as p:
+    with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"],
@@ -248,7 +249,7 @@ def fetch_candidates(base_url: str, login_id: str, login_pwd: str, keywords: lis
     """여러 키워드에 대해 로그인 1회 후 후보 목록을 조회. {keyword: [candidate, ...]} 반환."""
     results: dict[str, list[dict]] = {}
 
-    with sync_playwright() as p:
+    with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"],
@@ -277,7 +278,7 @@ def add_to_cart(
 ) -> dict:
     """지점별 로그인 세션(쿠키)을 캐시해서, 저장된 세션이 있으면 로그인 과정을 건너뛴다.
     캐시된 세션이 만료됐으면(담기 버튼을 못 찾으면) 새로 로그인해서 한 번 더 시도한다."""
-    with sync_playwright() as p:
+    with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"],

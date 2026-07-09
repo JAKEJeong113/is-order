@@ -43,6 +43,7 @@ from db import init_db, get_inventory, upsert_inventory, change_stock
 
 from yamimall_bot import add_yamimall_cart
 import beverage_ranking
+import browser_limit
 import cafe24_bot
 import catalog_cache
 import catalog_crawler
@@ -601,7 +602,7 @@ def admin_debug_godomall_isolated(vendor_id: str, goods_no: str, _: bool = Depen
     if not base_url:
         return {"ok": False, "reason": f"알 수 없는 vendor_id: {vendor_id}"}
 
-    with sync_playwright() as p:
+    with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"])
         context = browser.new_context()
         page = context.new_page()

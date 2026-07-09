@@ -4,6 +4,8 @@ import os
 from datetime import date
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError
 
+import browser_limit
+
 LOGIN_URL = "https://www.orderqueen.kr/backoffice_admin/login.itp"
 
 # 환경변수에서 읽기
@@ -26,7 +28,7 @@ def download_orderqueen_xlsx(
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    with sync_playwright() as p:
+    with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=[

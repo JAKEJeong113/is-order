@@ -10,6 +10,8 @@ from urllib.parse import quote
 
 from playwright.sync_api import Page, sync_playwright, TimeoutError as PWTimeoutError
 
+import browser_limit
+
 BASE_URL = "https://15774281.com"
 
 PRICE_CANDIDATES = [
@@ -117,7 +119,7 @@ def search_candidates(page: Page, base_url: str, keyword: str, top_n: int = 3) -
 def fetch_candidates(login_id: str, login_pwd: str, keywords: list[str], top_n: int = 3) -> dict[str, list[dict]]:
     results: dict[str, list[dict]] = {}
 
-    with sync_playwright() as p:
+    with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"],

@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
+import browser_limit
 import vendors
 
 
@@ -314,7 +315,7 @@ def crawl_full_catalog(
     codes = category_codes if category_codes is not None else FULL_CATALOG_CATEGORY_CODES
     products: dict[str, dict] = {}
 
-    with sync_playwright() as p:
+    with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"],
@@ -422,7 +423,7 @@ def login_yamimall(page, username: str, password: str, base_url: str = YAMIMALL_
 
 def fetch_candidates(username: str, password: str, keyword: str, top_n: int = 3) -> list[dict]:
     """검색어 일치도 상위 top_n개 후보(이름/가격/1타수량)를 조회 (장바구니 담지 않음)."""
-    with sync_playwright() as p:
+    with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"],
@@ -461,7 +462,7 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
     needs_list_fallback = False
     result: dict = {"ok": False, "reason": "알 수 없는 오류"}
 
-    with sync_playwright() as p:
+    with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"],
@@ -628,7 +629,7 @@ def add_to_cart_via_list(
     # 상품명)만 검색어로 쓴다.
     search_keyword = (keyword or item_code).splitlines()[0].strip()
 
-    with sync_playwright() as p:
+    with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"],
@@ -873,7 +874,7 @@ def add_yamimall_cart(username: str, password: str, items: list[dict]):
     success = []
     failed = []
 
-    with sync_playwright() as p:
+    with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=[
