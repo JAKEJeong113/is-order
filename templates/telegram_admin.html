@@ -15,8 +15,14 @@
       font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
       padding: 24px 16px 80px;
     }
-    h1 { font-size: 20px; margin: 0 0 16px; }
+    h1 { font-size: 20px; margin: 0 0 6px; }
     .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+    .filter-row { display: flex; gap: 6px; margin-bottom: 16px; }
+    .filter-btn {
+      padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px;
+      font-size: 12px; font-weight: 700; cursor: pointer; background: var(--card); color: var(--muted);
+    }
+    .filter-btn.active { background: var(--mint); border-color: var(--mint); color: white; }
     .store-card {
       background: var(--card); border: 1px solid var(--line); border-radius: 12px;
       padding: 14px 16px; margin-bottom: 10px;
@@ -43,26 +49,62 @@
     .approve-btn { background: var(--mint); color: white; }
     .revoke-btn { background: #fee2e2; color: #b91c1c; }
     .reject-btn { background: #fee2e2; color: #b91c1c; }
+    .delete-btn { background: #fee2e2; color: #b91c1c; }
     .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
   </style>
 </head>
 <body>
   <h1>텔레그램 가맹점 승인 관리</h1>
-  <div class="hint-text">가맹점이 봇에게 아무 메시지나 한 번 보내면 여기에 대기 요청으로 나타납니다.</div>
+  <div class="hint-text">가맹점이 봇에게 아무 메시지나 한 번 보내면 대기중 목록에 나타납니다. 승인/반려하면 처리됨으로 이동합니다.</div>
+  <div class="filter-row" id="filterRow"></div>
   <div id="list"></div>
 
   <script>
+    let allStores = [];
+    let activeFilter = "대기중";
+
+    function isProcessed(s) {
+      return s.approved || !!s.reject_reason;
+    }
+
+    function renderFilterRow() {
+      const filterEl = document.getElementById("filterRow");
+      const pendingCount = allStores.filter((s) => !isProcessed(s)).length;
+      const processedCount = allStores.filter(isProcessed).length;
+      const options = [
+        { label: "대기중", count: pendingCount },
+        { label: "처리됨", count: processedCount },
+      ];
+      filterEl.innerHTML = options.map((opt) =>
+        `<button class="filter-btn ${opt.label === activeFilter ? "active" : ""}" data-filter="${opt.label}">${opt.label} (${opt.count})</button>`
+      ).join("");
+      filterEl.querySelectorAll(".filter-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          activeFilter = btn.dataset.filter;
+          renderFilterRow();
+          renderList();
+        });
+      });
+    }
+
     async function loadStores() {
       const res = await fetch("/api/telegram/stores");
       const data = await res.json();
-      const listEl = document.getElementById("list");
+      allStores = data.stores || [];
+      renderFilterRow();
+      renderList();
+    }
 
-      if (!data.stores || data.stores.length === 0) {
-        listEl.innerHTML = '<div class="empty-text">아직 요청이 없습니다.</div>';
+    function renderList() {
+      const listEl = document.getElementById("list");
+      const stores = allStores.filter((s) => activeFilter === "대기중" ? !isProcessed(s) : isProcessed(s));
+
+      if (stores.length === 0) {
+        listEl.innerHTML = `<div class="empty-text">${activeFilter} 요청이 없습니다.</div>`;
         return;
       }
 
-      listEl.innerHTML = data.stores.map((s) => {
+      listEl.innerHTML = stores.map((s) => {
         const badgeClass = s.approved ? "" : (s.reject_reason ? "rejected" : "pending");
         const badgeText = s.approved ? "승인됨" : (s.reject_reason ? "반려됨" : (s.registration_step ? "입력중" : "대기중"));
         return `
@@ -79,9 +121,10 @@
             요청: ${s.requested_at}
           </div>
           ${s.reject_reason ? `<div class="reject-reason">반려 사유 (${s.rejected_at}): ${s.reject_reason}</div>` : ""}
-          ${s.approved ? `
+          ${isProcessed(s) ? `
             <div class="approve-row">
-              <button class="revoke-btn" onclick="revoke('${s.chat_id}')">승인 취소</button>
+              ${s.approved ? `<button class="revoke-btn" onclick="revoke('${s.chat_id}')">승인 취소</button>` : ""}
+              <button class="delete-btn" onclick="deleteStore('${s.chat_id}', ${s.approved ? "true" : "false"})">목록에서 삭제</button>
             </div>
           ` : `
             <div class="approve-row">
@@ -130,6 +173,15 @@
 
     async function revoke(chatId) {
       await fetch(`/api/telegram/stores/${chatId}/revoke`, { method: "POST" });
+      loadStores();
+    }
+
+    async function deleteStore(chatId, wasApproved) {
+      const msg = wasApproved
+        ? "승인된 가맹점입니다. 목록에서 삭제하면 다음에 봇에게 메시지를 보낼 때 처음부터 다시 등록해야 합니다. 정말 삭제할까요?"
+        : "목록에서 삭제할까요?";
+      if (!confirm(msg)) return;
+      await fetch(`/api/telegram/stores/${chatId}`, { method: "DELETE" });
       loadStores();
     }
 

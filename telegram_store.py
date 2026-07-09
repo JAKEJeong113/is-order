@@ -273,6 +273,19 @@ def revoke_store(chat_id: str) -> None:
     conn.close()
 
 
+def delete_store(chat_id: str) -> bool:
+    """처리됨(승인/반려) 목록에서 완전히 제거한다. 등록 요청 자체를 지우는
+    것이라 승인된 가맹점을 지우면 다시 봇에 메시지를 보냈을 때 신규 등록
+    절차부터 시작하게 된다 - 관리 페이지에서 처리됨 항목 정리용으로만 쓴다."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM telegram_stores WHERE chat_id = ?", (chat_id,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
 def save_pending_items(chat_id: str, items: list[dict]) -> None:
     now = datetime.now().isoformat(timespec="seconds")
     conn = get_conn()

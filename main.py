@@ -915,6 +915,15 @@ def api_telegram_reject(chat_id: str, req: TelegramRejectRequest, _: bool = Depe
     return {"ok": True}
 
 
+@app.delete("/api/telegram/stores/{chat_id}")
+def api_telegram_delete(chat_id: str, _: bool = Depends(require_admin)):
+    """처리됨(승인/반려) 목록 정리용. 승인된 가맹점을 지우면 다음에 봇에게
+    메시지를 보낼 때 신규 등록 절차부터 다시 시작하게 되니 주의가 필요하다
+    (프론트에서 확인 문구로 안내)."""
+    telegram_store.delete_store(chat_id)
+    return {"ok": True}
+
+
 @app.get("/admin/users", response_class=HTMLResponse)
 def admin_users_page(request: Request, _: bool = Depends(require_admin)):
     return templates.TemplateResponse("admin_users.html", {"request": request})
