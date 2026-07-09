@@ -49,6 +49,9 @@
   .app-sidebar.collapsed .app-footer { padding: 10px 0 0; justify-content: center; }
   .app-sidebar .app-footer a { color: inherit; text-decoration: none; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   .app-main { flex: 1; padding: 24px; min-width: 0; }
+  @media (max-width: 640px) {
+    .app-main { padding: 14px; }
+  }
 </style>
 <div class="app-shell">
   <div class="app-sidebar" id="appSidebar">
@@ -99,7 +102,13 @@
     (function () {
       const sidebar = document.getElementById("appSidebar");
       const toggleBtn = document.getElementById("sidebarToggleBtn");
-      if (localStorage.getItem("appSidebarCollapsed") === "1") {
+      const stored = localStorage.getItem("appSidebarCollapsed");
+      // 사용자가 명시적으로 편 적이 없으면(저장된 값이 아예 없으면) 모바일
+      // 화면 폭에서는 기본으로 접어서 시작한다 - 화면이 좁을수록 아이콘만
+      // 보이는 게 콘텐츠 공간 확보에 유리하기 때문. 한 번이라도 직접
+      // 펴거나 접은 적이 있으면 그 선택을 그대로 존중한다.
+      const shouldCollapse = stored === "1" || (stored === null && window.innerWidth <= 640);
+      if (shouldCollapse) {
         sidebar.classList.add("collapsed");
       }
       toggleBtn.addEventListener("click", () => {
