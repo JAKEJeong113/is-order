@@ -2,6 +2,7 @@
 """텔레그램 발주봇: 발주리스트 수신 -> 캐시로 즉시 가격비교 -> 확인 답장 시 실제 담기."""
 import os
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 import requests
@@ -17,6 +18,28 @@ import yamimall_bot
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
+
+# 텔레그램이 같은 웹훅 메시지를 재전송(중복 전달)하는 경우, "확인" 처리가 같은
+# store_id에 대해 동시에 두 번 실행되면 같은 도매처 계정으로 거의 동시에 두 번
+# 로그인하게 되어 사이트의 "중복 로그인 시 이전 세션 만료" 처리로 인해 방금 만든
+# 세션이 곧바로 튕겨나가는 문제가 있었다(격리 상태 재현 테스트에서는 100% 정상
+# 동작해 동시 중복 처리가 원인으로 확인됨). store_id별로 한 번에 하나의 담기
+# 작업만 실행되도록 막는다.
+_processing_lock = threading.Lock()
+_processing_store_ids: set[str] = set()
+
+
+def _try_start_processing(store_id: str) -> bool:
+    with _processing_lock:
+        if store_id in _processing_store_ids:
+            return False
+        _processing_store_ids.add(store_id)
+        return True
+
+
+def _finish_processing(store_id: str) -> None:
+    with _processing_lock:
+        _processing_store_ids.discard(store_id)
 
 CONFIRM_WORDS = {"확인", "네", "예", "ok", "okay", "yes", "go", "담아줘", "담아"}
 CANCEL_WORDS = {"취소", "아니", "아니오", "no", "cancel"}
@@ -428,6 +451,7 @@ def _execute_cart_adds(chat_id, store_id: str, items: list[dict]) -> None:
     except Exception as e:
         results.append(f"(처리 중 예상치 못한 오류로 중단됨: {e})")
     finally:
+        _finish_processing(store_id)
         send_message(chat_id, "담기 결과:\n\n" + "\n".join(results))
 
     if needs_followup:
@@ -673,8 +697,18 @@ def handle_update(update: dict) -> None:
         return
 
     if normalized in CONFIRM_WORDS:
+        # 텔레그램이 같은 "확인" 메시지를 재전송(중복 웹훅)하면 아래 get_pending_items/
+        # clear_pending 사이의 순간에 두 요청이 동시에 들어와 같은 목록을 두 번 처리할 수
+        # 있다 - 이 경우 같은 도매처 계정으로 거의 동시에 두 번 로그인하게 되어 사이트의
+        # 중복 로그인 세션 만료 처리로 방금 만든 세션이 곧바로 튕겨나가는 문제가 있었다
+        # (예: 크나버 웨이퍼 건 - 격리 재현 시엔 100% 정상이라 동시 중복 처리가 원인으로
+        # 확인됨). store_id별로 한 번에 하나의 담기 작업만 실행되도록 막는다.
+        if not _try_start_processing(store_name):
+            return
+
         pending = telegram_store.get_pending_items(chat_id)
         if not pending:
+            _finish_processing(store_name)
             send_message(chat_id, "대기 중인 발주 목록이 없습니다. 먼저 상품 목록을 보내주세요.")
             return
 
