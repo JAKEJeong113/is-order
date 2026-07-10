@@ -43,6 +43,7 @@ from mapping import load_coupang_catalog_xlsx, select_representative_item
 from db import init_db, get_inventory, upsert_inventory, change_stock
 
 from yamimall_bot import add_yamimall_cart
+import biz_tools
 import browser_limit
 import cafe24_bot
 import cart_add_logic
@@ -116,6 +117,7 @@ vendors.init_store_vendor_prefs_table()
 web_auth.init_web_auth_tables()
 product_ranking.init_table(product_ranking.BEVERAGE)
 product_ranking.init_table(product_ranking.SNACK)
+biz_tools.init_table()
 patch_notes.init_patch_notes_table()
 web_cart.init_web_cart_table()
 
@@ -951,6 +953,40 @@ register_product_routes(product_ranking.BEVERAGE, slug="beverage", page_template
 register_product_routes(product_ranking.SNACK, slug="snack", page_template="snacks.html", admin_template="snack_admin.html")
 
 
+@app.get("/admin/biz-tools", response_class=HTMLResponse)
+def admin_biz_tools_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("tool_admin.html", {"request": request})
+
+
+@app.get("/admin/api/biz-tools")
+def admin_api_biz_tools_list(_: bool = Depends(require_admin)):
+    return {"ok": True, "items": biz_tools.list_tools()}
+
+
+class BizToolRequest(BaseModel):
+    item_name: str = Field(..., min_length=1)
+    image_url: str = ""
+    product_url: str = Field(..., min_length=1)
+
+
+@app.post("/admin/api/biz-tools")
+def admin_api_biz_tools_create(req: BizToolRequest, _: bool = Depends(require_admin)):
+    new_id = biz_tools.add_tool(req.item_name, req.image_url, req.product_url)
+    return {"ok": True, "id": new_id}
+
+
+@app.put("/admin/api/biz-tools/{tool_id}")
+def admin_api_biz_tools_update(tool_id: int, req: BizToolRequest, _: bool = Depends(require_admin)):
+    ok = biz_tools.update_tool(tool_id, req.item_name, req.image_url, req.product_url)
+    return {"ok": ok}
+
+
+@app.delete("/admin/api/biz-tools/{tool_id}")
+def admin_api_biz_tools_delete(tool_id: int, _: bool = Depends(require_admin)):
+    ok = biz_tools.delete_tool(tool_id)
+    return {"ok": ok}
+
+
 @app.get("/my-vendors", response_class=HTMLResponse)
 def my_vendors_page(request: Request):
     if not get_current_web_user(request):
@@ -1176,7 +1212,7 @@ def load_coupang_catalog_for_search() -> pd.DataFrame:
 @app.get("/", response_class=HTMLResponse)
 @app.get("/index.html", response_class=HTMLResponse)
 def landing_page(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("index.html", {"request": request, "tools": biz_tools.list_tools()})
 
 
 @app.get("/brand.html", response_class=HTMLResponse)

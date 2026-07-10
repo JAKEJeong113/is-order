@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>영업 꿀템 관리</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+    .top-row { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; }
+    .add-btn {
+      padding: 10px 16px; border: none; border-radius: 8px; font-size: 13px;
+      font-weight: 700; cursor: pointer; background: var(--mint); color: white; flex-shrink: 0;
+    }
+    .bev-row {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px 14px; margin-bottom: 10px; display: flex; gap: 12px; align-items: flex-start;
+    }
+    .bev-row.locked { border-color: var(--mint); }
+    .thumb {
+      width: 56px; height: 56px; border-radius: 8px; background: #f3f4f6;
+      flex-shrink: 0; object-fit: contain; border: 1px solid var(--line);
+    }
+    .thumb-placeholder {
+      width: 56px; height: 56px; border-radius: 8px; background: #f3f4f6;
+      flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+      color: var(--muted); font-size: 10px; border: 1px solid var(--line); text-align: center;
+    }
+    .bev-main { flex: 1; min-width: 0; }
+    .bev-top-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .badge {
+      font-size: 10px; padding: 2px 7px; border-radius: 999px; font-weight: 700;
+      background: #f3f4f6; color: var(--muted); flex-shrink: 0;
+    }
+    .badge.locked { background: var(--mint); color: white; }
+    .field-grid {
+      display: grid; grid-template-columns: 90px 1fr; gap: 6px 8px; align-items: center;
+      margin-bottom: 8px;
+    }
+    .field-grid label { font-size: 11px; color: var(--muted); }
+    .field-grid input {
+      padding: 7px 9px; border: 1px solid var(--line);
+      border-radius: 6px; font-size: 12px; width: 100%;
+    }
+    .row-actions { display: flex; gap: 8px; align-items: center; }
+    .save-btn {
+      padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 700; cursor: pointer; background: var(--mint); color: white;
+    }
+    .delete-btn {
+      padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 700; cursor: pointer; background: #fee2e2; color: #b91c1c;
+    }
+    .status-text { font-size: 11px; color: var(--muted); }
+    .status-text.error { color: #b91c1c; }
+    .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
+  </style>
+</head>
+<body>
+  <h1>영업 꿀템 관리</h1>
+  <div class="hint-text">
+    브랜드 메인 페이지(/)의 "영업 꿀템 추천" 슬라이더에 노출됩니다. 상품명/쿠팡 링크/이미지 링크를 직접 입력하고 저장하세요.
+  </div>
+  <div class="top-row">
+    <button class="add-btn" id="addNewBtn">+ 새 꿀템 추가</button>
+  </div>
+  <div id="list"></div>
+
+  <script>
+    let allItems = [];
+    let newItems = [];
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    async function loadItems() {
+      const res = await fetch("/admin/api/biz-tools");
+      const data = await res.json();
+      if (!data.ok) {
+        document.getElementById("list").innerHTML = `<div class="empty-text">${escapeHtml(data.error || "불러오기 실패")}</div>`;
+        return;
+      }
+      allItems = data.items;
+      newItems = [];
+      render();
+    }
+
+    function renderRow(it) {
+      const thumb = it.image_url
+        ? `<img class="thumb" src="${escapeHtml(it.image_url)}" alt="">`
+        : `<div class="thumb-placeholder">이미지<br>없음</div>`;
+      const isNew = it.id == null;
+      const badge = isNew
+        ? '<span class="badge">신규</span>'
+        : '<span class="badge locked">저장됨</span>';
+
+      return `
+        <div class="bev-row ${isNew ? "" : "locked"}" data-tool-id="${it.id ?? ""}" data-temp-key="${it._tempKey ?? ""}">
+          ${thumb}
+          <div class="bev-main">
+            <div class="bev-top-row">
+              ${badge}
+            </div>
+            <div class="field-grid">
+              <label>상품명</label>
+              <input type="text" class="name-input" placeholder="상품명" value="${escapeHtml(it.item_name || "")}" />
+              <label>쿠팡 링크</label>
+              <input type="text" class="link-input" placeholder="쿠팡 파트너스 링크" value="${escapeHtml(it.product_url || "")}" />
+              <label>이미지 링크</label>
+              <input type="text" class="image-input" placeholder="이미지 URL" value="${escapeHtml(it.image_url || "")}" />
+            </div>
+            <div class="row-actions">
+              <button class="save-btn">저장</button>
+              <button class="delete-btn">삭제</button>
+              <span class="status-text"></span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function render() {
+      const listEl = document.getElementById("list");
+      let html = newItems.map(renderRow).join("");
+      html += allItems.map(renderRow).join("");
+      listEl.innerHTML = html || '<div class="empty-text">등록된 꿀템이 없습니다.</div>';
+    }
+
+    document.getElementById("addNewBtn").addEventListener("click", () => {
+      const tempKey = "new_" + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random());
+      newItems.unshift({ id: null, _tempKey: tempKey, item_name: "", image_url: "", product_url: "" });
+      render();
+    });
+
+    document.getElementById("list").addEventListener("click", async (e) => {
+      const row = e.target.closest(".bev-row");
+      if (!row) return;
+      const toolId = row.dataset.toolId;
+      const tempKey = row.dataset.tempKey;
+      const statusEl = row.querySelector(".row-actions .status-text");
+
+      if (e.target.classList.contains("delete-btn")) {
+        if (!toolId) {
+          newItems = newItems.filter((it) => it._tempKey !== tempKey);
+          render();
+          return;
+        }
+        const itemName = row.querySelector(".name-input").value.trim();
+        if (!confirm(`"${itemName || toolId}"를 삭제할까요?`)) return;
+
+        e.target.disabled = true;
+        statusEl.textContent = "삭제 중...";
+        statusEl.classList.remove("error");
+        try {
+          const res = await fetch(`/admin/api/biz-tools/${encodeURIComponent(toolId)}`, { method: "DELETE" });
+          const data = await res.json();
+          if (data.ok) {
+            await loadItems();
+          } else {
+            statusEl.textContent = data.error || "삭제 실패";
+            statusEl.classList.add("error");
+          }
+        } catch (err) {
+          statusEl.textContent = "삭제 중 오류 발생";
+          statusEl.classList.add("error");
+        } finally {
+          e.target.disabled = false;
+        }
+        return;
+      }
+
+      if (!e.target.classList.contains("save-btn")) return;
+      const itemName = row.querySelector(".name-input").value.trim();
+      const link = row.querySelector(".link-input").value.trim();
+      const imageUrl = row.querySelector(".image-input").value.trim();
+
+      if (!itemName) {
+        statusEl.textContent = "상품명을 입력해주세요.";
+        statusEl.classList.add("error");
+        return;
+      }
+      if (!link) {
+        statusEl.textContent = "쿠팡 링크를 입력해주세요.";
+        statusEl.classList.add("error");
+        return;
+      }
+
+      e.target.disabled = true;
+      statusEl.textContent = "저장 중...";
+      statusEl.classList.remove("error");
+      try {
+        const body = JSON.stringify({ item_name: itemName, image_url: imageUrl, product_url: link });
+        const res = toolId
+          ? await fetch(`/admin/api/biz-tools/${encodeURIComponent(toolId)}`, {
+              method: "PUT", headers: { "Content-Type": "application/json" }, body,
+            })
+          : await fetch("/admin/api/biz-tools", {
+              method: "POST", headers: { "Content-Type": "application/json" }, body,
+            });
+        const data = await res.json();
+        if (data.ok) {
+          statusEl.textContent = "저장 완료";
+          await loadItems();
+        } else {
+          statusEl.textContent = data.error || "저장 실패";
+          statusEl.classList.add("error");
+        }
+      } catch (err) {
+        statusEl.textContent = "저장 중 오류 발생";
+        statusEl.classList.add("error");
+      } finally {
+        e.target.disabled = false;
+      }
+    });
+
+    loadItems();
+  </script>
+</body>
+</html>

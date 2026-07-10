@@ -846,95 +846,15 @@
 
           <div class="tool-row" id="toolRow">
 
-            <!-- 1 -->
-            <a class="tool-card" href="https://www.coupang.com/np/search?q=아이스크림 냉동고" target="_blank" rel="noopener">
-              <div class="tool-img">🧊
-                <img src="./images/tool-freezer.png">
+            {% for tool in tools %}
+            <a class="tool-card" href="{{ tool.product_url }}" target="_blank" rel="noopener">
+              <div class="tool-img">
+                {% if tool.image_url %}<img src="{{ tool.image_url }}" alt="{{ tool.item_name }}">{% else %}🛍️{% endif %}
               </div>
-              <b>아이스크림 디스플레이 냉동고</b>
+              <b>{{ tool.item_name }}</b>
               <span>구매하러가기</span>
             </a>
-
-            <!-- 2 -->
-            <a class="tool-card" href="https://www.coupang.com/np/search?q=아이스크림 종이컵" target="_blank" rel="noopener">
-              <div class="tool-img">🥤
-                <img src="./images/tool-cup.png">
-              </div>
-              <b>아이스크림 용기컵</b>
-              <span>구매하러가기</span>
-            </a>
-
-            <!-- 3 -->  
-            <a class="tool-card" href="https://www.coupang.com/np/search?q=아이스크림 스푼" target="_blank" rel="noopener">
-              <div class="tool-img">🥄
-                <img src="./images/tool-spoon.png">
-              </div>
-              <b>아이스크림 스푼</b>
-              <span>구매하러가기</span>
-            </a>
-
-            <!-- 4 -->
-            <a class="tool-card" href="https://www.coupang.com/np/search?q=아이스크림 콘" target="_blank" rel="noopener">
-              <div class="tool-img">🍦
-                <img src="./images/tool-cone.png">
-              </div>
-              <b>아이스크림 콘</b>
-              <span>구매하러가기</span>
-            </a>
-
-            <!-- 5 -->
-            <a class="tool-card" href="https://www.coupang.com/np/search?q=토핑 시럽" target="_blank" rel="noopener">
-              <div class="tool-img">🍯
-                <img src="./images/tool-syrup.png">
-              </div>
-              <b>토핑 & 시럽</b>
-              <span>구매하러가기</span>
-            </a>
-
-            <!-- 6 -->
-            <a class="tool-card" href="#" target="_blank" rel="noopener">
-              <div class="tool-img">📷
-                <img src="./images/tool-homecam.png">
-              </div>
-              <b>매장 홈캠</b>
-              <span>구매하러가기</span>
-            </a>
-
-            <!-- 7 -->
-            <a class="tool-card" href="#" target="_blank" rel="noopener">
-              <div class="tool-img">🧺
-                <img src="./images/tool-display.png">
-              </div>
-              <b>진열 바구니</b>
-              <span>구매하러가기</span>
-            </a>
-
-            <!-- 8 -->
-            <a class="tool-card" href="#" target="_blank" rel="noopener">
-              <div class="tool-img">🏷️
-                <img src="./images/tool-label.png">
-              </div>
-              <b>가격표 라벨</b>
-              <span>구매하러가기</span>
-            </a>
-
-            <!-- 9 -->
-            <a class="tool-card" href="#" target="_blank" rel="noopener">
-              <div class="tool-img">🧼
-                <img src="./images/tool-cleaning.png">
-              </div>
-              <b>청소용품</b>
-              <span>구매하러가기</span>
-            </a>
-
-            <!-- 10 -->
-            <a class="tool-card" href="#" target="_blank" rel="noopener">
-              <div class="tool-img">💡
-                <img src="./images/tool-lighting.png">
-              </div>
-              <b>LED 간판 조명</b>
-              <span>구매하러가기</span>
-            </a>
+            {% endfor %}
 
           </div>
 
