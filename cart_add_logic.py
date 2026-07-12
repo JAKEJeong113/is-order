@@ -50,30 +50,37 @@ def build_alt_offers(chosen_vendor_id: str, all_offers: list[dict]) -> list[dict
 
 
 def add_single_item_to_cart(store_id: str, item: dict) -> dict:
-    """item: {vendor_id, product_url, item_key, item_name, qty}.
+    """item: {vendor_id, product_url, item_key, item_name, qty, account_id?}.
     qty는 "몇 세트(구매단위의 배수)"를 담을지를 뜻한다 - 각 도매처 봇이
     페이지의 기본 구매단위(예: 1묶음 10개입이면 10) × qty로 실제 입력값을
-    계산한다."""
-    creds = vendors.get_store_vendor_credentials(store_id, item["vendor_id"])
-    if not creds:
+    계산한다. account_id가 없으면 해당 도매처의 기본 계정을 쓴다(계정이
+    하나뿐인 지점은 신경 쓸 필요 없음)."""
+    account = vendors.resolve_store_vendor_account(store_id, item["vendor_id"], item.get("account_id"))
+    if not account:
         return {"ok": False, "reason": "계정 미등록 (도매처 계정을 먼저 등록해주세요)"}
 
-    login_id, login_pwd = creds
+    login_id, login_pwd = account["login_id"], account["login_pwd"]
     base_url = vendors.VENDORS[item["vendor_id"]]["base_url"]
+    # 계정별로 로그인 세션(쿠키)을 따로 캐시해야 한다 - store_id만으로 캐시하면
+    # 같은 도매처의 다른 계정 세션을 잘못 재사용해 엉뚱한 계정으로 주문이 들어갈
+    # 수 있다. 봇 모듈들은 이 값을 세션 캐시 키로만 쓰고 다른 용도로 쓰지 않는다.
+    session_key = f"{store_id}#acct{account['id']}"
 
     if item["vendor_id"] == "yamimall":
-        return yamimall_bot.add_to_cart(store_id, login_id, login_pwd, item["product_url"], item["qty"], keyword=item.get("item_name"))
+        return yamimall_bot.add_to_cart(session_key, login_id, login_pwd, item["product_url"], item["qty"], keyword=item.get("item_name"))
     if item["vendor_id"] == "moomarket":
-        return cafe24_bot.add_to_cart(store_id, base_url, login_id, login_pwd, item["product_url"], item["qty"])
+        return cafe24_bot.add_to_cart(session_key, base_url, login_id, login_pwd, item["product_url"], item["qty"])
     if item["vendor_id"] == "douyou":
         return yamimall_bot.add_to_cart_via_list(
-            store_id, item["vendor_id"], login_id, login_pwd, item["product_url"], item["qty"],
+            session_key, item["vendor_id"], login_id, login_pwd, item["product_url"], item["qty"],
             base_url=base_url, keyword=item.get("item_name"),
         )
-    return godomall_bot.add_to_cart(store_id, item["vendor_id"], base_url, login_id, login_pwd, item["item_key"], item["qty"])
+    return godomall_bot.add_to_cart(session_key, item["vendor_id"], base_url, login_id, login_pwd, item["item_key"], item["qty"])
 
 
-def add_item_with_batch_fallback(store_id: str, item: dict, batch_vendors: set) -> tuple[dict, dict, list[dict]]:
+def add_item_with_batch_fallback(
+    store_id: str, item: dict, batch_vendors: set, resolved_accounts: dict | None = None,
+) -> tuple[dict, dict, list[dict]]:
     """최초 선택한(보통 최저가) 도매처에서 담기를 시도한다. 품절류로 실패하면,
     이번 발주에 이미 포함된 다른 도매처(batch_vendors) 안에서만 조용히 순서대로
     재시도한다 - 배송을 최대한 한 도매처로 몰아주기 위해, 이번 발주에 안 쓰는
@@ -81,9 +88,13 @@ def add_item_with_batch_fallback(store_id: str, item: dict, batch_vendors: set) 
     남은 후보(다른 활성화된 도매처)를 반환해서 사용자가 고를 수 있게 한다.
 
     item에는 "alt_offers"(build_alt_offers로 만든, 같은 상품의 다른 도매처
-    후보 목록)가 들어있어야 자동 전환이 가능하다.
+    후보 목록)가 들어있어야 자동 전환이 가능하다. resolved_accounts는
+    {vendor_id: account_id} - 이번 발주에서 이미 계정을 골라둔 도매처로
+    자동 전환될 때, 엉뚱하게 그 도매처의 기본 계정이 아니라 실제 고른
+    계정으로 담기게 하기 위함이다.
 
     반환: (최종 결과, 실제로 시도한 item, 사용자가 골라야 할 배치 밖 대안 목록)"""
+    resolved_accounts = resolved_accounts or {}
     tried_vendor_ids = {item["vendor_id"]}
     result = add_single_item_to_cart(store_id, item)
     used_item = item
@@ -103,6 +114,9 @@ def add_item_with_batch_fallback(store_id: str, item: dict, batch_vendors: set) 
                 "qty": item["qty"],
                 "alt_offers": [],
             }
+            account_id = resolved_accounts.get(alt["vendor_id"])
+            if account_id is not None:
+                alt_item["account_id"] = account_id
             alt_result = add_single_item_to_cart(store_id, alt_item)
             result, used_item = alt_result, alt_item
             if alt_result.get("ok") or not is_stock_failure(alt_result.get("reason", "")):

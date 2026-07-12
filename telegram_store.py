@@ -35,7 +35,7 @@ def init_telegram_tables():
     existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(telegram_stores)").fetchall()}
     new_columns = [
         "phone TEXT", "business_number TEXT", "registration_step TEXT",
-        "cred_vendor TEXT", "cred_step TEXT", "cred_temp_id TEXT",
+        "cred_vendor TEXT", "cred_step TEXT", "cred_temp_id TEXT", "cred_nickname TEXT",
         "preferred_vendor TEXT", "disabled_vendors TEXT", "disambig_state TEXT",
         "rejected_at TEXT", "reject_reason TEXT",
     ]
@@ -73,7 +73,7 @@ def get_registration(chat_id: str) -> dict | None:
     cur.execute("""
     SELECT chat_id, store_name, display_name, phone, business_number, registration_step, approved,
            cred_vendor, cred_step, cred_temp_id, preferred_vendor, disabled_vendors,
-           rejected_at, reject_reason
+           rejected_at, reject_reason, cred_nickname
     FROM telegram_stores WHERE chat_id = ?
     """, (chat_id,))
     row = cur.fetchone()
@@ -87,7 +87,7 @@ def get_registration(chat_id: str) -> dict | None:
         "cred_vendor": row[7], "cred_step": row[8], "cred_temp_id": row[9],
         "preferred_vendor": row[10],
         "disabled_vendors": [v for v in (row[11] or "").split(",") if v],
-        "rejected_at": row[12], "reject_reason": row[13],
+        "rejected_at": row[12], "reject_reason": row[13], "cred_nickname": row[14],
     }
 
 
@@ -143,7 +143,7 @@ def start_credential_menu(chat_id: str) -> None:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    UPDATE telegram_stores SET cred_vendor = NULL, cred_step = 'vendor', cred_temp_id = NULL
+    UPDATE telegram_stores SET cred_vendor = NULL, cred_step = 'vendor', cred_temp_id = NULL, cred_nickname = NULL
     WHERE chat_id = ?
     """, (chat_id,))
     conn.commit()
@@ -151,12 +151,24 @@ def start_credential_menu(chat_id: str) -> None:
 
 
 def start_credential_registration(chat_id: str, vendor_id: str) -> None:
+    """도매처가 정해진 다음 단계는 별명 입력이다 - 계정을 여러 개 등록할 수
+    있어서 어느 단계든 별명부터 물어야 구분이 된다."""
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    UPDATE telegram_stores SET cred_vendor = ?, cred_step = 'id', cred_temp_id = NULL
+    UPDATE telegram_stores SET cred_vendor = ?, cred_step = 'nickname', cred_temp_id = NULL, cred_nickname = NULL
     WHERE chat_id = ?
     """, (vendor_id, chat_id))
+    conn.commit()
+    conn.close()
+
+
+def save_credential_nickname(chat_id: str, nickname: str) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    UPDATE telegram_stores SET cred_nickname = ?, cred_step = 'id' WHERE chat_id = ?
+    """, (nickname, chat_id))
     conn.commit()
     conn.close()
 
@@ -175,7 +187,7 @@ def clear_credential_registration(chat_id: str) -> None:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    UPDATE telegram_stores SET cred_vendor = NULL, cred_step = NULL, cred_temp_id = NULL WHERE chat_id = ?
+    UPDATE telegram_stores SET cred_vendor = NULL, cred_step = NULL, cred_temp_id = NULL, cred_nickname = NULL WHERE chat_id = ?
     """, (chat_id,))
     conn.commit()
     conn.close()

@@ -41,7 +41,11 @@ def _finish_processing(store_id: str) -> None:
 
 CONFIRM_WORDS = {"확인", "네", "예", "ok", "okay", "yes", "go", "담아줘", "담아"}
 CANCEL_WORDS = {"취소", "아니", "아니오", "no", "cancel"}
-CRED_TRIGGER_WORDS = {"계정등록", "도매처등록", "도매처계정등록", "계정 등록"}
+# "계정추가"는 같은 도매처에 계정을 하나 더 등록할 때 쓰는 명령이지만, 내부
+# 흐름(도매처->별명->아이디->비번)은 "계정등록"과 완전히 같다 - 첫 계정이든
+# 추가 계정이든 결국 add_store_vendor_account 하나로 저장되기 때문. 뒤에
+# 도매처명을 붙이면("계정추가 야미몰") 도매처 메뉴를 건너뛰고 바로 별명부터 묻는다.
+CRED_TRIGGER_WORDS = {"계정등록", "도매처등록", "도매처계정등록", "계정 등록", "계정추가"}
 HELP_WORDS = {"도움말", "명령어", "help", "도움", "명령"}
 
 # 웹 장바구니(/cart)와 공유(vendors.py가 단일 소스).
@@ -63,6 +67,11 @@ HELP_TEXT = """사용 가능한 명령어입니다:
 
 [계정등록]
 도매처(야미몰/과자생각/삼봉몰) 아이디·비밀번호를 등록합니다.
+
+[계정추가 (도매처명)]
+한 도매처에 계정을 추가로 등록합니다(다매장 운영 시 등). 예: 계정추가 야미몰
+계정마다 별명을 붙일 수 있고, 도매처에 계정이 2개 이상이면 '확인' 후 어떤
+계정으로 담을지 물어봐요.
 
 [주거래처 설정 (도매처명)]
 가격이 같을 때 우선으로 담을 도매처를 지정합니다. 예: 주거래처 설정 야미몰
@@ -151,6 +160,18 @@ def _offer_to_item(item_name: str, best_offer: dict, qty: int = 1, all_offers: l
         "qty": qty,
         "alt_offers": alt_offers,
     }
+
+
+def _match_cred_trigger(text: str) -> tuple[bool, str | None]:
+    """"계정등록"/"계정추가" 류 명령인지 확인하고, 뒤에 도매처명이 함께 왔으면
+    (예: "계정추가 야미몰") 그 부분도 같이 돌려준다. 반환: (트리거 여부, 도매처 텍스트)."""
+    stripped = text.strip()
+    for trigger in CRED_TRIGGER_WORDS:
+        if stripped == trigger:
+            return True, None
+        if stripped.startswith(trigger + " "):
+            return True, stripped[len(trigger):].strip()
+    return False, None
 
 
 def _store_prefs(chat_id: str) -> tuple[set, str | None]:
@@ -338,10 +359,14 @@ ITEM_CART_ADD_TIMEOUT_SECONDS = 90
 # 한 상품당 예산을 넉넉히 잡는다 (품절 재시도 최대 2~3곳 가정).
 ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS = 240
 
-def _execute_cart_adds(chat_id, store_id: str, items: list[dict]) -> None:
+def _execute_cart_adds(chat_id, store_id: str, items: list[dict], resolved_accounts: dict | None = None) -> None:
     """도매처마다 실제 브라우저를 띄우는 작업이라 한 상품이 응답 없이 멈추면 전체가
     영원히 멈출 수 있다. 상품당 시간 제한을 걸어 하나가 멈춰도 나머지는 계속 진행하고,
-    무슨 일이 있어도 최종 결과 메시지는 반드시 보낸다."""
+    무슨 일이 있어도 최종 결과 메시지는 반드시 보낸다. resolved_accounts는 계정이
+    여러 개인 도매처에 대해 이번 발주에서 사용자가 고른 {vendor_id: account_id} -
+    품절로 같은 도매처 안 다른 후보로 넘어갈 일은 없지만, 배치 내 다른 도매처로
+    자동 전환될 때 그 도매처도 계정이 여러 개면 고른 계정을 그대로 써야 한다."""
+    resolved_accounts = resolved_accounts or {}
     results = []
     needs_followup = []
     batch_vendors = {it["vendor_id"] for it in items}
@@ -349,7 +374,7 @@ def _execute_cart_adds(chat_id, store_id: str, items: list[dict]) -> None:
         for item in items:
             pool = ThreadPoolExecutor(max_workers=1)
             try:
-                future = pool.submit(cart_add_logic.add_item_with_batch_fallback, store_id, item, batch_vendors)
+                future = pool.submit(cart_add_logic.add_item_with_batch_fallback, store_id, item, batch_vendors, resolved_accounts)
                 result, used_item, remaining_alts = future.result(timeout=ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS)
             except FutureTimeoutError:
                 result = {"ok": False, "reason": f"{ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS}초 넘게 응답이 없어 건너뜀. 직접 확인해주세요."}
@@ -382,7 +407,10 @@ def _execute_cart_adds(chat_id, store_id: str, items: list[dict]) -> None:
         send_message(chat_id, "담기 결과:\n\n" + "\n".join(results))
 
     if needs_followup:
-        state = {"mode": "stockout", "store_id": store_id, "queue": needs_followup, "results": [], "current": None}
+        state = {
+            "mode": "stockout", "store_id": store_id, "queue": needs_followup, "results": [], "current": None,
+            "resolved_accounts": resolved_accounts,
+        }
         _ask_next_stockout(chat_id, state)
 
 
@@ -413,6 +441,9 @@ def _ask_next_stockout(chat_id: str, state: dict) -> None:
 def _process_stockout_choice(chat_id: str, state: dict, alt_offer: dict) -> None:
     entry = state["queue"][0]
     item = _offer_to_item(entry["item_name"], alt_offer, entry["qty"])
+    account_id = state.get("resolved_accounts", {}).get(item["vendor_id"])
+    if account_id is not None:
+        item["account_id"] = account_id
     result = cart_add_logic.add_single_item_to_cart(state["store_id"], item)
 
     if result.get("ok"):
@@ -452,6 +483,69 @@ def _handle_stockout_reply(chat_id: str, state: dict, text: str) -> None:
     _scheduler.add_job(_process_stockout_choice, args=[chat_id, state, alt_offer])
 
 
+def _format_account_choice_prompt(store_id: str, vendor_id: str) -> str:
+    vendor_name = vendors.VENDORS[vendor_id]["name"]
+    accounts = vendors.list_store_vendor_accounts(store_id, vendor_id)
+    lines = [f"{vendor_name}에 등록된 계정이 여러 개예요. 어떤 계정으로 담을까요? 번호로 답장해주세요:\n"]
+    for i, acc in enumerate(accounts, start=1):
+        tag = " (기본)" if acc["is_default"] else ""
+        lines.append(f"{i}. {acc['nickname']}{tag}")
+    return "\n".join(lines)
+
+
+def _ask_next_account_choice(chat_id: str, state: dict) -> None:
+    """계정 선택이 필요한 도매처 큐에서 다음 것을 물어본다. 큐가 비면 그동안
+    고른 계정들을 각 상품에 반영해서 실제 담기를 시작한다."""
+    if not state["queue"]:
+        telegram_store.set_disambig_state(chat_id, None)
+        store_id = state["store_id"]
+        if not _try_start_processing(store_id):
+            send_message(chat_id, "다른 담기 작업이 진행 중이에요. 잠시 후 다시 '확인'을 보내주세요.")
+            return
+
+        items = state["pending_items"]
+        for it in items:
+            account_id = state["resolved_accounts"].get(it["vendor_id"])
+            if account_id is not None:
+                it["account_id"] = account_id
+
+        send_message(chat_id, "장바구니에 담는 중입니다. 잠시만 기다려주세요...")
+        _scheduler.add_job(_execute_cart_adds, args=[chat_id, store_id, items, state["resolved_accounts"]])
+        return
+
+    vendor_id = state["queue"][0]
+    state["current"] = vendor_id
+    telegram_store.set_disambig_state(chat_id, state)
+    send_message(chat_id, _format_account_choice_prompt(state["store_id"], vendor_id))
+
+
+def _handle_account_choice_reply(chat_id: str, state: dict, text: str) -> None:
+    stripped = text.strip()
+    vendor_id = state["queue"][0]
+
+    if stripped.lower() in CANCEL_WORDS:
+        telegram_store.set_disambig_state(chat_id, None)
+        send_message(chat_id, "담기를 취소했습니다.")
+        return
+
+    accounts = vendors.list_store_vendor_accounts(state["store_id"], vendor_id)
+    idx = int(stripped) - 1 if stripped.isdigit() else None
+    if idx is None:
+        for i, acc in enumerate(accounts):
+            if acc["nickname"] == stripped:
+                idx = i
+                break
+
+    if idx is None or not (0 <= idx < len(accounts)):
+        send_message(chat_id, f"1~{len(accounts)} 사이의 번호로 답장해주세요.")
+        return
+
+    state["resolved_accounts"][vendor_id] = accounts[idx]["id"]
+    state["queue"].pop(0)
+    state["current"] = None
+    _ask_next_account_choice(chat_id, state)
+
+
 REGISTRATION_PROMPTS = {
     "store_name": ("store_name", "phone", "연락처(전화번호)를 입력해주세요."),
     "phone": ("phone", "business_number", "사업자등록번호를 입력해주세요."),
@@ -474,6 +568,17 @@ def _handle_registration(chat_id: str, reg: dict, text: str) -> None:
         )
 
 
+def _send_nickname_prompt(chat_id: str, store_id: str, vendor_id: str) -> None:
+    vendor_name = vendors.VENDORS[vendor_id]["name"]
+    existing = vendors.list_store_vendor_accounts(store_id, vendor_id)
+    hint = f"\n(현재 등록된 계정: {', '.join(a['nickname'] for a in existing)})" if existing else ""
+    send_message(
+        chat_id,
+        f"{vendor_name} 계정 별명을 입력해주세요 (예: 본점, 2호점). "
+        f"생략하려면 '건너뛰기'라고 입력해주세요.{hint}",
+    )
+
+
 def _handle_credential_flow(chat_id: str, store_id: str, reg: dict, text: str) -> None:
     step = reg["cred_step"]
 
@@ -483,7 +588,15 @@ def _handle_credential_flow(chat_id: str, store_id: str, reg: dict, text: str) -
             send_message(chat_id, "찾을 수 없는 도매처예요.\n" + VENDOR_MENU_TEXT)
             return
         telegram_store.start_credential_registration(chat_id, vendor_id)
-        vendor_name = vendors.VENDORS[vendor_id]["name"]
+        _send_nickname_prompt(chat_id, store_id, vendor_id)
+        return
+
+    if step == "nickname":
+        nickname = text.strip()
+        if nickname in ("건너뛰기", "스킵", "skip"):
+            nickname = ""
+        telegram_store.save_credential_nickname(chat_id, nickname)
+        vendor_name = vendors.VENDORS[reg["cred_vendor"]]["name"]
         send_message(chat_id, f"{vendor_name} 아이디를 입력해주세요.")
         return
 
@@ -496,12 +609,16 @@ def _handle_credential_flow(chat_id: str, store_id: str, reg: dict, text: str) -
     if step == "pwd":
         vendor_id = reg["cred_vendor"]
         vendor_name = vendors.VENDORS[vendor_id]["name"]
-        vendors.set_store_vendor_credentials(store_id, vendor_id, reg["cred_temp_id"], text.strip())
+        account_id = vendors.add_store_vendor_account(
+            store_id, vendor_id, reg.get("cred_nickname") or "", reg["cred_temp_id"], text.strip(),
+        )
         telegram_store.clear_credential_registration(chat_id)
+        accounts = vendors.list_store_vendor_accounts(store_id, vendor_id)
+        account_nickname = next((a["nickname"] for a in accounts if a["id"] == account_id), "기본")
         send_message(
             chat_id,
-            f"{vendor_name} 계정이 등록되었습니다.\n"
-            "다른 도매처도 등록하려면 '계정등록'이라고 다시 보내주세요.",
+            f"{vendor_name} 계정({account_nickname})이 등록되었습니다.\n"
+            f"같은 도매처에 계정을 추가로 등록하려면 '계정추가 {vendor_name}'이라고 보내주세요.",
         )
         return
 
@@ -614,15 +731,28 @@ def handle_update(update: dict) -> None:
 
     disambig_state = telegram_store.get_disambig_state(chat_id)
     if disambig_state and disambig_state.get("current"):
-        if disambig_state.get("mode") == "stockout":
+        mode = disambig_state.get("mode")
+        if mode == "stockout":
             _handle_stockout_reply(chat_id, disambig_state, text)
+        elif mode == "account_select":
+            _handle_account_choice_reply(chat_id, disambig_state, text)
         else:
             _handle_disambiguation_reply(chat_id, disambig_state, text)
         return
 
-    if text.strip() in CRED_TRIGGER_WORDS:
-        telegram_store.start_credential_menu(chat_id)
-        send_message(chat_id, VENDOR_MENU_TEXT)
+    is_cred_trigger, inline_vendor_text = _match_cred_trigger(text)
+    if is_cred_trigger:
+        if inline_vendor_text:
+            vendor_id = KOREAN_TO_VENDOR_ID.get(inline_vendor_text)
+            if not vendor_id:
+                telegram_store.start_credential_menu(chat_id)
+                send_message(chat_id, f"찾을 수 없는 도매처예요: {inline_vendor_text}\n" + VENDOR_MENU_TEXT)
+                return
+            telegram_store.start_credential_registration(chat_id, vendor_id)
+            _send_nickname_prompt(chat_id, store_name, vendor_id)
+        else:
+            telegram_store.start_credential_menu(chat_id)
+            send_message(chat_id, VENDOR_MENU_TEXT)
         return
 
     if normalized in CANCEL_WORDS:
@@ -646,8 +776,28 @@ def handle_update(update: dict) -> None:
             send_message(chat_id, "대기 중인 발주 목록이 없습니다. 먼저 상품 목록을 보내주세요.")
             return
 
-        send_message(chat_id, "장바구니에 담는 중입니다. 잠시만 기다려주세요...")
         telegram_store.clear_pending(chat_id)
+
+        # 이번 발주에 쓰인 도매처 중 계정이 2개 이상 등록된 곳이 있으면 어느
+        # 계정으로 담을지부터 물어봐야 한다. 그 사이엔 실제 담기가 시작되는 게
+        # 아니므로 락을 쥐고 있을 필요가 없다(사용자가 답장하는 동안 다른 정상
+        # 요청까지 막아버릴 수 있음) - 여기서는 풀어두고, 계정을 다 고른 뒤
+        # _ask_next_account_choice에서 실행 스케줄링 시점에 다시 잡는다.
+        vendor_ids_needing_choice = sorted({
+            it["vendor_id"] for it in pending
+            if len(vendors.list_store_vendor_accounts(store_name, it["vendor_id"])) >= 2
+        })
+        if vendor_ids_needing_choice:
+            _finish_processing(store_name)
+            state = {
+                "mode": "account_select", "store_id": store_name,
+                "queue": vendor_ids_needing_choice, "current": None,
+                "pending_items": pending, "resolved_accounts": {},
+            }
+            _ask_next_account_choice(chat_id, state)
+            return
+
+        send_message(chat_id, "장바구니에 담는 중입니다. 잠시만 기다려주세요...")
 
         # 담기는 시간이 걸려 웹훅 안에서 동기로 기다리면 텔레그램이 같은 메시지를 재전송해
         # 중복 처리가 생기므로, 백그라운드 스레드에 맡기고 웹훅은 바로 끝낸다.

@@ -177,26 +177,87 @@ def get_enabled_vendor_ids() -> list[str]:
     return ids
 
 
-# --- 지점별 도매처 계정 (실제 담기/구매용. 가격비교용 크롤링은 위 대표 계정을 그대로 사용) ---
+# --- 지점별 도매처 계정 (실제 담기/구매용. 가격비교용 크롤링은 위 대표 계정을 그대로 사용).
+# 한 지점이 같은 도매처에 계정을 여러 개 가질 수 있다(다매장 운영 시 도매처 하나에
+# 매장별로 계정을 따로 쓰는 경우) - 계정마다 별명(nickname)으로 구분하고, 그중 하나를
+# "기본 계정"(is_default)으로 표시해 별명을 몰라도 되는 기존 호출부(웹 /my-vendors,
+# 계정 지정 없이 담기 등)가 그대로 동작하게 한다. ---
 
 def init_store_vendor_table():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
     CREATE TABLE IF NOT EXISTS store_vendor_credentials (
-        store_id TEXT,
-        vendor_id TEXT,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        store_id TEXT NOT NULL,
+        vendor_id TEXT NOT NULL,
+        nickname TEXT NOT NULL,
         login_id_enc TEXT,
         login_pwd_enc TEXT,
-        updated_at TEXT,
-        PRIMARY KEY (store_id, vendor_id)
+        is_default INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT
     )
+    """)
+    conn.commit()
+    conn.close()
+    # 옛 스키마(별명 없음)가 이미 배포돼 있으면 위 CREATE TABLE IF NOT EXISTS는
+    # 조용히 무시되므로, nickname 컬럼이 실제로 있는지 마이그레이션에서 먼저
+    # 확인/보정한 다음에야 그 컬럼을 쓰는 인덱스를 만들 수 있다.
+    _migrate_legacy_store_vendor_credentials()
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_store_vendor_nickname
+    ON store_vendor_credentials (store_id, vendor_id, nickname)
     """)
     conn.commit()
     conn.close()
 
 
-def set_store_vendor_credentials(store_id: str, vendor_id: str, login_id: str, login_pwd: str) -> None:
+def _migrate_legacy_store_vendor_credentials() -> None:
+    """이 테이블은 원래 (store_id, vendor_id)가 PK라 도매처당 계정을 하나만 저장했다.
+    계정을 여러 개(별명 포함) 두도록 스키마를 바꿨는데, 이미 옛 스키마로 배포되어
+    있으면 위 CREATE TABLE IF NOT EXISTS가 조용히 무시되므로, 옛 스키마를 감지해서
+    기존 계정을 "기본" 별명의 기본 계정으로 옮겨 담는다."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cols = {row[1] for row in cur.execute("PRAGMA table_info(store_vendor_credentials)").fetchall()}
+    if "nickname" in cols:
+        conn.close()
+        return
+
+    cur.execute("ALTER TABLE store_vendor_credentials RENAME TO store_vendor_credentials_old")
+    cur.execute("""
+    CREATE TABLE store_vendor_credentials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        store_id TEXT NOT NULL,
+        vendor_id TEXT NOT NULL,
+        nickname TEXT NOT NULL,
+        login_id_enc TEXT,
+        login_pwd_enc TEXT,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT
+    )
+    """)
+    cur.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_store_vendor_nickname
+    ON store_vendor_credentials (store_id, vendor_id, nickname)
+    """)
+    cur.execute("""
+    INSERT INTO store_vendor_credentials (store_id, vendor_id, nickname, login_id_enc, login_pwd_enc, is_default, updated_at)
+    SELECT store_id, vendor_id, '기본', login_id_enc, login_pwd_enc, 1, updated_at
+    FROM store_vendor_credentials_old
+    """)
+    cur.execute("DROP TABLE store_vendor_credentials_old")
+    conn.commit()
+    conn.close()
+
+
+def add_store_vendor_account(store_id: str, vendor_id: str, nickname: str, login_id: str, login_pwd: str) -> int:
+    """계정을 하나 추가한다(같은 별명이 이미 있으면 그 계정의 아이디/비번을 갱신).
+    해당 지점/도매처에 등록된 계정이 하나도 없었으면 이 계정을 자동으로 기본
+    계정으로 지정한다. 반환값은 계정 id(계정 선택/세션 캐시 키로 사용)."""
     if vendor_id not in VENDORS:
         raise ValueError(f"알 수 없는 도매처: {vendor_id}")
 
@@ -207,38 +268,101 @@ def set_store_vendor_credentials(store_id: str, vendor_id: str, login_id: str, l
 
     conn = get_conn()
     cur = conn.cursor()
+    cur.execute(
+        "SELECT COUNT(*) FROM store_vendor_credentials WHERE store_id = ? AND vendor_id = ?",
+        (store_id, vendor_id),
+    )
+    existing_count = cur.fetchone()[0]
+    is_first = existing_count == 0
+    # 별명을 생략하면 "기본"으로 자동 지정하되, 이미 계정이 있는 상태에서 또
+    # 생략하면 "기본"과 충돌해 기존 계정을 덮어써버리므로 "계정N"으로 구분한다.
+    nickname = (nickname or "").strip() or ("기본" if is_first else f"계정{existing_count + 1}")
+
     cur.execute("""
-    INSERT INTO store_vendor_credentials (store_id, vendor_id, login_id_enc, login_pwd_enc, updated_at)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(store_id, vendor_id) DO UPDATE SET
+    INSERT INTO store_vendor_credentials (store_id, vendor_id, nickname, login_id_enc, login_pwd_enc, is_default, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(store_id, vendor_id, nickname) DO UPDATE SET
         login_id_enc = excluded.login_id_enc,
         login_pwd_enc = excluded.login_pwd_enc,
         updated_at = excluded.updated_at
-    """, (store_id, vendor_id, login_id_enc, login_pwd_enc, now))
+    """, (store_id, vendor_id, nickname, login_id_enc, login_pwd_enc, int(is_first), now))
     conn.commit()
+
+    cur.execute(
+        "SELECT id FROM store_vendor_credentials WHERE store_id = ? AND vendor_id = ? AND nickname = ?",
+        (store_id, vendor_id, nickname),
+    )
+    account_id = cur.fetchone()[0]
     conn.close()
+    return account_id
 
 
-def get_store_vendor_credentials(store_id: str, vendor_id: str) -> tuple[str, str] | None:
+def set_store_vendor_credentials(store_id: str, vendor_id: str, login_id: str, login_pwd: str) -> None:
+    """웹 /my-vendors의 단일 계정 저장용 - 기본 계정이 있으면 그 계정을 덮어쓰고,
+    없으면 "기본"이라는 별명으로 새로 만든다(텔레그램에서 여러 계정을 등록해도
+    웹은 여전히 계정 하나만 다루므로, 기본 계정을 그대로 갱신 대상으로 쓴다)."""
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "SELECT login_id_enc, login_pwd_enc FROM store_vendor_credentials WHERE store_id = ? AND vendor_id = ?",
+        "SELECT nickname FROM store_vendor_credentials WHERE store_id = ? AND vendor_id = ? AND is_default = 1",
         (store_id, vendor_id),
     )
     row = cur.fetchone()
     conn.close()
+    nickname = row[0] if row else "기본"
+    add_store_vendor_account(store_id, vendor_id, nickname, login_id, login_pwd)
 
-    if not row:
+
+def list_store_vendor_accounts(store_id: str, vendor_id: str) -> list[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT id, nickname, is_default FROM store_vendor_credentials
+    WHERE store_id = ? AND vendor_id = ?
+    ORDER BY is_default DESC, id ASC
+    """, (store_id, vendor_id))
+    rows = cur.fetchall()
+    conn.close()
+    return [{"id": r[0], "nickname": r[1], "is_default": bool(r[2])} for r in rows]
+
+
+def resolve_store_vendor_account(store_id: str, vendor_id: str, account_id: int | None = None) -> dict | None:
+    """계정 하나를 확정해서 {id, nickname, login_id, login_pwd}로 반환한다.
+    account_id를 안 주면 기본 계정(없으면 가장 먼저 등록한 계정)을 쓴다 - 계정
+    구분 없이 호출하던 기존 코드가 계속 동작하게 하는 폴백이다."""
+    conn = get_conn()
+    cur = conn.cursor()
+    if account_id is not None:
+        cur.execute(
+            "SELECT id, nickname, login_id_enc, login_pwd_enc FROM store_vendor_credentials WHERE id = ? AND store_id = ? AND vendor_id = ?",
+            (account_id, store_id, vendor_id),
+        )
+    else:
+        cur.execute("""
+        SELECT id, nickname, login_id_enc, login_pwd_enc FROM store_vendor_credentials
+        WHERE store_id = ? AND vendor_id = ?
+        ORDER BY is_default DESC, id ASC LIMIT 1
+        """, (store_id, vendor_id))
+    row = cur.fetchone()
+    conn.close()
+
+    if not row or not row[2] or not row[3]:
         return None
 
     fernet = _get_fernet()
     try:
-        login_id = fernet.decrypt(row[0].encode("utf-8")).decode("utf-8")
-        login_pwd = fernet.decrypt(row[1].encode("utf-8")).decode("utf-8")
+        login_id = fernet.decrypt(row[2].encode("utf-8")).decode("utf-8")
+        login_pwd = fernet.decrypt(row[3].encode("utf-8")).decode("utf-8")
     except InvalidToken:
         raise RuntimeError(f"{store_id}/{vendor_id} 자격증명 복호화 실패")
-    return login_id, login_pwd
+    return {"id": row[0], "nickname": row[1], "login_id": login_id, "login_pwd": login_pwd}
+
+
+def get_store_vendor_credentials(store_id: str, vendor_id: str, account_id: int | None = None) -> tuple[str, str] | None:
+    account = resolve_store_vendor_account(store_id, vendor_id, account_id)
+    if not account:
+        return None
+    return account["login_id"], account["login_pwd"]
 
 
 # 지점별 계정 등록 + 자동 담기를 지원하는 도매처 (현동몰/무마켓/또요몰은 봇 구현 전까지는
@@ -249,7 +373,7 @@ STORE_MANAGED_VENDOR_IDS = ("yamimall", "ccdome", "3bong", "hdinter", "moomarket
 def list_store_vendor_status(store_id: str) -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT vendor_id FROM store_vendor_credentials WHERE store_id = ?", (store_id,))
+    cur.execute("SELECT DISTINCT vendor_id FROM store_vendor_credentials WHERE store_id = ?", (store_id,))
     registered = {r[0] for r in cur.fetchall()}
     conn.close()
 
