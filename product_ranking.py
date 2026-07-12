@@ -70,7 +70,7 @@ class ProductType:
 # 음료 용기 형태 기준 분류.
 BEVERAGE = ProductType(
     key="beverage", table_name="beverage_catalog", catalog_category="음료수",
-    package_types=["작은캔", "뚱캔", "페트", "팩", "미분류"],
+    package_types=["작은캔", "뚱캔", "페트", "병", "팩", "미분류"],
 )
 # 과자 포장 형태 기준 분류.
 SNACK = ProductType(
