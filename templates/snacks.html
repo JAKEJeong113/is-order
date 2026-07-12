@@ -62,6 +62,12 @@
       background: var(--mint); color: white; font-weight: 700; flex-shrink: 0;
     }
     .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
+    .search-row { margin-bottom: 12px; }
+    .search-row input {
+      width: 100%; max-width: 320px; padding: 9px 12px; border: 1px solid var(--line);
+      border-radius: 8px; font-size: 13px; background: var(--card); color: var(--text);
+    }
+    .search-row input:focus { outline: none; border-color: var(--mint); }
     .filter-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
     .filter-btn {
       padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px;
@@ -74,6 +80,7 @@
   {% include "_sidebar.html" %}
   <h1>과자 추천</h1>
   <div class="sub-note" id="refreshedNote">선택 많이 받은 순 · 매일 자동 갱신</div>
+  <div class="search-row"><input type="text" id="searchInput" placeholder="과자 이름으로 검색..." /></div>
   <div class="filter-row" id="filterRow"></div>
   <div id="grid" class="bev-grid"></div>
 
@@ -93,6 +100,7 @@
     const PACKAGE_TYPES = ["봉지", "박스", "낱개", "미분류"];
     let allItems = [];
     let activeFilter = "전체보기";
+    let searchQuery = "";
 
     function renderFilterRow() {
       const filterEl = document.getElementById("filterRow");
@@ -131,14 +139,24 @@
       renderGrid();
     }
 
+    document.getElementById("searchInput").addEventListener("input", (e) => {
+      searchQuery = e.target.value.trim().toLowerCase();
+      renderGrid();
+    });
+
     function renderGrid() {
       const gridEl = document.getElementById("grid");
-      const items = activeFilter === "전체보기"
+      let items = activeFilter === "전체보기"
         ? allItems
         : allItems.filter((it) => (it.category || "미분류") === activeFilter);
+      if (searchQuery) {
+        items = items.filter((it) => (it.item_name || "").toLowerCase().includes(searchQuery));
+      }
 
       if (items.length === 0) {
-        gridEl.innerHTML = '<div class="empty-text">해당 분류의 과자가 없습니다.</div>';
+        gridEl.innerHTML = searchQuery
+          ? '<div class="empty-text">검색 결과가 없습니다.</div>'
+          : '<div class="empty-text">해당 분류의 과자가 없습니다.</div>';
         return;
       }
 
