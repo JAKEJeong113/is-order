@@ -46,6 +46,7 @@ CANCEL_WORDS = {"취소", "아니", "아니오", "no", "cancel"}
 # 추가 계정이든 결국 add_store_vendor_account 하나로 저장되기 때문. 뒤에
 # 도매처명을 붙이면("계정추가 야미몰") 도매처 메뉴를 건너뛰고 바로 별명부터 묻는다.
 CRED_TRIGGER_WORDS = {"계정등록", "도매처등록", "도매처계정등록", "계정 등록", "계정추가"}
+DELETE_ACCOUNT_TRIGGER_WORDS = {"계정삭제", "도매처계정삭제"}
 HELP_WORDS = {"도움말", "명령어", "help", "도움", "명령"}
 
 # 웹 장바구니(/cart)와 공유(vendors.py가 단일 소스).
@@ -72,6 +73,9 @@ HELP_TEXT = """사용 가능한 명령어입니다:
 한 도매처에 계정을 추가로 등록합니다(다매장 운영 시 등). 예: 계정추가 야미몰
 계정마다 별명을 붙일 수 있고, 도매처에 계정이 2개 이상이면 '확인' 후 어떤
 계정으로 담을지 물어봐요.
+
+[계정삭제 (도매처명)]
+등록된 계정을 삭제합니다. 예: 계정삭제 야미몰 (번호로 어떤 계정인지 골라요)
 
 [주거래처 설정 (도매처명)]
 가격이 같을 때 우선으로 담을 도매처를 지정합니다. 예: 주거래처 설정 야미몰
@@ -167,6 +171,17 @@ def _match_cred_trigger(text: str) -> tuple[bool, str | None]:
     (예: "계정추가 야미몰") 그 부분도 같이 돌려준다. 반환: (트리거 여부, 도매처 텍스트)."""
     stripped = text.strip()
     for trigger in CRED_TRIGGER_WORDS:
+        if stripped == trigger:
+            return True, None
+        if stripped.startswith(trigger + " "):
+            return True, stripped[len(trigger):].strip()
+    return False, None
+
+
+def _match_delete_trigger(text: str) -> tuple[bool, str | None]:
+    """"계정삭제 (도매처명)" 명령인지 확인하고, 도매처명 부분을 같이 돌려준다."""
+    stripped = text.strip()
+    for trigger in DELETE_ACCOUNT_TRIGGER_WORDS:
         if stripped == trigger:
             return True, None
         if stripped.startswith(trigger + " "):
@@ -546,6 +561,50 @@ def _handle_account_choice_reply(chat_id: str, state: dict, text: str) -> None:
     _ask_next_account_choice(chat_id, state)
 
 
+def _format_account_delete_prompt(vendor_id: str, accounts: list[dict]) -> str:
+    vendor_name = vendors.VENDORS[vendor_id]["name"]
+    lines = [f"{vendor_name}에서 삭제할 계정을 번호로 답장해주세요:\n"]
+    for i, acc in enumerate(accounts, start=1):
+        tag = " (기본)" if acc["is_default"] else ""
+        lines.append(f"{i}. {acc['nickname']}{tag}")
+    lines.append("\n취소하려면 '취소'라고 답장해주세요.")
+    return "\n".join(lines)
+
+
+def _handle_account_delete_reply(chat_id: str, state: dict, text: str) -> None:
+    stripped = text.strip()
+
+    if stripped.lower() in CANCEL_WORDS:
+        telegram_store.set_disambig_state(chat_id, None)
+        send_message(chat_id, "계정 삭제를 취소했습니다.")
+        return
+
+    accounts = state["accounts"]
+    idx = int(stripped) - 1 if stripped.isdigit() else None
+    if idx is None:
+        for i, acc in enumerate(accounts):
+            if acc["nickname"] == stripped:
+                idx = i
+                break
+
+    if idx is None or not (0 <= idx < len(accounts)):
+        send_message(chat_id, f"1~{len(accounts)} 사이의 번호로 답장해주세요. (취소하려면 '취소')")
+        return
+
+    account = accounts[idx]
+    telegram_store.set_disambig_state(chat_id, None)
+    vendors.delete_store_vendor_account(state["store_id"], state["vendor_id"], account["id"])
+
+    vendor_name = vendors.VENDORS[state["vendor_id"]]["name"]
+    note = ""
+    if account["is_default"]:
+        remaining = vendors.list_store_vendor_accounts(state["store_id"], state["vendor_id"])
+        new_default = next((a for a in remaining if a["is_default"]), None)
+        if new_default:
+            note = f" (이제 {new_default['nickname']}이(가) 기본 계정입니다)"
+    send_message(chat_id, f"{vendor_name} 계정({account['nickname']})을 삭제했습니다.{note}")
+
+
 REGISTRATION_PROMPTS = {
     "store_name": ("store_name", "phone", "연락처(전화번호)를 입력해주세요."),
     "phone": ("phone", "business_number", "사업자등록번호를 입력해주세요."),
@@ -736,6 +795,8 @@ def handle_update(update: dict) -> None:
             _handle_stockout_reply(chat_id, disambig_state, text)
         elif mode == "account_select":
             _handle_account_choice_reply(chat_id, disambig_state, text)
+        elif mode == "account_delete":
+            _handle_account_delete_reply(chat_id, disambig_state, text)
         else:
             _handle_disambiguation_reply(chat_id, disambig_state, text)
         return
@@ -753,6 +814,27 @@ def handle_update(update: dict) -> None:
         else:
             telegram_store.start_credential_menu(chat_id)
             send_message(chat_id, VENDOR_MENU_TEXT)
+        return
+
+    is_delete_trigger, delete_vendor_text = _match_delete_trigger(text)
+    if is_delete_trigger:
+        if not delete_vendor_text:
+            send_message(chat_id, f"사용법: 계정삭제 (도매처명)\n예: 계정삭제 야미몰\n{VENDOR_MENU_TEXT}")
+            return
+        vendor_id = KOREAN_TO_VENDOR_ID.get(delete_vendor_text)
+        if not vendor_id:
+            send_message(chat_id, f"찾을 수 없는 도매처예요: {delete_vendor_text}\n{VENDOR_MENU_TEXT}")
+            return
+        accounts = vendors.list_store_vendor_accounts(store_name, vendor_id)
+        if not accounts:
+            send_message(chat_id, f"{vendors.VENDORS[vendor_id]['name']}에 등록된 계정이 없습니다.")
+            return
+        state = {
+            "mode": "account_delete", "store_id": store_name, "vendor_id": vendor_id,
+            "accounts": accounts, "current": vendor_id,
+        }
+        telegram_store.set_disambig_state(chat_id, state)
+        send_message(chat_id, _format_account_delete_prompt(vendor_id, accounts))
         return
 
     if normalized in CANCEL_WORDS:
