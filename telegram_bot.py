@@ -11,6 +11,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import cart_add_logic
 import popularity
 import price_compare
+import product_ranking
 import telegram_store
 import vendors
 
@@ -47,6 +48,9 @@ CANCEL_WORDS = {"취소", "아니", "아니오", "no", "cancel"}
 # 도매처명을 붙이면("계정추가 야미몰") 도매처 메뉴를 건너뛰고 바로 별명부터 묻는다.
 CRED_TRIGGER_WORDS = {"계정등록", "도매처등록", "도매처계정등록", "계정 등록", "계정추가"}
 DELETE_ACCOUNT_TRIGGER_WORDS = {"계정삭제", "도매처계정삭제"}
+# 발주(도매처 가격비교)와는 별개로, 음료/과자 추천 카드에 등록해둔 쿠팡 링크를
+# 바로 찾아주는 명령 - "이 상품 쿠팡 링크 좀" 같은 요청에 대응한다.
+PRODUCT_LINK_TRIGGER_WORDS = {"구매링크", "쿠팡링크", "상품검색", "쿠팡검색"}
 HELP_WORDS = {"도움말", "명령어", "help", "도움", "명령"}
 
 # 웹 장바구니(/cart)와 공유(vendors.py가 단일 소스).
@@ -77,6 +81,9 @@ HELP_TEXT = """사용 가능한 명령어입니다:
 [계정삭제 (도매처명)]
 등록된 계정을 삭제합니다. 예: 계정삭제 야미몰 (번호로 어떤 계정인지 골라요)
 
+[구매링크 (상품명)]
+음료/과자 추천에 등록된 상품의 쿠팡 구매 링크를 찾아드려요. 예: 구매링크 스프라이트
+
 [주거래처 설정 (도매처명)]
 가격이 같을 때 우선으로 담을 도매처를 지정합니다. 예: 주거래처 설정 야미몰
 - 주거래처 확인: 현재 설정 확인
@@ -97,18 +104,20 @@ _scheduler = BackgroundScheduler(executors={"default": {"type": "threadpool", "m
 _scheduler.start()
 
 
-def send_message(chat_id, text: str) -> None:
+def send_message(chat_id, text: str) -> bool:
     if not BOT_TOKEN:
         print("[TELEGRAM] TELEGRAM_BOT_TOKEN이 설정되지 않아 메시지를 보낼 수 없습니다.")
-        return
+        return False
     try:
-        requests.post(
+        resp = requests.post(
             f"{API_BASE}/sendMessage",
             json={"chat_id": chat_id, "text": text},
             timeout=15,
         )
+        return resp.ok
     except Exception as e:
         print("[TELEGRAM] 메시지 전송 실패:", e)
+        return False
 
 
 def _format_comparison(matched: list[dict], not_found: list[str]) -> str:
@@ -187,6 +196,25 @@ def _match_delete_trigger(text: str) -> tuple[bool, str | None]:
         if stripped.startswith(trigger + " "):
             return True, stripped[len(trigger):].strip()
     return False, None
+
+
+def _match_product_link_trigger(text: str) -> tuple[bool, str | None]:
+    """"구매링크 (상품명)" 류 명령인지 확인하고, 상품명 부분을 같이 돌려준다."""
+    stripped = text.strip()
+    for trigger in PRODUCT_LINK_TRIGGER_WORDS:
+        if stripped == trigger:
+            return True, None
+        if stripped.startswith(trigger + " "):
+            return True, stripped[len(trigger):].strip()
+    return False, None
+
+
+def _format_product_search_results(keyword: str, results: list[dict]) -> str:
+    lines = [f"'{keyword}' 검색 결과:\n"]
+    for r in results:
+        price_text = f"{r['price']:,}원" if r.get("price") else "가격 확인 필요"
+        lines.append(f"• {r['item_name']} ({price_text})\n{r['partners_link']}")
+    return "\n\n".join(lines)
 
 
 def _store_prefs(chat_id: str) -> tuple[set, str | None]:
@@ -835,6 +863,18 @@ def handle_update(update: dict) -> None:
         }
         telegram_store.set_disambig_state(chat_id, state)
         send_message(chat_id, _format_account_delete_prompt(vendor_id, accounts))
+        return
+
+    is_link_trigger, link_keyword = _match_product_link_trigger(text)
+    if is_link_trigger:
+        if not link_keyword:
+            send_message(chat_id, "사용법: 구매링크 (상품명)\n예: 구매링크 스프라이트")
+            return
+        results = product_ranking.search_products(link_keyword)
+        if not results:
+            send_message(chat_id, f"'{link_keyword}'에 해당하는 음료/과자 추천 상품을 찾지 못했어요.")
+            return
+        send_message(chat_id, _format_product_search_results(link_keyword, results))
         return
 
     if normalized in CANCEL_WORDS:

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>가맹점 공지 발송</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+    .recipient-note { font-size: 13px; color: var(--mint-text); font-weight: 700; margin-bottom: 14px; }
+    textarea {
+      width: 100%; max-width: 560px; min-height: 160px; padding: 12px 14px;
+      border: 1px solid var(--line); border-radius: 10px; font-size: 14px;
+      font-family: inherit; resize: vertical;
+    }
+    .send-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+    .send-btn {
+      padding: 11px 20px; border: none; border-radius: 10px; font-size: 14px;
+      font-weight: 700; cursor: pointer; background: var(--mint); color: white;
+    }
+    .send-btn:disabled { background: #a7f3d0; cursor: default; }
+    .status-text { font-size: 13px; color: var(--muted); }
+    .status-text.error { color: #b91c1c; }
+    .status-text.success { color: var(--mint-text); }
+  </style>
+</head>
+<body>
+  <h1>가맹점 공지 발송</h1>
+  <div class="hint-text">텔레그램으로 가맹점을 등록하고 승인된 매장 전체에 메시지를 보냅니다. 발송 후에는 취소할 수 없으니 내용을 확인하고 보내주세요.</div>
+  <div class="recipient-note" id="recipientNote">수신 대상 확인 중...</div>
+  <textarea id="messageInput" placeholder="공지 내용을 입력하세요..."></textarea>
+  <div class="send-row">
+    <button class="send-btn" id="sendBtn">전송</button>
+    <span class="status-text" id="statusText"></span>
+  </div>
+
+  <script>
+    async function loadRecipientCount() {
+      const res = await fetch("/api/telegram/stores");
+      const data = await res.json();
+      const count = (data.stores || []).filter((s) => s.approved).length;
+      document.getElementById("recipientNote").textContent = `수신 대상: 승인된 가맹점 ${count}곳`;
+    }
+
+    document.getElementById("sendBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("sendBtn");
+      const statusEl = document.getElementById("statusText");
+      const messageEl = document.getElementById("messageInput");
+      const message = messageEl.value.trim();
+
+      if (!message) {
+        statusEl.textContent = "내용을 입력해주세요.";
+        statusEl.className = "status-text error";
+        return;
+      }
+      if (!confirm(`이 내용을 전체 가맹점에 발송할까요?\n\n${message}`)) return;
+
+      btn.disabled = true;
+      statusEl.textContent = "발송 중...";
+      statusEl.className = "status-text";
+
+      try {
+        const res = await fetch("/admin/api/broadcast", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          statusEl.textContent = `발송 완료: 성공 ${data.sent}건 / 실패 ${data.failed}건 (총 ${data.total}곳)`;
+          statusEl.className = "status-text success";
+          messageEl.value = "";
+        } else {
+          statusEl.textContent = "발송 실패";
+          statusEl.className = "status-text error";
+        }
+      } catch (e) {
+        statusEl.textContent = "발송 중 오류 발생";
+        statusEl.className = "status-text error";
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    loadRecipientCount();
+  </script>
+</body>
+</html>

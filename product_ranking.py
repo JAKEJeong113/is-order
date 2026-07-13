@@ -305,6 +305,31 @@ def record_click(pt: ProductType, item_key: str) -> bool:
     return updated
 
 
+def search_products(keyword: str, limit: int = 5) -> list[dict]:
+    """음료/과자 추천 카탈로그 전체(BEVERAGE + SNACK)에서 이름에 keyword가
+    부분일치(대소문자 무관)하는, 구매 가능한(partners_link 있는) 상품을 찾는다.
+    텔레그램 "구매링크" 명령에서 쓴다 - 발주용 도매처 가격비교(price_compare)와는
+    완전히 별개로, 고객용 추천 카드에 등록된 쿠팡 링크만 대상으로 한다."""
+    results = []
+    for pt in (BEVERAGE, SNACK):
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(f"""
+        SELECT item_name, price, partners_link, category, click_count
+        FROM {pt.table_name}
+        WHERE partners_link IS NOT NULL AND item_name LIKE ? ESCAPE '\\'
+        """, (f"%{keyword.replace('%', '\\%').replace('_', '\\_')}%",))
+        for r in cur.fetchall():
+            results.append({
+                "item_name": r[0], "price": r[1], "partners_link": r[2],
+                "category": r[3], "click_count": r[4], "product_type": pt.key,
+            })
+        conn.close()
+
+    results.sort(key=lambda x: x["click_count"], reverse=True)
+    return results[:limit]
+
+
 def delete_product(pt: ProductType, item_key: str) -> bool:
     """추천 목록(고객용 페이지)에서 제거한다. 카탈로그(엑셀)에도 있는 상품이면
     관리 페이지에는 "미완료" 상태로 다시 나타난다(카탈로그 자체를 지우는 게

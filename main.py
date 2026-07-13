@@ -1177,6 +1177,25 @@ def api_telegram_delete(chat_id: str, _: bool = Depends(require_admin)):
     return {"ok": True}
 
 
+@app.get("/admin/broadcast", response_class=HTMLResponse)
+def admin_broadcast_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("broadcast_admin.html", {"request": request})
+
+
+class BroadcastRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+
+
+@app.post("/admin/api/broadcast")
+def admin_api_broadcast(req: BroadcastRequest, _: bool = Depends(require_admin)):
+    """승인된 모든 가맹점(텔레그램)에 공지 메시지를 보낸다. 매장 수가 많지
+    않아(50개 안팎) 순차 전송으로도 충분하고, 결과(성공/실패 수)를 그 자리에서
+    바로 보여줄 수 있어 백그라운드 작업으로 미루지 않는다."""
+    stores = [s for s in telegram_store.list_stores() if s["approved"]]
+    sent = sum(1 for s in stores if telegram_bot.send_message(s["chat_id"], req.message))
+    return {"ok": True, "sent": sent, "failed": len(stores) - sent, "total": len(stores)}
+
+
 @app.get("/admin/users", response_class=HTMLResponse)
 def admin_users_page(request: Request, _: bool = Depends(require_admin)):
     return templates.TemplateResponse("admin_users.html", {"request": request})
