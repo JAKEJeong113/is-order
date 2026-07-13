@@ -4,14 +4,9 @@
 관리자가 상품명/이미지 링크/쿠팡 링크를 직접 입력해 추가·수정·삭제할 수
 있도록 DB로 옮긴 것. 로그인 없이 누구나 보는 공개 페이지라 서버 렌더링으로
 바로 내려준다(클라이언트에서 fetch로 채우지 않음)."""
-import os
-import sqlite3
 from datetime import datetime
-from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
-DB_PATH = DATA_DIR / "inventory.db"
+import db_conn
 
 # 기존 하드코딩 카드 중 실제 검색 링크가 있던 5개만 최초 배포 시 시드로
 # 넣는다(이미지 링크는 없었으므로 빈 값 - 관리자가 이후 채워 넣으면 됨).
@@ -25,9 +20,7 @@ _SEED_TOOLS = [
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+    return db_conn.get_conn()
 
 
 def init_table() -> None:
@@ -71,11 +64,11 @@ def add_tool(item_name: str, image_url: str, product_url: str) -> int:
     next_order = cur.fetchone()[0]
     now = datetime.now().isoformat(timespec="seconds")
     cur.execute(
-        "INSERT INTO biz_tools (item_name, image_url, product_url, sort_order, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO biz_tools (item_name, image_url, product_url, sort_order, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id",
         (item_name, image_url, product_url, next_order, now),
     )
     conn.commit()
-    new_id = cur.lastrowid
+    new_id = cur.fetchone()[0]
     conn.close()
     return new_id
 

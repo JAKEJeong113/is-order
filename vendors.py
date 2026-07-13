@@ -1,15 +1,11 @@
 # vendors.py
 import json
 import os
-import sqlite3
 from datetime import datetime
-from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
-DB_PATH = DATA_DIR / "inventory.db"
+import db_conn
 
 VENDORS = {
     "yamimall": {"name": "야미몰", "base_url": "https://xn--352blx12s.com", "free_shipping_threshold": 150000},
@@ -57,9 +53,7 @@ def _get_fernet() -> Fernet:
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+    return db_conn.get_conn()
 
 
 def init_vendor_table():

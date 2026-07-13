@@ -1,20 +1,13 @@
 # telegram_store.py
 """텔레그램으로 발주하는 가맹점 승인 관리 + 확인 대기중인 담기 목록 저장."""
 import json
-import os
-import sqlite3
 from datetime import datetime
-from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
-DB_PATH = DATA_DIR / "inventory.db"
+import db_conn
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+    return db_conn.get_conn()
 
 
 def init_telegram_tables():
@@ -84,10 +77,10 @@ def add_broadcast_history(message: str, sent_count: int, failed_count: int, tota
     cur = conn.cursor()
     cur.execute("""
     INSERT INTO broadcast_history (message, sent_count, failed_count, total_count, sent_at)
-    VALUES (?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?) RETURNING id
     """, (message, sent_count, failed_count, total_count, now))
     conn.commit()
-    new_id = cur.lastrowid
+    new_id = cur.fetchone()[0]
     conn.close()
     return new_id
 

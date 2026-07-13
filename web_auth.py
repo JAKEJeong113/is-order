@@ -4,13 +4,11 @@
 import hashlib
 import os
 import secrets
-import sqlite3
 from datetime import datetime, timedelta
-from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
-DB_PATH = DATA_DIR / "inventory.db"
+import psycopg2
+
+import db_conn
 
 SESSION_TTL_DAYS = 30
 PBKDF2_ITERATIONS = 260000
@@ -18,9 +16,7 @@ SESSION_COOKIE_NAME = "session_token"
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+    return db_conn.get_conn()
 
 
 def init_web_auth_tables():
@@ -72,7 +68,8 @@ def signup(email: str, password: str, display_name: str) -> tuple[bool, str]:
         VALUES (?, ?, ?, ?, ?)
         """, (email, password_hash, salt.hex(), display_name.strip(), now))
         conn.commit()
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
+        conn.rollback()
         conn.close()
         return False, "이미 가입된 이메일입니다."
     conn.close()

@@ -1,21 +1,14 @@
 # popularity.py
 """가맹점 전체 발주/장바구니 이력을 쌓아서 카테고리별 인기상품 TOP N을 계산한다."""
-import os
-import sqlite3
-from datetime import datetime
-from pathlib import Path
+from datetime import datetime, timedelta
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
-DB_PATH = DATA_DIR / "inventory.db"
+import db_conn
 
 CATEGORIES = ("icecream", "coupang", "wholesale")
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+    return db_conn.get_conn()
 
 
 def init_popularity_table():
@@ -53,16 +46,20 @@ def log_event(store_id: str, category: str, item_key: str, item_name: str, qty: 
 
 
 def get_top_items(category: str, limit: int = 30, days: int = 60) -> list[dict]:
+    # SQLite 전용 datetime('now', '-N days') 대신 파이썬에서 기준 시각을 계산해
+    # 넘긴다 - created_at이 ISO 8601 문자열(예: "2026-07-13T13:28:25")이라
+    # 문자열 비교만으로도 시간순 비교가 정확히 맞는다(DB 종류와 무관하게 동작).
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(f"""
+    cur.execute("""
     SELECT item_key, item_name, SUM(qty) AS total_qty, COUNT(DISTINCT store_id) AS store_count
     FROM order_events
-    WHERE category = ? AND created_at >= datetime('now', '-{int(days)} days')
+    WHERE category = ? AND created_at >= ?
     GROUP BY item_key
     ORDER BY total_qty DESC
     LIMIT ?
-    """, (category, limit))
+    """, (category, cutoff, limit))
     rows = cur.fetchall()
     conn.close()
 

@@ -28,7 +28,6 @@ import hashlib
 import hmac
 import json
 import os
-import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,11 +35,10 @@ from urllib.parse import urlencode
 
 import requests
 
+import db_conn
 import mapping
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
-DB_PATH = DATA_DIR / "inventory.db"
 COUPANG_CATALOG_XLSX_PATH = BASE_DIR / "coupang_catalog_sample_2.xlsx"
 
 CP_ACCESS_KEY = os.getenv("CP_ACCESS_KEY", "")
@@ -80,9 +78,7 @@ SNACK = ProductType(
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+    return db_conn.get_conn()
 
 
 def init_table(pt: ProductType) -> None:

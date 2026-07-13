@@ -5,20 +5,13 @@ Playwright로 로그인부터 하는 자동화라 상품 하나에도 수십 초
 페이지의 "담기"는 이 내부 장바구니에 빠르게(DB 저장만) 쌓아두고, 실제 도매몰
 담기는 /cart 페이지에서 사용자가 원할 때 실행한다."""
 import json
-import os
-import sqlite3
 from datetime import datetime
-from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
-DB_PATH = DATA_DIR / "inventory.db"
+import db_conn
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+    return db_conn.get_conn()
 
 
 def init_web_cart_table():
@@ -57,11 +50,11 @@ def add_item(store_id: str, item_name: str, vendor_id: str, vendor_name: str,
     cur.execute("""
     INSERT INTO web_cart_items
         (store_id, item_name, vendor_id, vendor_name, product_url, item_key, price, qty, alt_offers_json, added_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
     """, (store_id, item_name, vendor_id, vendor_name, product_url, item_key, price, qty,
           json.dumps(alt_offers or [], ensure_ascii=False), now))
     conn.commit()
-    new_id = cur.lastrowid
+    new_id = cur.fetchone()[0]
     conn.close()
     return new_id
 
