@@ -326,6 +326,63 @@ def list_store_vendor_accounts(store_id: str, vendor_id: str) -> list[dict]:
     return [{"id": r[0], "nickname": r[1], "is_default": bool(r[2])} for r in rows]
 
 
+def delete_store_vendor_account(store_id: str, vendor_id: str, account_id: int) -> bool:
+    """계정을 하나 삭제한다. 삭제한 계정이 기본 계정이었으면 남은 계정 중
+    가장 먼저 등록한 것을 새 기본 계정으로 승격한다(계정이 하나도 안 남으면
+    당연히 승격할 것도 없음)."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT is_default FROM store_vendor_credentials WHERE id = ? AND store_id = ? AND vendor_id = ?",
+        (account_id, store_id, vendor_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return False
+    was_default = bool(row[0])
+
+    cur.execute(
+        "DELETE FROM store_vendor_credentials WHERE id = ? AND store_id = ? AND vendor_id = ?",
+        (account_id, store_id, vendor_id),
+    )
+    deleted = cur.rowcount > 0
+
+    if deleted and was_default:
+        cur.execute(
+            "SELECT id FROM store_vendor_credentials WHERE store_id = ? AND vendor_id = ? ORDER BY id ASC LIMIT 1",
+            (store_id, vendor_id),
+        )
+        promote = cur.fetchone()
+        if promote:
+            cur.execute("UPDATE store_vendor_credentials SET is_default = 1 WHERE id = ?", (promote[0],))
+
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def set_default_store_vendor_account(store_id: str, vendor_id: str, account_id: int) -> bool:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id FROM store_vendor_credentials WHERE id = ? AND store_id = ? AND vendor_id = ?",
+        (account_id, store_id, vendor_id),
+    )
+    if not cur.fetchone():
+        conn.close()
+        return False
+
+    cur.execute(
+        "UPDATE store_vendor_credentials SET is_default = 0 WHERE store_id = ? AND vendor_id = ?",
+        (store_id, vendor_id),
+    )
+    cur.execute("UPDATE store_vendor_credentials SET is_default = 1 WHERE id = ?", (account_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
 def resolve_store_vendor_account(store_id: str, vendor_id: str, account_id: int | None = None) -> dict | None:
     """계정 하나를 확정해서 {id, nickname, login_id, login_pwd}로 반환한다.
     account_id를 안 주면 기본 계정(없으면 가장 먼저 등록한 계정)을 쓴다 - 계정

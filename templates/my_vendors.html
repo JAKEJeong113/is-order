@@ -17,20 +17,20 @@
     .app-main { padding-bottom: 80px; }
     h1 { font-size: 20px; margin: 0 0 8px; }
     .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
-    .back-link { font-size: 13px; color: var(--mint); text-decoration: none; display: inline-block; margin-bottom: 16px; }
     .vendor-card {
       background: var(--card); border: 1px solid var(--line); border-radius: 12px;
       padding: 16px; margin-bottom: 12px;
     }
     .vendor-card.disabled { opacity: 0.6; }
-    .vendor-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 10px; }
-    .vendor-head-left { display: flex; align-items: center; gap: 10px; }
+    .vendor-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 10px; flex-wrap: wrap; }
+    .vendor-head-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .vendor-name { font-weight: 700; font-size: 16px; }
     .badge {
       font-size: 11px; padding: 2px 8px; border-radius: 999px;
       background: var(--mint-soft); color: #0f766e;
     }
     .badge.preferred { background: var(--mint); color: white; }
+    .badge.locked { background: var(--mint); color: white; }
     .toggle-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
     .toggle-label input { width: 16px; height: 16px; cursor: pointer; }
     .prefer-btn {
@@ -38,9 +38,29 @@
       background: var(--card); color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer;
     }
     .prefer-btn.active { background: var(--mint); border-color: var(--mint); color: white; }
-    .cred-row { display: flex; gap: 8px; flex-wrap: wrap; }
-    .cred-row input {
-      flex: 1; min-width: 140px; padding: 8px 10px;
+    .account-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+    .account-row {
+      display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+      background: var(--bg); border: 1px solid var(--line); border-radius: 8px; flex-wrap: wrap;
+    }
+    .account-nickname { font-weight: 600; font-size: 13px; flex: 1; min-width: 60px; }
+    .set-default-btn {
+      padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px;
+      background: var(--card); color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer;
+    }
+    .delete-account-btn {
+      padding: 4px 9px; border: none; border-radius: 999px;
+      background: #fee2e2; color: #b91c1c; font-size: 11px; font-weight: 700; cursor: pointer;
+    }
+    .no-accounts-text { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+    .add-account-toggle-btn {
+      padding: 7px 12px; border: 1px dashed var(--line); border-radius: 8px;
+      background: var(--card); color: var(--mint-text); font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .add-account-form { display: none; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .add-account-form.open { display: flex; }
+    .add-account-form input {
+      flex: 1; min-width: 120px; padding: 8px 10px;
       border: 1px solid var(--line); border-radius: 8px; font-size: 14px;
     }
     .save-btn {
@@ -48,32 +68,65 @@
       background: var(--mint); color: white; font-weight: 600; cursor: pointer;
     }
     .status-text { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .status-text.error { color: #b91c1c; }
   </style>
 </head>
 <body>
   {% include "_sidebar.html" %}
   <h1>내 도매처 계정</h1>
-  <div class="hint-text">여기에 등록한 계정으로 실제 "담기"가 진행됩니다. 도매처 자체 계정(아이디/비밀번호)이 필요합니다. 비활성화하면 가격비교에서 제외됩니다.</div>
+  <div class="hint-text">
+    여기에 등록한 계정으로 실제 "담기"가 진행됩니다. 도매처 자체 계정(아이디/비밀번호)이 필요합니다.
+    한 도매처에 계정을 여러 개(다매장 운영 시 등) 등록할 수 있고, 담기 전에 어떤 계정을 쓸지 고를 수 있습니다.
+    비활성화하면 가격비교에서 제외됩니다.
+  </div>
   <div id="vendor-list"></div>
 
       </div>
     </div>
 
   <script>
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
     async function loadVendors() {
       const res = await fetch("/api/my-vendors");
       const data = await res.json();
+
+      const accountsByVendor = {};
+      await Promise.all(data.vendors.map(async (v) => {
+        const accRes = await fetch(`/api/my-vendors/${v.vendor_id}/accounts`);
+        const accData = await accRes.json();
+        accountsByVendor[v.vendor_id] = accData.accounts || [];
+      }));
+
       const list = document.getElementById("vendor-list");
       list.innerHTML = "";
 
       data.vendors.forEach((v) => {
+        const accounts = accountsByVendor[v.vendor_id] || [];
         const card = document.createElement("div");
         card.className = "vendor-card" + (v.enabled ? "" : " disabled");
+
+        const accountRows = accounts.length
+          ? accounts.map((acc) => `
+              <div class="account-row" data-vendor="${v.vendor_id}" data-account="${acc.id}">
+                <span class="account-nickname">${escapeHtml(acc.nickname)}</span>
+                ${acc.is_default
+                  ? '<span class="badge locked">기본</span>'
+                  : `<button class="set-default-btn" data-vendor="${v.vendor_id}" data-account="${acc.id}">기본으로 설정</button>`}
+                <button class="delete-account-btn" data-vendor="${v.vendor_id}" data-account="${acc.id}">삭제</button>
+              </div>
+            `).join("")
+          : '';
+
         card.innerHTML = `
           <div class="vendor-head">
             <div class="vendor-head-left">
               <span class="vendor-name">${v.name}</span>
-              ${v.registered ? '<span class="badge">등록됨</span>' : ""}
+              ${v.registered ? `<span class="badge">계정 ${accounts.length}개</span>` : ""}
               ${v.is_preferred ? '<span class="badge preferred">주 도매처</span>' : ""}
             </div>
             <div class="vendor-head-left">
@@ -86,46 +139,86 @@
               </label>
             </div>
           </div>
-          <div class="cred-row">
-            <input type="text" placeholder="아이디" class="login-id"
+          <div class="account-list" data-vendor="${v.vendor_id}">${accountRows}</div>
+          ${accounts.length === 0 ? '<div class="no-accounts-text">등록된 계정이 없습니다.</div>' : ""}
+          <button class="add-account-toggle-btn" data-vendor="${v.vendor_id}">+ 계정 추가</button>
+          <div class="add-account-form" data-vendor="${v.vendor_id}">
+            <input type="text" placeholder="별명 (예: 본점, 생략 가능)" class="new-nickname"
+              name="nickname_${v.vendor_id}" autocomplete="off" data-vendor="${v.vendor_id}">
+            <input type="text" placeholder="아이디" class="new-login-id"
               name="login_id_${v.vendor_id}" autocomplete="off" data-vendor="${v.vendor_id}">
-            <input type="password" placeholder="비밀번호" class="login-pwd"
+            <input type="password" placeholder="비밀번호" class="new-login-pwd"
               name="login_pwd_${v.vendor_id}" autocomplete="new-password" data-vendor="${v.vendor_id}">
-            <button class="save-btn" data-vendor="${v.vendor_id}">저장</button>
+            <button class="save-btn" data-vendor="${v.vendor_id}">추가</button>
           </div>
-          <div class="status-text save-status" data-vendor="${v.vendor_id}"></div>
+          <div class="status-text account-status" data-vendor="${v.vendor_id}"></div>
         `;
         list.appendChild(card);
+      });
+
+      document.querySelectorAll(".add-account-toggle-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const vendorId = btn.dataset.vendor;
+          document.querySelector(`.add-account-form[data-vendor="${vendorId}"]`).classList.toggle("open");
+        });
       });
 
       document.querySelectorAll(".save-btn").forEach((btn) => {
         btn.addEventListener("click", async () => {
           const vendorId = btn.dataset.vendor;
-          const idInput = document.querySelector(`.login-id[data-vendor="${vendorId}"]`);
-          const pwInput = document.querySelector(`.login-pwd[data-vendor="${vendorId}"]`);
-          const statusEl = document.querySelector(`.save-status[data-vendor="${vendorId}"]`);
+          const nicknameInput = document.querySelector(`.new-nickname[data-vendor="${vendorId}"]`);
+          const idInput = document.querySelector(`.new-login-id[data-vendor="${vendorId}"]`);
+          const pwInput = document.querySelector(`.new-login-pwd[data-vendor="${vendorId}"]`);
+          const statusEl = document.querySelector(`.account-status[data-vendor="${vendorId}"]`);
 
           if (!idInput.value || !pwInput.value) {
             statusEl.textContent = "아이디와 비밀번호를 모두 입력해주세요.";
+            statusEl.classList.add("error");
             return;
           }
 
           btn.disabled = true;
           statusEl.textContent = "저장 중...";
+          statusEl.classList.remove("error");
 
-          const res = await fetch(`/api/my-vendors/${vendorId}/credentials`, {
+          const res = await fetch(`/api/my-vendors/${vendorId}/accounts`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ login_id: idInput.value, login_pwd: pwInput.value }),
+            body: JSON.stringify({ nickname: nicknameInput.value, login_id: idInput.value, login_pwd: pwInput.value }),
           });
           const data = await res.json();
 
           btn.disabled = false;
-          statusEl.textContent = data.ok ? "저장 완료" : `저장 실패: ${data.message || ""}`;
           if (data.ok) {
-            pwInput.value = "";
+            statusEl.textContent = "저장 완료";
             loadVendors();
+          } else {
+            statusEl.textContent = `저장 실패: ${data.message || ""}`;
+            statusEl.classList.add("error");
           }
+        });
+      });
+
+      document.querySelectorAll(".set-default-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const vendorId = btn.dataset.vendor;
+          const accountId = btn.dataset.account;
+          btn.disabled = true;
+          await fetch(`/api/my-vendors/${vendorId}/accounts/${accountId}/default`, { method: "POST" });
+          loadVendors();
+        });
+      });
+
+      document.querySelectorAll(".delete-account-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const vendorId = btn.dataset.vendor;
+          const accountId = btn.dataset.account;
+          const row = btn.closest(".account-row");
+          const nickname = row.querySelector(".account-nickname").textContent;
+          if (!confirm(`"${nickname}" 계정을 삭제할까요?`)) return;
+          btn.disabled = true;
+          await fetch(`/api/my-vendors/${vendorId}/accounts/${accountId}`, { method: "DELETE" });
+          loadVendors();
         });
       });
 

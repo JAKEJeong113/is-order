@@ -134,6 +134,26 @@
             </div>
           ` : "";
 
+          // 도매처에 계정이 2개 이상 등록돼 있으면 서버가 실행 대신 계정 목록을
+          // 돌려준다 - 아래 버튼으로 고르면 그 account_id로 다시 호출해서 실행한다.
+          const accountChoiceHtml = (it._pendingAccounts && it._pendingAccounts.length > 0) ? `
+            <div class="alt-offers">
+              <span class="item-status">어떤 계정으로 담을까요?</span>
+              ${it._pendingAccounts.map((acc, i) => `
+                <button class="alt-btn account-choice-btn" data-account-index="${i}">${escapeHtml(acc.nickname)}${acc.is_default ? " (기본)" : ""}</button>
+              `).join("")}
+            </div>
+          ` : "";
+
+          const altAccountChoiceHtml = it._altAccountChoice ? `
+            <div class="alt-offers">
+              <span class="item-status">${escapeHtml(it._altAccountChoice.altOffer.vendor_name)}의 어떤 계정으로 담을까요?</span>
+              ${it._altAccountChoice.accounts.map((acc, i) => `
+                <button class="alt-btn alt-account-choice-btn" data-account-index="${i}">${escapeHtml(acc.nickname)}${acc.is_default ? " (기본)" : ""}</button>
+              `).join("")}
+            </div>
+          ` : "";
+
           return `
           <div class="item-row" data-item-id="${it.id}">
             <div class="item-info" style="flex:1;min-width:0;">
@@ -141,6 +161,8 @@
               <div class="item-price">${it.price ? (it.price.toLocaleString() + "원") : "가격 확인 필요"} · 담은 시각 ${escapeHtml(it.added_at)}</div>
               <div class="item-status ${it._statusClass || ""}">${escapeHtml(it._status || "")}</div>
               ${altHtml}
+              ${accountChoiceHtml}
+              ${altAccountChoiceHtml}
             </div>
             <div class="item-actions">
               <input type="number" class="qty-input" value="${it.qty}" min="1" max="99">
@@ -172,7 +194,7 @@
     // 선택한 도매처가 품절이면, 지금 장바구니에 이미 담긴 다른 상품들이 쓰는
     // 도매처 중에서만 서버가 자동으로 전환을 시도한다(텔레그램 봇과 동일한 로직).
     // 그래도 다 품절이면 remaining_alts를 받아서 화면에 대안으로 보여준다.
-    async function addOneToRealCart(itemId) {
+    async function addOneToRealCart(itemId, accountId) {
       const item = allItems.find((it) => it.id === itemId);
       if (!item) return { ok: false, reason: "이미 처리됨" };
 
@@ -180,6 +202,7 @@
       const qty = parseInt(row.querySelector(".qty-input").value, 10) || 1;
 
       setItemStatus(item, "담는 중...");
+      item._pendingAccounts = null;
       render();
 
       try {
@@ -192,8 +215,18 @@
           item.qty = qty;
         }
 
-        const res = await fetch(`/api/isorder-cart/${itemId}/add-to-vendor`, { method: "POST" });
+        const res = await fetch(`/api/isorder-cart/${itemId}/add-to-vendor`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ account_id: accountId ?? null }),
+        });
         const data = await res.json();
+
+        if (data.needs_account_choice) {
+          item._pendingAccounts = data.accounts;
+          setItemStatus(item, "");
+          return data;
+        }
 
         if (data.ok) {
           const switchedNote = data.switched ? ` (※최초 선택하신 도매처가 품절이라 ${data.used_vendor_name}(으)로 자동 변경됨)` : "";
@@ -216,13 +249,14 @@
       }
     }
 
-    async function addAltToRealCart(itemId, altOffer) {
+    async function addAltToRealCart(itemId, altOffer, accountId) {
       const item = allItems.find((it) => it.id === itemId);
       if (!item) return;
       const row = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
       const qty = parseInt(row.querySelector(".qty-input").value, 10) || 1;
 
       setItemStatus(item, "담는 중...");
+      item._altAccountChoice = null;
       render();
 
       try {
@@ -232,9 +266,17 @@
           body: JSON.stringify({
             vendor_id: altOffer.vendor_id, product_url: altOffer.product_url,
             qty, item_name: item.item_name, item_key: altOffer.item_key,
+            account_id: accountId ?? null,
           }),
         });
         const data = await res.json();
+
+        if (data.needs_account_choice) {
+          item._altAccountChoice = { altOffer, accounts: data.accounts };
+          setItemStatus(item, "");
+          return;
+        }
+
         if (data.ok) {
           await fetch(`/api/isorder-cart/${itemId}`, { method: "DELETE" });
           allItems = allItems.filter((it) => it.id !== itemId);
@@ -257,6 +299,29 @@
         await fetch(`/api/isorder-cart/${itemId}`, { method: "DELETE" });
         allItems = allItems.filter((it) => it.id !== itemId);
         render();
+        return;
+      }
+
+      if (e.target.classList.contains("account-choice-btn") && itemRow) {
+        const itemId = parseInt(itemRow.dataset.itemId, 10);
+        const item = allItems.find((it) => it.id === itemId);
+        const accountIndex = parseInt(e.target.dataset.accountIndex, 10);
+        const account = item && item._pendingAccounts ? item._pendingAccounts[accountIndex] : null;
+        if (!account) return;
+        e.target.disabled = true;
+        await addOneToRealCart(itemId, account.id);
+        return;
+      }
+
+      if (e.target.classList.contains("alt-account-choice-btn") && itemRow) {
+        const itemId = parseInt(itemRow.dataset.itemId, 10);
+        const item = allItems.find((it) => it.id === itemId);
+        const accountIndex = parseInt(e.target.dataset.accountIndex, 10);
+        const choice = item && item._altAccountChoice;
+        const account = choice ? choice.accounts[accountIndex] : null;
+        if (!account) return;
+        e.target.disabled = true;
+        await addAltToRealCart(itemId, choice.altOffer, account.id);
         return;
       }
 

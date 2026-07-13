@@ -445,37 +445,30 @@ class CartAddRequest(BaseModel):
     qty: int = Field(1, ge=1, le=99)
     item_name: str = ""
     item_key: str = ""
+    account_id: Optional[int] = None
 
 
 @app.post("/api/cart-add")
 def api_cart_add(req: CartAddRequest, user: dict = Depends(require_web_user)):
     store_id = f"web:{user['email']}"
 
-    creds = vendors.get_store_vendor_credentials(store_id, req.vendor_id)
-    if not creds:
+    if req.vendor_id not in vendors.CART_SUPPORTED_VENDORS:
+        return {"ok": False, "reason": f"{req.vendor_id}는 아직 자동 담기를 지원하지 않습니다."}
+
+    accounts = vendors.list_store_vendor_accounts(store_id, req.vendor_id)
+    if not accounts:
         vendor_name = vendors.VENDORS.get(req.vendor_id, {}).get("name", req.vendor_id)
         return {"ok": False, "reason": f"{vendor_name} 계정이 등록되어 있지 않습니다. '내 도매처 계정'에서 먼저 등록해주세요."}
-    login_id, login_pwd = creds
+    if len(accounts) >= 2 and req.account_id is None:
+        # 계정이 여러 개면 어떤 계정으로 담을지부터 골라야 한다 - 아직 실행하지
+        # 않고 프론트에서 고른 뒤 account_id를 채워 다시 호출하게 한다.
+        return {"ok": False, "needs_account_choice": True, "accounts": accounts}
 
-    if req.vendor_id == "yamimall":
-        result = yamimall_bot.add_to_cart(store_id, login_id, login_pwd, req.product_url, req.qty, keyword=req.item_name)
-    elif req.vendor_id in ("ccdome", "3bong", "hdinter"):
-        base_url = vendors.VENDORS[req.vendor_id]["base_url"]
-        goods_no_match = re.search(r"goodsNo=(\d+)", req.product_url or "")
-        if not goods_no_match:
-            return {"ok": False, "reason": f"상품 번호 추출 실패: {req.product_url}"}
-        result = godomall_bot.add_to_cart(store_id, req.vendor_id, base_url, login_id, login_pwd, goods_no_match.group(1), req.qty)
-    elif req.vendor_id == "moomarket":
-        base_url = vendors.VENDORS[req.vendor_id]["base_url"]
-        result = cafe24_bot.add_to_cart(store_id, base_url, login_id, login_pwd, req.product_url, req.qty)
-    elif req.vendor_id == "douyou":
-        base_url = vendors.VENDORS[req.vendor_id]["base_url"]
-        result = yamimall_bot.add_to_cart_via_list(
-            store_id, req.vendor_id, login_id, login_pwd, req.product_url, req.qty,
-            base_url=base_url, keyword=req.item_name,
-        )
-    else:
-        return {"ok": False, "reason": f"{req.vendor_id}는 아직 자동 담기를 지원하지 않습니다."}
+    item = {
+        "vendor_id": req.vendor_id, "product_url": req.product_url, "item_key": req.item_key,
+        "item_name": req.item_name, "qty": req.qty, "account_id": req.account_id,
+    }
+    result = cart_add_logic.add_single_item_to_cart(store_id, item)
 
     if result.get("ok"):
         popularity.log_event(
@@ -544,8 +537,15 @@ def api_isorder_cart_delete(item_id: int, user: dict = Depends(require_web_user)
     return {"ok": ok}
 
 
+class IsorderCartAddToVendorRequest(BaseModel):
+    account_id: Optional[int] = None
+
+
 @app.post("/api/isorder-cart/{item_id}/add-to-vendor")
-def api_isorder_cart_add_to_vendor(item_id: int, user: dict = Depends(require_web_user)):
+def api_isorder_cart_add_to_vendor(
+    item_id: int, req: IsorderCartAddToVendorRequest = IsorderCartAddToVendorRequest(),
+    user: dict = Depends(require_web_user),
+):
     """장바구니에 담아둔 상품 하나를 실제 도매몰에 담는다(Playwright 자동화,
     시간이 걸림). 선택된 도매처가 품절이면, 지금 장바구니에 이미 담긴 다른
     상품들이 쓰는 도매처 중에서만 조용히 자동 전환을 시도한다(텔레그램 봇과
@@ -557,12 +557,18 @@ def api_isorder_cart_add_to_vendor(item_id: int, user: dict = Depends(require_we
     if not item:
         return {"ok": False, "reason": "장바구니에서 찾을 수 없습니다."}
 
+    accounts = vendors.list_store_vendor_accounts(store_id, item["vendor_id"])
+    if len(accounts) >= 2 and req.account_id is None:
+        # 계정이 여러 개면 실행하지 않고 프론트에서 고를 목록만 돌려준다 - 실제
+        # 담기는 사용자가 계정을 고른 뒤 account_id를 채워 다시 호출할 때 실행된다.
+        return {"ok": False, "needs_account_choice": True, "accounts": accounts}
+
     batch_vendors = {it["vendor_id"] for it in web_cart.list_items(store_id)}
     cart_item = {
         "item_name": item["item_name"], "vendor_id": item["vendor_id"],
         "vendor_name": item["vendor_name"], "product_url": item["product_url"],
         "item_key": item["item_key"], "price": item["price"], "qty": item["qty"],
-        "alt_offers": item["alt_offers"],
+        "alt_offers": item["alt_offers"], "account_id": req.account_id,
     }
     result, used_item, remaining_alts = cart_add_logic.add_item_with_batch_fallback(store_id, cart_item, batch_vendors)
 
@@ -1013,6 +1019,44 @@ def api_my_vendors_save(vendor_id: str, req: MyVendorCredentialsRequest, user: d
     except ValueError as e:
         return {"ok": False, "message": str(e)}
     return {"ok": True}
+
+
+@app.get("/api/my-vendors/{vendor_id}/accounts")
+def api_my_vendors_accounts_list(vendor_id: str, user: dict = Depends(require_web_user)):
+    """다매장 운영 시 한 도매처에 계정을 여러 개(별명으로 구분) 등록할 수 있다 -
+    텔레그램의 "계정추가"와 동일한 저장소를 쓴다."""
+    store_id = f"web:{user['email']}"
+    return {"accounts": vendors.list_store_vendor_accounts(store_id, vendor_id)}
+
+
+class MyVendorAccountAddRequest(BaseModel):
+    nickname: str = ""
+    login_id: str
+    login_pwd: str
+
+
+@app.post("/api/my-vendors/{vendor_id}/accounts")
+def api_my_vendors_accounts_add(vendor_id: str, req: MyVendorAccountAddRequest, user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    try:
+        account_id = vendors.add_store_vendor_account(store_id, vendor_id, req.nickname, req.login_id, req.login_pwd)
+    except ValueError as e:
+        return {"ok": False, "message": str(e)}
+    return {"ok": True, "id": account_id}
+
+
+@app.delete("/api/my-vendors/{vendor_id}/accounts/{account_id}")
+def api_my_vendors_accounts_delete(vendor_id: str, account_id: int, user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    ok = vendors.delete_store_vendor_account(store_id, vendor_id, account_id)
+    return {"ok": ok}
+
+
+@app.post("/api/my-vendors/{vendor_id}/accounts/{account_id}/default")
+def api_my_vendors_accounts_set_default(vendor_id: str, account_id: int, user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    ok = vendors.set_default_store_vendor_account(store_id, vendor_id, account_id)
+    return {"ok": ok}
 
 
 class MyVendorToggleRequest(BaseModel):
