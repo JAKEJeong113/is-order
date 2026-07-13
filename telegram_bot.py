@@ -1,14 +1,17 @@
 # telegram_bot.py
-"""텔레그램 발주봇: 발주리스트 수신 -> 캐시로 즉시 가격비교 -> 확인 답장 시 실제 담기."""
+"""텔레그램 발주봇: 발주리스트 수신 -> 캐시로 즉시 가격비교 -> 확인 답장 시 실제 담기.
+실제 담기(Playwright)는 이 모듈이 직접 실행하지 않는다 - cart_jobs 큐에 등록만
+하고, 별도 워커 프로세스(worker.py)가 처리한 뒤 이 모듈의 send_message/
+_ask_next_stockout 등을 다시 호출해 결과를 알려준다(웹 서비스와 워커를 분리해
+동시 처리량을 늘리기 위함)."""
 import os
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 import requests
-from apscheduler.schedulers.background import BackgroundScheduler
 
 import cart_add_logic
+import cart_jobs
 import popularity
 import price_compare
 import product_ranking
@@ -95,14 +98,6 @@ HELP_TEXT = """사용 가능한 명령어입니다:
 
 [도움말]
 이 안내를 다시 봅니다."""
-
-# 텔레그램 웹훅은 응답이 늦으면(수십 초 이상) 같은 메시지를 재전송하는데, 담기 작업은
-# 도매처마다 실제 브라우저를 띄우는 Playwright 호출이라 30초~수분씩 걸릴 수 있다.
-# 웹훅 요청 안에서 동기로 기다리면 재전송으로 인한 중복 처리가 발생하므로, 카탈로그
-# 크롤링과 동일하게 별도 스레드(APScheduler)에 맡기고 웹훅은 즉시 응답한다.
-_scheduler = BackgroundScheduler(executors={"default": {"type": "threadpool", "max_workers": 20}})
-_scheduler.start()
-
 
 def send_message(chat_id, text: str) -> bool:
     if not BOT_TOKEN:
@@ -397,66 +392,6 @@ def _handle_disambiguation_reply(chat_id: str, state: dict, text: str) -> None:
     _ask_next_disambiguation(chat_id, state)
 
 
-ITEM_CART_ADD_TIMEOUT_SECONDS = 90
-# 배치 내 다른 도매처로 자동 재시도할 때는 도매처 봇을 여러 번 호출할 수 있어
-# 한 상품당 예산을 넉넉히 잡는다 (품절 재시도 최대 2~3곳 가정).
-ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS = 240
-
-def _execute_cart_adds(chat_id, store_id: str, items: list[dict], resolved_accounts: dict | None = None) -> None:
-    """도매처마다 실제 브라우저를 띄우는 작업이라 한 상품이 응답 없이 멈추면 전체가
-    영원히 멈출 수 있다. 상품당 시간 제한을 걸어 하나가 멈춰도 나머지는 계속 진행하고,
-    무슨 일이 있어도 최종 결과 메시지는 반드시 보낸다. resolved_accounts는 계정이
-    여러 개인 도매처에 대해 이번 발주에서 사용자가 고른 {vendor_id: account_id} -
-    품절로 같은 도매처 안 다른 후보로 넘어갈 일은 없지만, 배치 내 다른 도매처로
-    자동 전환될 때 그 도매처도 계정이 여러 개면 고른 계정을 그대로 써야 한다."""
-    resolved_accounts = resolved_accounts or {}
-    results = []
-    needs_followup = []
-    batch_vendors = {it["vendor_id"] for it in items}
-    try:
-        for item in items:
-            pool = ThreadPoolExecutor(max_workers=1)
-            try:
-                future = pool.submit(cart_add_logic.add_item_with_batch_fallback, store_id, item, batch_vendors, resolved_accounts)
-                result, used_item, remaining_alts = future.result(timeout=ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS)
-            except FutureTimeoutError:
-                result = {"ok": False, "reason": f"{ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS}초 넘게 응답이 없어 건너뜀. 직접 확인해주세요."}
-                used_item, remaining_alts = item, []
-            except Exception as e:
-                result = {"ok": False, "reason": str(e)}
-                used_item, remaining_alts = item, []
-            finally:
-                pool.shutdown(wait=False)
-
-            # 품절 자동 재시도로 최초 견적 때와 다른 도매처에 담기게 되면, 사용자가
-            # "왜 최저가가 아니지?"라고 버그로 오해할 수 있어 그 사실을 명시한다.
-            switched_note = (
-                f" (※최초 선택하신 {item['vendor_name']}이(가) 품절이라 다른 도매처로 자동 변경됨)"
-                if used_item["vendor_id"] != item["vendor_id"] else ""
-            )
-
-            if result.get("ok"):
-                results.append(f"✓ {used_item['item_name']} - {used_item['vendor_name']} 담기 완료{switched_note}")
-                popularity.log_event(store_id, "wholesale", used_item["item_key"], used_item["item_name"], used_item["qty"])
-            elif remaining_alts:
-                results.append(f"⚠ {used_item['item_name']} - {item['vendor_name']} 등 이번 발주에 포함된 도매처 모두 품절 (다른 도매처 대안 확인해서 곧 다시 안내드릴게요)")
-                needs_followup.append({"item_name": used_item["item_name"], "qty": used_item["qty"], "alt_offers": remaining_alts})
-            else:
-                results.append(f"✗ {used_item['item_name']} - {used_item['vendor_name']} 실패{switched_note}: {result.get('reason', '')}")
-    except Exception as e:
-        results.append(f"(처리 중 예상치 못한 오류로 중단됨: {e})")
-    finally:
-        _finish_processing(store_id)
-        send_message(chat_id, "담기 결과:\n\n" + "\n".join(results))
-
-    if needs_followup:
-        state = {
-            "mode": "stockout", "store_id": store_id, "queue": needs_followup, "results": [], "current": None,
-            "resolved_accounts": resolved_accounts,
-        }
-        _ask_next_stockout(chat_id, state)
-
-
 def _format_stockout_prompt(entry: dict) -> str:
     lines = [f"'{entry['item_name']}'은(는) 선택된 도매처에서 품절이에요. 다른 도매처에서 담을까요? 번호로 답장해주세요:\n"]
     for i, o in enumerate(entry["alt_offers"], start=1):
@@ -481,25 +416,6 @@ def _ask_next_stockout(chat_id: str, state: dict) -> None:
     send_message(chat_id, _format_stockout_prompt(entry))
 
 
-def _process_stockout_choice(chat_id: str, state: dict, alt_offer: dict) -> None:
-    entry = state["queue"][0]
-    item = _offer_to_item(entry["item_name"], alt_offer, entry["qty"])
-    account_id = state.get("resolved_accounts", {}).get(item["vendor_id"])
-    if account_id is not None:
-        item["account_id"] = account_id
-    result = cart_add_logic.add_single_item_to_cart(state["store_id"], item)
-
-    if result.get("ok"):
-        state["results"].append(f"✓ {item['item_name']} - {item['vendor_name']} 담기 완료")
-        popularity.log_event(state["store_id"], "wholesale", item["item_key"], item["item_name"], item["qty"])
-    else:
-        state["results"].append(f"✗ {item['item_name']} - {item['vendor_name']} 실패: {result.get('reason', '')}")
-
-    state["queue"].pop(0)
-    state["current"] = None
-    _ask_next_stockout(chat_id, state)
-
-
 def _handle_stockout_reply(chat_id: str, state: dict, text: str) -> None:
     stripped = text.strip()
     entry = state["queue"][0]
@@ -521,9 +437,14 @@ def _handle_stockout_reply(chat_id: str, state: dict, text: str) -> None:
         return
 
     alt_offer = entry["alt_offers"][int(stripped) - 1]
+    item = _offer_to_item(entry["item_name"], alt_offer, entry["qty"])
+    account_id = state.get("resolved_accounts", {}).get(item["vendor_id"])
+    if account_id is not None:
+        item["account_id"] = account_id
+
     telegram_store.set_disambig_state(chat_id, state)
     send_message(chat_id, "장바구니에 담는 중입니다. 잠시만 기다려주세요...")
-    _scheduler.add_job(_process_stockout_choice, args=[chat_id, state, alt_offer])
+    cart_jobs.enqueue_telegram_stockout(chat_id, state["store_id"], item)
 
 
 def _format_account_choice_prompt(store_id: str, vendor_id: str) -> str:
@@ -553,7 +474,8 @@ def _ask_next_account_choice(chat_id: str, state: dict) -> None:
                 it["account_id"] = account_id
 
         send_message(chat_id, "장바구니에 담는 중입니다. 잠시만 기다려주세요...")
-        _scheduler.add_job(_execute_cart_adds, args=[chat_id, store_id, items, state["resolved_accounts"]])
+        cart_jobs.enqueue_telegram_batch(chat_id, store_id, items, state["resolved_accounts"])
+        _finish_processing(store_id)
         return
 
     vendor_id = state["queue"][0]
@@ -922,8 +844,10 @@ def handle_update(update: dict) -> None:
         send_message(chat_id, "장바구니에 담는 중입니다. 잠시만 기다려주세요...")
 
         # 담기는 시간이 걸려 웹훅 안에서 동기로 기다리면 텔레그램이 같은 메시지를 재전송해
-        # 중복 처리가 생기므로, 백그라운드 스레드에 맡기고 웹훅은 바로 끝낸다.
-        _scheduler.add_job(_execute_cart_adds, args=[chat_id, store_name, pending])
+        # 중복 처리가 생기므로, 큐에 등록만 하고 웹훅은 바로 끝낸다 - 별도 워커
+        # 프로세스(worker.py)가 처리한다.
+        cart_jobs.enqueue_telegram_batch(chat_id, store_name, pending, {})
+        _finish_processing(store_name)
         return
 
     if text.strip() in HELP_WORDS:

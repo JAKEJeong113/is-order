@@ -2,10 +2,17 @@
 """도매처 실제 담기(add_to_cart) 호출 + 품절 시 같은 발주 안에서 이미 쓰인
 다른 도매처로 자동 전환하는 로직. 텔레그램 봇과 웹 장바구니(/cart) 양쪽에서
 공유해서 쓴다(원래 텔레그램 봇에만 있던 로직을 분리했다)."""
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+
 import cafe24_bot
 import godomall_bot
+import popularity
 import vendors
 import yamimall_bot
+
+# 배치 내 다른 도매처로 자동 재시도할 때는 도매처 봇을 여러 번 호출할 수 있어
+# 한 상품당 예산을 넉넉히 잡는다 (품절 재시도 최대 2~3곳 가정).
+ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS = 240
 
 # 도매처마다 실패 문구가 조금씩 달라서("장바구니 버튼을 찾지 못함" vs "담기
 # 버튼(#cartBtn)을 찾지 못함") 공통 부분인 "찾지 못함"만으로 느슨하게 잡는다.
@@ -128,3 +135,50 @@ def add_item_with_batch_fallback(
         remaining_alts = [o for o in (item.get("alt_offers") or []) if o["vendor_id"] not in tried_vendor_ids]
 
     return result, used_item, remaining_alts
+
+
+def process_batch(store_id: str, items: list[dict], resolved_accounts: dict | None = None) -> tuple[list[str], list[dict]]:
+    """텔레그램 "확인" 한 번에 담을 상품 목록 전체를 순서대로 처리한다(원래
+    telegram_bot._execute_cart_adds 안에 있던 루프 - worker.py가 재사용할 수
+    있도록 텔레그램 전용 모듈에서 분리했다). 도매처마다 실제 브라우저를 띄우는
+    작업이라 한 상품이 응답 없이 멈추면 전체가 영원히 멈출 수 있어, 상품당
+    시간 제한을 걸어 하나가 멈춰도 나머지는 계속 진행한다.
+
+    반환: (결과 메시지 줄 목록, 품절로 후속 확인이 필요한 항목 목록
+    [{item_name, qty, alt_offers}])."""
+    resolved_accounts = resolved_accounts or {}
+    results = []
+    needs_followup = []
+    batch_vendors = {it["vendor_id"] for it in items}
+
+    for item in items:
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = pool.submit(add_item_with_batch_fallback, store_id, item, batch_vendors, resolved_accounts)
+            result, used_item, remaining_alts = future.result(timeout=ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS)
+        except FutureTimeoutError:
+            result = {"ok": False, "reason": f"{ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS}초 넘게 응답이 없어 건너뜀. 직접 확인해주세요."}
+            used_item, remaining_alts = item, []
+        except Exception as e:
+            result = {"ok": False, "reason": str(e)}
+            used_item, remaining_alts = item, []
+        finally:
+            pool.shutdown(wait=False)
+
+        # 품절 자동 재시도로 최초 견적 때와 다른 도매처에 담기게 되면, 사용자가
+        # "왜 최저가가 아니지?"라고 버그로 오해할 수 있어 그 사실을 명시한다.
+        switched_note = (
+            f" (※최초 선택하신 {item['vendor_name']}이(가) 품절이라 다른 도매처로 자동 변경됨)"
+            if used_item["vendor_id"] != item["vendor_id"] else ""
+        )
+
+        if result.get("ok"):
+            results.append(f"✓ {used_item['item_name']} - {used_item['vendor_name']} 담기 완료{switched_note}")
+            popularity.log_event(store_id, "wholesale", used_item["item_key"], used_item["item_name"], used_item["qty"])
+        elif remaining_alts:
+            results.append(f"⚠ {used_item['item_name']} - {item['vendor_name']} 등 이번 발주에 포함된 도매처 모두 품절 (다른 도매처 대안 확인해서 곧 다시 안내드릴게요)")
+            needs_followup.append({"item_name": used_item["item_name"], "qty": used_item["qty"], "alt_offers": remaining_alts})
+        else:
+            results.append(f"✗ {used_item['item_name']} - {used_item['vendor_name']} 실패{switched_note}: {result.get('reason', '')}")
+
+    return results, needs_followup

@@ -191,6 +191,19 @@
       item._statusClass = cls || "";
     }
 
+    // 실제 담기는 별도 워커 프로세스가 처리한다(웹 서버는 큐에 등록만 함) -
+    // job_id를 받아서 완료될 때까지 주기적으로 상태를 물어본다.
+    async function pollJob(jobId, intervalMs = 1500, maxAttempts = 200) {
+      for (let i = 0; i < maxAttempts; i++) {
+        const res = await fetch(`/api/cart-jobs/${jobId}`);
+        if (res.status === 401) { window.location.href = "/login"; return { status: "failed", result: { ok: false, reason: "로그인이 필요합니다." } }; }
+        const data = await res.json();
+        if (data.status === "done" || data.status === "failed") return data;
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+      return { status: "failed", result: { ok: false, reason: "처리 시간이 너무 오래 걸립니다. 잠시 후 새로고침해서 확인해주세요." } };
+    }
+
     // 선택한 도매처가 품절이면, 지금 장바구니에 이미 담긴 다른 상품들이 쓰는
     // 도매처 중에서만 서버가 자동으로 전환을 시도한다(텔레그램 봇과 동일한 로직).
     // 그래도 다 품절이면 remaining_alts를 받아서 화면에 대안으로 보여준다.
@@ -220,13 +233,19 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ account_id: accountId ?? null }),
         });
-        const data = await res.json();
+        const enqueued = await res.json();
 
-        if (data.needs_account_choice) {
-          item._pendingAccounts = data.accounts;
+        if (enqueued.needs_account_choice) {
+          item._pendingAccounts = enqueued.accounts;
           setItemStatus(item, "");
-          return data;
+          return enqueued;
         }
+        if (!enqueued.ok || !enqueued.job_id) {
+          setItemStatus(item, `실패: ${enqueued.reason || ""}`, "error");
+          return enqueued;
+        }
+
+        const { result: data } = await pollJob(enqueued.job_id);
 
         if (data.ok) {
           const switchedNote = data.switched ? ` (※최초 선택하신 도매처가 품절이라 ${data.used_vendor_name}(으)로 자동 변경됨)` : "";
@@ -269,13 +288,19 @@
             account_id: accountId ?? null,
           }),
         });
-        const data = await res.json();
+        const enqueued = await res.json();
 
-        if (data.needs_account_choice) {
-          item._altAccountChoice = { altOffer, accounts: data.accounts };
+        if (enqueued.needs_account_choice) {
+          item._altAccountChoice = { altOffer, accounts: enqueued.accounts };
           setItemStatus(item, "");
           return;
         }
+        if (!enqueued.ok || !enqueued.job_id) {
+          setItemStatus(item, `${altOffer.vendor_name} 실패: ${enqueued.reason || ""}`, "error");
+          return;
+        }
+
+        const { result: data } = await pollJob(enqueued.job_id);
 
         if (data.ok) {
           await fetch(`/api/isorder-cart/${itemId}`, { method: "DELETE" });
