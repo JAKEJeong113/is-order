@@ -1193,7 +1193,14 @@ def admin_api_broadcast(req: BroadcastRequest, _: bool = Depends(require_admin))
     바로 보여줄 수 있어 백그라운드 작업으로 미루지 않는다."""
     stores = [s for s in telegram_store.list_stores() if s["approved"]]
     sent = sum(1 for s in stores if telegram_bot.send_message(s["chat_id"], req.message))
-    return {"ok": True, "sent": sent, "failed": len(stores) - sent, "total": len(stores)}
+    failed = len(stores) - sent
+    telegram_store.add_broadcast_history(req.message, sent, failed, len(stores))
+    return {"ok": True, "sent": sent, "failed": failed, "total": len(stores)}
+
+
+@app.get("/admin/api/broadcast/history")
+def admin_api_broadcast_history(_: bool = Depends(require_admin)):
+    return {"items": telegram_store.list_broadcast_history()}
 
 
 @app.get("/admin/users", response_class=HTMLResponse)

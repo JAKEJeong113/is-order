@@ -63,8 +63,51 @@ def init_telegram_tables():
     if "alt_offers_json" not in existing_pending_cols:
         cur.execute("ALTER TABLE telegram_pending_items ADD COLUMN alt_offers_json TEXT")
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS broadcast_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message TEXT NOT NULL,
+        sent_count INTEGER NOT NULL,
+        failed_count INTEGER NOT NULL,
+        total_count INTEGER NOT NULL,
+        sent_at TEXT
+    )
+    """)
+
     conn.commit()
     conn.close()
+
+
+def add_broadcast_history(message: str, sent_count: int, failed_count: int, total_count: int) -> int:
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    INSERT INTO broadcast_history (message, sent_count, failed_count, total_count, sent_at)
+    VALUES (?, ?, ?, ?, ?)
+    """, (message, sent_count, failed_count, total_count, now))
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
+def list_broadcast_history(limit: int = 50) -> list[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT id, message, sent_count, failed_count, total_count, sent_at
+    FROM broadcast_history ORDER BY id DESC LIMIT ?
+    """, (limit,))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "id": r[0], "message": r[1], "sent_count": r[2],
+            "failed_count": r[3], "total_count": r[4], "sent_at": r[5],
+        }
+        for r in rows
+    ]
 
 
 def get_registration(chat_id: str) -> dict | None:

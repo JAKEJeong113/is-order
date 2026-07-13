@@ -32,6 +32,16 @@
     .status-text { font-size: 13px; color: var(--muted); }
     .status-text.error { color: #b91c1c; }
     .status-text.success { color: var(--mint-text); }
+    h2 { font-size: 15px; margin: 32px 0 10px; }
+    .history-list { display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
+    .history-row {
+      background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .history-message { font-size: 13px; white-space: pre-wrap; margin-bottom: 6px; }
+    .history-meta { font-size: 11px; color: var(--muted); }
+    .history-meta .fail-count { color: #b91c1c; }
+    .empty-text { color: var(--muted); font-size: 13px; }
   </style>
 </head>
 <body>
@@ -44,12 +54,44 @@
     <span class="status-text" id="statusText"></span>
   </div>
 
+  <h2>발송 이력</h2>
+  <div class="history-list" id="historyList"></div>
+
   <script>
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
     async function loadRecipientCount() {
       const res = await fetch("/api/telegram/stores");
       const data = await res.json();
       const count = (data.stores || []).filter((s) => s.approved).length;
       document.getElementById("recipientNote").textContent = `수신 대상: 승인된 가맹점 ${count}곳`;
+    }
+
+    async function loadHistory() {
+      const res = await fetch("/admin/api/broadcast/history");
+      const data = await res.json();
+      const items = data.items || [];
+      const listEl = document.getElementById("historyList");
+
+      if (items.length === 0) {
+        listEl.innerHTML = '<div class="empty-text">발송 이력이 없습니다.</div>';
+        return;
+      }
+
+      listEl.innerHTML = items.map((it) => `
+        <div class="history-row">
+          <div class="history-message">${escapeHtml(it.message)}</div>
+          <div class="history-meta">
+            ${escapeHtml(it.sent_at)} · 성공 ${it.sent_count}건
+            ${it.failed_count > 0 ? `/ <span class="fail-count">실패 ${it.failed_count}건</span>` : ""}
+            (총 ${it.total_count}곳)
+          </div>
+        </div>
+      `).join("");
     }
 
     document.getElementById("sendBtn").addEventListener("click", async () => {
@@ -80,6 +122,7 @@
           statusEl.textContent = `발송 완료: 성공 ${data.sent}건 / 실패 ${data.failed}건 (총 ${data.total}곳)`;
           statusEl.className = "status-text success";
           messageEl.value = "";
+          loadHistory();
         } else {
           statusEl.textContent = "발송 실패";
           statusEl.className = "status-text error";
@@ -93,6 +136,7 @@
     });
 
     loadRecipientCount();
+    loadHistory();
   </script>
 </body>
 </html>
