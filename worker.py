@@ -104,7 +104,7 @@ def process_web_item(job: dict) -> None:
         "ok": result.get("ok", False),
         "reason": result.get("reason"),
         "used_vendor_id": used_item["vendor_id"],
-        "used_vendor_name": used_item["vendor_name"],
+        "used_vendor_name": used_item.get("vendor_name", ""),
         "switched": used_item["vendor_id"] != item["vendor_id"],
         "remaining_alts": remaining_alts,
     })

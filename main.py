@@ -443,6 +443,7 @@ def api_catalog_refresh():
 
 class CartAddRequest(BaseModel):
     vendor_id: str
+    vendor_name: str = ""
     product_url: str
     qty: int = Field(1, ge=1, le=99)
     item_name: str = ""
@@ -470,8 +471,8 @@ def api_cart_add(req: CartAddRequest, user: dict = Depends(require_web_user)):
         return {"ok": False, "needs_account_choice": True, "accounts": accounts}
 
     item = {
-        "vendor_id": req.vendor_id, "product_url": req.product_url, "item_key": req.item_key,
-        "item_name": req.item_name, "qty": req.qty, "account_id": req.account_id,
+        "vendor_id": req.vendor_id, "vendor_name": req.vendor_name, "product_url": req.product_url,
+        "item_key": req.item_key, "item_name": req.item_name, "qty": req.qty, "account_id": req.account_id,
     }
     job_id = cart_jobs.enqueue_web_item(store_id, None, item, with_fallback=False)
     return {"ok": True, "job_id": job_id}

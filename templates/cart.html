@@ -283,7 +283,7 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            vendor_id: altOffer.vendor_id, product_url: altOffer.product_url,
+            vendor_id: altOffer.vendor_id, vendor_name: altOffer.vendor_name, product_url: altOffer.product_url,
             qty, item_name: item.item_name, item_key: altOffer.item_key,
             account_id: accountId ?? null,
           }),
