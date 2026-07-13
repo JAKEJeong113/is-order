@@ -606,20 +606,6 @@ def admin_debug_copy_vendor_cred(vendor_id: str, store_id: str, _: bool = Depend
     return {"ok": True}
 
 
-@app.get("/admin/debug-download-old-sqlite")
-def admin_debug_download_old_sqlite(_: bool = Depends(require_admin)):
-    """진단용 임시 엔드포인트: Postgres 전환 이전 이 서버 디스크에 있던
-    inventory.db를 그대로 내려받는다. 로컬 개발 DB와 운영 디스크의 DB가
-    서로 다른 파일로 따로 쌓여왔다는 걸 뒤늦게 발견해서, 운영 디스크에
-    남아있는 실제 데이터(관리자가 직접 입력한 값 등)를 복구하기 위한
-    목적. 복구 끝나면 이 엔드포인트는 제거할 것."""
-    data_dir = Path(os.getenv("DATA_DIR", BASE_DIR))
-    old_db_path = data_dir / "inventory.db"
-    if not old_db_path.exists():
-        raise HTTPException(status_code=404, detail=f"파일을 찾을 수 없습니다: {old_db_path}")
-    return FileResponse(str(old_db_path), filename="inventory_production_backup.db")
-
-
 @app.get("/admin/debug-yamimall-login-screenshot")
 def admin_debug_yamimall_login_screenshot(_: bool = Depends(require_admin)):
     """진단용 임시 엔드포인트: 야미몰 로그인 실패 시 남긴 스크린샷을 확인한다."""

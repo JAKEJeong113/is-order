@@ -44,7 +44,12 @@ class _QmarkCursor:
                 ORDER BY ordinal_position
             """, (match.group(1),))
         else:
-            self._cursor.execute(_translate(sql), params)
+            # params가 빈 튜플(파라미터 없이 호출된 경우)이면 반드시 None으로
+            # 넘겨야 한다 - psycopg2는 params가 None이 아니면(빈 튜플이어도)
+            # SQL 문자열에 있는 "%" 문자를 전부 치환 대상으로 보고 해석을
+            # 시도하는데, LIKE 'x%' 같은 리터럴 %가 있으면 다음 문의
+            # 파라미터로 착각해 IndexError를 낸다.
+            self._cursor.execute(_translate(sql), params or None)
         return self
 
     def executemany(self, sql, seq_of_params):
