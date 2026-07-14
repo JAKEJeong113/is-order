@@ -123,12 +123,37 @@ def search_cached_products(vendor_id: str, keyword: str, limit: int = 30) -> lis
     정확히 포함되는 상품이 하나라도 있으면 그것만 쓰고, 하나도 없을 때만 오타/
     띄어쓰기 한두 글자 차이(예: '꿀밤맛쫀드기' vs '꿀밤맛 쫀디기')를 허용하는
     느슨한 매칭으로 대체한다. 짧은 검색어(예: '브이콘')가 오타 허용 때문에
-    무관한 상품(예: '브이톡')과 섞이는 걸 막기 위한 구조다."""
+    무관한 상품(예: '브이톡')과 섞이는 걸 막기 위한 구조다.
+
+    도매처 하나당 캐시 상품이 수천 개라 매번 전부 가져와 Python으로 bigram
+    스코어를 계산하면 검색 한 번에 초 단위가 걸린다(가격비교/텔레그램 발주
+    분류 양쪽의 공통 경로라 부하 테스트에서 병목으로 확인됨). "정확히 포함"
+    판정만 SQL의 LIKE로 먼저 값싸게 걸러내고, 그걸로 하나도 못 찾았을 때만
+    기존처럼 전체를 가져와 오타 허용 매칭을 한다 - 정규화된 키워드가 이름에
+    리터럴로 포함되면 bigram containment는 항상 1.0이라 기존 "정확" 판정과
+    사실상 동일 집합이다."""
     if not keyword:
         return []
 
+    normalized = product_match._normalize(keyword)
+    escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
     conn = get_conn()
     cur = conn.cursor()
+    cur.execute("""
+        SELECT name, price, unit_qty, product_url, goods_no FROM product_cache
+        WHERE vendor_id = ? AND LOWER(regexp_replace(name, '\\s+', '', 'g')) LIKE ? ESCAPE '\\'
+        LIMIT ?
+    """, (vendor_id, f"%{escaped}%", limit))
+    exact_rows = cur.fetchall()
+
+    if exact_rows:
+        conn.close()
+        return [
+            {"name": r[0] or "", "price": r[1], "unit_qty": r[2], "product_url": r[3], "goods_no": r[4]}
+            for r in exact_rows
+        ]
+
     cur.execute(
         "SELECT name, price, unit_qty, product_url, goods_no FROM product_cache WHERE vendor_id = ?",
         (vendor_id,),
@@ -136,15 +161,14 @@ def search_cached_products(vendor_id: str, keyword: str, limit: int = 30) -> lis
     rows = cur.fetchall()
     conn.close()
 
-    exact, fuzzy = [], []
+    fuzzy = []
     for r in rows:
         name = r[0] or ""
         score = product_match.keyword_containment_score(keyword, name)
         if score < MIN_SEARCH_SCORE:
             continue
         item = {"name": name, "price": r[1], "unit_qty": r[2], "product_url": r[3], "goods_no": r[4]}
-        (exact if score >= EXACT_SEARCH_SCORE else fuzzy).append((score, item))
+        fuzzy.append((score, item))
 
-    chosen = exact or fuzzy
-    chosen.sort(key=lambda x: -x[0])
-    return [item for _, item in chosen[:limit]]
+    fuzzy.sort(key=lambda x: -x[0])
+    return [item for _, item in fuzzy[:limit]]
