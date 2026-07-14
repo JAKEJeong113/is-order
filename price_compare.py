@@ -1,6 +1,8 @@
 # price_compare.py
 """가격비교: catalog_cache(사전 크롤링된 로컬 DB)만 조회하므로 즉시 응답한다.
 캐시를 최신 상태로 유지하려면 catalog_crawler.crawl_all_enabled()를 주기적으로 실행해야 한다."""
+from concurrent.futures import ThreadPoolExecutor
+
 import catalog_cache
 import product_match
 import vendors
@@ -50,7 +52,11 @@ def compare(keyword: str) -> dict:
     if not enabled_ids:
         return {"vendors": [], "groups": []}
 
-    results = [_fetch_one(vid, keyword) for vid in enabled_ids]
+    # 도매처별 조회는 서로 독립적인 읽기 전용 DB 조회라 병렬로 돌려도 안전하다 -
+    # 순차로 하면 요청 하나가 도매처 수만큼(6개) DB 왕복을 이어서 물게 되어
+    # 동시 요청이 몰릴 때 지연이 그대로 누적된다(부하 테스트로 확인).
+    with ThreadPoolExecutor(max_workers=len(enabled_ids)) as ex:
+        results = list(ex.map(lambda vid: _fetch_one(vid, keyword), enabled_ids))
     results_by_id = {r["vendor_id"]: r for r in results}
 
     vendor_candidates = {r["vendor_id"]: r["candidates"] for r in results if r["candidates"]}

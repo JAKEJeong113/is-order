@@ -28,7 +28,7 @@ from psycopg2.pool import PoolError
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
-POOL_MAX = int(os.getenv("DB_POOL_MAX", "20"))
+POOL_MAX = int(os.getenv("DB_POOL_MAX", "30"))
 # psycopg2 풀은 다 찼을 때 기다리지 않고 바로 PoolError를 던진다 - 순간적으로
 # 몰린 요청이 그대로 500으로 튕겨나가는 걸 막기 위해, 짧은 간격으로 재시도하며
 # 이 시간만큼은 자리가 날 때까지 기다려본다(그래도 안 나면 그때 진짜로 포기).
