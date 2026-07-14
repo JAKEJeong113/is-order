@@ -12,6 +12,7 @@ import traceback
 from dotenv import load_dotenv
 load_dotenv()
 
+import browser_limit
 import cart_add_logic
 import cart_jobs
 import popularity
@@ -110,10 +111,23 @@ def process_web_item(job: dict) -> None:
     })
 
 
+def process_load_test_noop(job: dict) -> None:
+    """실제 도매처/Playwright는 전혀 안 건드리는 가짜 담기 - 워커/큐 처리량만
+    재보는 부하 테스트 전용. 실제 담기와 동일하게 browser_semaphore(동시 4개
+    제한)는 그대로 받아서, 처리량 측정치가 실제 담기의 동시성 제약을
+    똑같이 반영하도록 한다. cart_jobs.enqueue_load_test_noop()로만 만들어지며
+    실제 서비스 코드 경로에서는 절대 생성되지 않는다."""
+    duration = job["payload"].get("duration_seconds", 30)
+    with browser_limit.browser_semaphore:
+        time.sleep(duration)
+    cart_jobs.mark_done(job["id"], {"ok": True, "note": "load test noop"})
+
+
 _HANDLERS = {
     "telegram_batch": process_telegram_batch,
     "telegram_stockout": process_telegram_stockout,
     "web_item": process_web_item,
+    "load_test_noop": process_load_test_noop,
 }
 
 

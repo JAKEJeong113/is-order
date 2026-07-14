@@ -16,6 +16,10 @@ kind별 payload_json 모양:
   web_cart.list_items(store_id)로 batch_vendors를 새로 계산한다.
   with_fallback=False면 /compare의 대안 도매처 선택처럼 자동 전환 없이
   그 도매처로만 단발 시도한다)
+- "load_test_noop": {"duration_seconds": float}
+  (실제 도매처/Playwright는 전혀 안 건드리는 가짜 담기 - 워커/큐 처리량만
+  재보는 부하 테스트 전용. 실제 서비스 어느 코드 경로에서도 만들어지지 않고
+  enqueue_load_test_noop()로만 생성된다)
 """
 import json
 from datetime import datetime
@@ -80,6 +84,14 @@ def enqueue_web_item(store_id: str, web_cart_item_id: int | None, item: dict, wi
         "web_item", store_id, {"item": item, "with_fallback": with_fallback},
         web_cart_item_id=web_cart_item_id,
     )
+
+
+def enqueue_load_test_noop(duration_seconds: float = 30) -> int:
+    """실제 담기와 동일한 동시성 제약(browser_semaphore)만 받고 Playwright/
+    도매처는 전혀 안 건드리는 가짜 job - 워커/큐 처리량 측정용 부하 테스트
+    전용. store_id를 "__load_test__"로 고정해 실제 매장 데이터와 절대
+    섞이지 않게 한다."""
+    return _enqueue("load_test_noop", "__load_test__", {"duration_seconds": duration_seconds})
 
 
 def claim_next_job() -> dict | None:
