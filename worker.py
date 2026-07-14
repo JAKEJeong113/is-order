@@ -121,19 +121,36 @@ def run() -> None:
     _init_tables()
     print("[WORKER] 시작 - cart_jobs 큐 폴링 중")
     while True:
-        job = cart_jobs.claim_next_job()
-        if not job:
-            time.sleep(POLL_INTERVAL_SECONDS)
-            continue
-
-        print(f"[WORKER] job {job['id']} ({job['kind']}) 처리 시작")
         try:
-            _HANDLERS[job["kind"]](job)
-            print(f"[WORKER] job {job['id']} 완료")
-        except Exception as e:
-            cart_jobs.mark_failed(job["id"], str(e))
-            print(f"[WORKER] job {job['id']} 실패: {e}")
+            job = cart_jobs.claim_next_job()
+            if not job:
+                time.sleep(POLL_INTERVAL_SECONDS)
+                continue
+
+            print(f"[WORKER] job {job['id']} ({job['kind']}) 처리 시작")
+            try:
+                _HANDLERS[job["kind"]](job)
+                print(f"[WORKER] job {job['id']} 완료")
+            except Exception as e:
+                # 담기 실패(로그인 실패, 품절 등)는 정상적인 실패 케이스라
+                # mark_failed로 job에만 기록한다 - 여기 걸리는 건 그 실패
+                # 처리 자체가 예상 못한 예외로 죽은 경우(진짜 버그)라 알림도 보낸다.
+                cart_jobs.mark_failed(job["id"], str(e))
+                print(f"[WORKER] job {job['id']} 실패: {e}")
+                traceback.print_exc()
+                telegram_bot.alert_admin(
+                    f"워커에서 job {job['id']} ({job['kind']}) 처리 중 예상 못한 예외\n\n"
+                    f"{type(e).__name__}: {e}\n\n{traceback.format_exc()[-1500:]}"
+                )
+        except Exception as loop_error:
+            # claim_next_job 자체가 실패하는 경우(DB 연결 문제 등) - 워커
+            # 프로세스가 죽지 않고 재시도하도록 폴링 루프 바깥도 잡아둔다.
+            print(f"[WORKER] 폴링 루프에서 예상 못한 오류: {loop_error}")
             traceback.print_exc()
+            telegram_bot.alert_admin(
+                f"워커 폴링 루프 자체에서 예상 못한 예외\n\n{type(loop_error).__name__}: {loop_error}"
+            )
+            time.sleep(POLL_INTERVAL_SECONDS)
 
 
 if __name__ == "__main__":

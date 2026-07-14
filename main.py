@@ -14,6 +14,7 @@ load_dotenv()
 import functools
 import math
 import re
+import traceback
 import uuid
 import hmac
 import hashlib
@@ -31,7 +32,7 @@ import secrets
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -169,6 +170,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def _alert_admin_on_unhandled_exception(request: Request, exc: Exception):
+    """예상 못한 예외(진짜 버그)만 대표님 텔레그램으로 즉시 알린다. HTTPException
+    등 이미 의도적으로 처리되는 예외는 FastAPI가 이 핸들러보다 먼저 자체
+    처리하므로 여기까지 안 온다."""
+    tb = traceback.format_exc()
+    telegram_bot.alert_admin(
+        f"웹 서비스에서 처리되지 않은 예외\n{request.method} {request.url.path}\n\n"
+        f"{type(exc).__name__}: {exc}\n\n{tb[-1500:]}"
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 
 def _ceil_to_pack(qty: int, pack_qty: int) -> int:

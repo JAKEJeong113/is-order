@@ -20,6 +20,7 @@ import vendors
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
+ADMIN_CHAT_ID = os.getenv("ADMIN_TELEGRAM_CHAT_ID", "")
 
 # 텔레그램이 같은 웹훅 메시지를 재전송(중복 전달)하는 경우, "확인" 처리가 같은
 # store_id에 대해 동시에 두 번 실행되면 같은 도매처 계정으로 거의 동시에 두 번
@@ -113,6 +114,18 @@ def send_message(chat_id, text: str) -> bool:
     except Exception as e:
         print("[TELEGRAM] 메시지 전송 실패:", e)
         return False
+
+
+def alert_admin(message: str) -> None:
+    """서버(웹 서비스/워커)에서 예상 못한 예외가 터졌을 때 대표님 개인
+    텔레그램으로 즉시 알린다. 담기 실패(로그인 실패, 품절 등 정상적인
+    실패)는 대상이 아니다 - 그건 이미 봇 대화로 확인 가능해서 매번 알림이
+    오면 스팸이 된다. 여기서는 "코드가 예상 못한 예외로 죽었다" 같은
+    진짜 버그일 때만 부른다."""
+    if not ADMIN_CHAT_ID:
+        print("[ALERT] ADMIN_TELEGRAM_CHAT_ID가 설정되지 않아 관리자 알림을 보낼 수 없습니다:", message)
+        return
+    send_message(ADMIN_CHAT_ID, f"⚠️ 서버 에러 발생\n\n{message}")
 
 
 def _format_comparison(matched: list[dict], not_found: list[str]) -> str:
