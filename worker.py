@@ -5,7 +5,17 @@
 없어 불가능했던 구조 - Postgres 전환이 이 분리의 전제조건이었음).
 
 FastAPI 앱(main.py)은 임포트하지 않고, 이 워커가 실제로 건드리는 테이블의
-init_*()만 독립적으로 호출한다."""
+init_*()만 독립적으로 호출한다.
+
+프로세스 하나 안에서도 job을 동시에 여러 개 처리한다 - 폴링 루프를
+WORKER_CONCURRENCY(기본 MAX_CONCURRENT_BROWSERS)개의 독립된 스레드로
+띄우고, 각 스레드가 각자 claim_next_job()/처리를 반복한다. cart_jobs의
+claim_next_job()이 FOR UPDATE SKIP LOCKED로 원자적이라 여러 스레드(그리고
+여러 워커 인스턴스)가 동시에 폴링해도 같은 job을 중복으로 집어가지 않는다
+(부하 테스트로 실제 job이 한 번에 하나씩만 처리되고 있던 걸 발견 - 이전엔
+단일 스레드 루프라 browser_semaphore가 있어도 동시에 경합할 대상 자체가
+없었음)."""
+import threading
 import time
 import traceback
 
@@ -22,6 +32,7 @@ import vendors
 import web_cart
 
 POLL_INTERVAL_SECONDS = 2
+WORKER_CONCURRENCY = browser_limit.MAX_CONCURRENT_BROWSERS
 
 
 def _init_tables() -> None:
@@ -131,9 +142,8 @@ _HANDLERS = {
 }
 
 
-def run() -> None:
-    _init_tables()
-    print("[WORKER] 시작 - cart_jobs 큐 폴링 중")
+def _poll_loop(worker_id: int) -> None:
+    tag = f"[WORKER-{worker_id}]"
     while True:
         try:
             job = cart_jobs.claim_next_job()
@@ -141,16 +151,16 @@ def run() -> None:
                 time.sleep(POLL_INTERVAL_SECONDS)
                 continue
 
-            print(f"[WORKER] job {job['id']} ({job['kind']}) 처리 시작")
+            print(f"{tag} job {job['id']} ({job['kind']}) 처리 시작")
             try:
                 _HANDLERS[job["kind"]](job)
-                print(f"[WORKER] job {job['id']} 완료")
+                print(f"{tag} job {job['id']} 완료")
             except Exception as e:
                 # 담기 실패(로그인 실패, 품절 등)는 정상적인 실패 케이스라
                 # mark_failed로 job에만 기록한다 - 여기 걸리는 건 그 실패
                 # 처리 자체가 예상 못한 예외로 죽은 경우(진짜 버그)라 알림도 보낸다.
                 cart_jobs.mark_failed(job["id"], str(e))
-                print(f"[WORKER] job {job['id']} 실패: {e}")
+                print(f"{tag} job {job['id']} 실패: {e}")
                 traceback.print_exc()
                 telegram_bot.alert_admin(
                     f"워커에서 job {job['id']} ({job['kind']}) 처리 중 예상 못한 예외\n\n"
@@ -158,13 +168,26 @@ def run() -> None:
                 )
         except Exception as loop_error:
             # claim_next_job 자체가 실패하는 경우(DB 연결 문제 등) - 워커
-            # 프로세스가 죽지 않고 재시도하도록 폴링 루프 바깥도 잡아둔다.
-            print(f"[WORKER] 폴링 루프에서 예상 못한 오류: {loop_error}")
+            # 스레드가 죽지 않고 재시도하도록 폴링 루프 바깥도 잡아둔다.
+            print(f"{tag} 폴링 루프에서 예상 못한 오류: {loop_error}")
             traceback.print_exc()
             telegram_bot.alert_admin(
                 f"워커 폴링 루프 자체에서 예상 못한 예외\n\n{type(loop_error).__name__}: {loop_error}"
             )
             time.sleep(POLL_INTERVAL_SECONDS)
+
+
+def run() -> None:
+    _init_tables()
+    print(f"[WORKER] 시작 - cart_jobs 큐 폴링 중 (동시 처리 {WORKER_CONCURRENCY}개)")
+    threads = [
+        threading.Thread(target=_poll_loop, args=(i,), name=f"poller-{i}", daemon=True)
+        for i in range(WORKER_CONCURRENCY)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
 if __name__ == "__main__":
