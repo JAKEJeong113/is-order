@@ -45,13 +45,14 @@ def _finish_processing(store_id: str) -> None:
         _processing_store_ids.discard(store_id)
 
 CONFIRM_WORDS = {"확인", "네", "예", "ok", "okay", "yes", "go", "담아줘", "담아"}
-CANCEL_WORDS = {"취소", "아니", "아니오", "no", "cancel"}
+CANCEL_WORDS = {"취소", "아니", "아니오", "no", "cancel", "뒤로가기", "뒤로"}
 # "계정추가"는 같은 도매처에 계정을 하나 더 등록할 때 쓰는 명령이지만, 내부
 # 흐름(도매처->별명->아이디->비번)은 "계정등록"과 완전히 같다 - 첫 계정이든
 # 추가 계정이든 결국 add_store_vendor_account 하나로 저장되기 때문. 뒤에
 # 도매처명을 붙이면("계정추가 야미몰") 도매처 메뉴를 건너뛰고 바로 별명부터 묻는다.
 CRED_TRIGGER_WORDS = {"계정등록", "도매처등록", "도매처계정등록", "계정 등록", "계정추가"}
 DELETE_ACCOUNT_TRIGGER_WORDS = {"계정삭제", "도매처계정삭제"}
+ACCOUNT_STATUS_TRIGGER_WORDS = {"계정현황", "계정목록", "계정확인"}
 # 발주(도매처 가격비교)와는 별개로, 음료/과자 추천 카드에 등록해둔 쿠팡 링크를
 # 바로 찾아주는 명령 - "이 상품 쿠팡 링크 좀" 같은 요청에 대응한다.
 PRODUCT_LINK_TRIGGER_WORDS = {"구매링크", "쿠팡링크", "상품검색", "쿠팡검색"}
@@ -64,7 +65,7 @@ KOREAN_TO_VENDOR_ID = {
     "현동몰": "hdinter", "무마켓": "moomarket", "또요몰": "douyou",
 }
 VENDOR_ID_TO_KOREAN = {v: k for k, v in KOREAN_TO_VENDOR_ID.items()}
-VENDOR_MENU_TEXT = "등록할 도매처를 입력해주세요: 야미몰 / 과자생각 / 삼봉몰 / 현동몰 / 무마켓 / 또요몰"
+VENDOR_MENU_TEXT = "등록할 도매처를 입력해주세요: 야미몰 / 과자생각 / 삼봉몰 / 현동몰 / 무마켓 / 또요몰\n(취소하려면 '취소')"
 
 HELP_TEXT = """사용 가능한 명령어입니다:
 
@@ -84,6 +85,12 @@ HELP_TEXT = """사용 가능한 명령어입니다:
 
 [계정삭제 (도매처명)]
 등록된 계정을 삭제합니다. 예: 계정삭제 야미몰 (번호로 어떤 계정인지 골라요)
+
+[계정현황]
+도매처별로 등록된 계정 목록을 확인합니다.
+
+[취소 / 뒤로가기]
+계정등록 등 진행 중인 절차를 언제든 중단하고 빠져나갈 수 있어요.
 
 [구매링크 (상품명)]
 음료/과자 추천에 등록된 상품의 쿠팡 구매 링크를 찾아드려요. 예: 구매링크 스프라이트
@@ -524,6 +531,21 @@ def _handle_account_choice_reply(chat_id: str, state: dict, text: str) -> None:
     _ask_next_account_choice(chat_id, state)
 
 
+def _format_account_status(store_id: str) -> str:
+    lines = ["도매처별 등록 계정 현황:"]
+    for vendor_id in CART_SUPPORTED_VENDORS:
+        vendor_name = vendors.VENDORS[vendor_id]["name"]
+        accounts = vendors.list_store_vendor_accounts(store_id, vendor_id)
+        lines.append(f"\n{vendor_name}")
+        if not accounts:
+            lines.append("(등록된 계정 없음)")
+            continue
+        for i, acc in enumerate(accounts, start=1):
+            tag = " (기본)" if acc["is_default"] else ""
+            lines.append(f"{i}. {acc['nickname'] or '기본'}{tag}")
+    return "\n".join(lines)
+
+
 def _format_account_delete_prompt(vendor_id: str, accounts: list[dict]) -> str:
     vendor_name = vendors.VENDORS[vendor_id]["name"]
     lines = [f"{vendor_name}에서 삭제할 계정을 번호로 답장해주세요:\n"]
@@ -569,13 +591,18 @@ def _handle_account_delete_reply(chat_id: str, state: dict, text: str) -> None:
 
 
 REGISTRATION_PROMPTS = {
-    "store_name": ("store_name", "phone", "연락처(전화번호)를 입력해주세요."),
-    "phone": ("phone", "business_number", "사업자등록번호를 입력해주세요."),
+    "store_name": ("store_name", "phone", "연락처(전화번호)를 입력해주세요.\n(취소하려면 '취소')"),
+    "phone": ("phone", "business_number", "사업자등록번호를 입력해주세요.\n(취소하려면 '취소')"),
     "business_number": ("business_number", None, None),
 }
 
 
 def _handle_registration(chat_id: str, reg: dict, text: str) -> None:
+    if text.strip().lower() in CANCEL_WORDS:
+        telegram_store.delete_store(chat_id)
+        send_message(chat_id, "가맹점 등록을 취소했습니다. 다시 시작하려면 아무 메시지나 보내주세요.")
+        return
+
     step = reg["registration_step"]
     field, next_step, next_prompt = REGISTRATION_PROMPTS[step]
     telegram_store.save_registration_field(chat_id, field, text, next_step)
@@ -597,12 +624,17 @@ def _send_nickname_prompt(chat_id: str, store_id: str, vendor_id: str) -> None:
     send_message(
         chat_id,
         f"{vendor_name} 계정 별명을 입력해주세요 (예: 본점, 2호점). "
-        f"생략하려면 '건너뛰기'라고 입력해주세요.{hint}",
+        f"생략하려면 '건너뛰기'라고 입력해주세요.{hint}\n(취소하려면 '취소')",
     )
 
 
 def _handle_credential_flow(chat_id: str, store_id: str, reg: dict, text: str) -> None:
     step = reg["cred_step"]
+
+    if text.strip().lower() in CANCEL_WORDS:
+        telegram_store.clear_credential_registration(chat_id)
+        send_message(chat_id, "계정 등록을 취소했습니다.")
+        return
 
     if step == "vendor":
         vendor_id = KOREAN_TO_VENDOR_ID.get(text.strip())
@@ -619,13 +651,13 @@ def _handle_credential_flow(chat_id: str, store_id: str, reg: dict, text: str) -
             nickname = ""
         telegram_store.save_credential_nickname(chat_id, nickname)
         vendor_name = vendors.VENDORS[reg["cred_vendor"]]["name"]
-        send_message(chat_id, f"{vendor_name} 아이디를 입력해주세요.")
+        send_message(chat_id, f"{vendor_name} 아이디를 입력해주세요.\n(취소하려면 '취소')")
         return
 
     if step == "id":
         telegram_store.save_credential_id(chat_id, text.strip())
         vendor_name = vendors.VENDORS[reg["cred_vendor"]]["name"]
-        send_message(chat_id, f"{vendor_name} 비밀번호를 입력해주세요.")
+        send_message(chat_id, f"{vendor_name} 비밀번호를 입력해주세요.\n(취소하려면 '취소')")
         return
 
     if step == "pwd":
@@ -723,7 +755,7 @@ def handle_update(update: dict) -> None:
     if reg is None:
         display_name = chat.get("first_name") or chat.get("username") or chat_id
         telegram_store.start_registration(chat_id, display_name)
-        send_message(chat_id, "가맹점 등록을 시작할게요.\n지점명을 입력해주세요.")
+        send_message(chat_id, "가맹점 등록을 시작할게요.\n지점명을 입력해주세요.\n(취소하려면 '취소')")
         return
 
     if not reg["approved"]:
@@ -798,6 +830,10 @@ def handle_update(update: dict) -> None:
         }
         telegram_store.set_disambig_state(chat_id, state)
         send_message(chat_id, _format_account_delete_prompt(vendor_id, accounts))
+        return
+
+    if text.strip() in ACCOUNT_STATUS_TRIGGER_WORDS:
+        send_message(chat_id, _format_account_status(store_name))
         return
 
     is_link_trigger, link_keyword = _match_product_link_trigger(text)

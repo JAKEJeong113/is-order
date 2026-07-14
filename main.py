@@ -1155,6 +1155,10 @@ class TelegramApproveRequest(BaseModel):
 @app.post("/api/telegram/stores/{chat_id}/approve")
 def api_telegram_approve(chat_id: str, req: TelegramApproveRequest, _: bool = Depends(require_admin)):
     telegram_store.approve_store(chat_id, req.store_name)
+    telegram_bot.send_message(
+        chat_id,
+        f"{req.store_name}님, 승인이 완료되었습니다! 환영합니다.\n\n" + telegram_bot.HELP_TEXT,
+    )
     return {"ok": True}
 
 
