@@ -74,7 +74,7 @@ BEVERAGE = ProductType(
 # 과자 포장 형태 기준 분류.
 SNACK = ProductType(
     key="snack", table_name="snack_catalog", catalog_category="과자",
-    package_types=["봉지", "박스", "낱개", "초콜릿", "젤리", "사탕", "미분류"],
+    package_types=["봉지", "박스", "낱개", "초콜릿", "젤리", "사탕", "시리얼", "미분류"],
 )
 
 
