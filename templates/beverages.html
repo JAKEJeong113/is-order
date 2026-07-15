@@ -74,6 +74,17 @@
       font-size: 12px; font-weight: 700; cursor: pointer; background: var(--card); color: var(--muted);
     }
     .filter-btn.active { background: var(--mint); border-color: var(--mint); color: white; }
+    .bev-card-link { display: block; text-decoration: none; color: inherit; }
+    .chart-toggle {
+      display: block; width: 100%; text-align: center; padding: 5px 0;
+      border: none; border-top: 1px solid var(--line); background: transparent;
+      color: var(--mint-text); font-size: 11px; font-weight: 700; cursor: pointer;
+    }
+    .chart-toggle:hover { background: var(--mint-soft); }
+    .chart-area { display: none; padding: 6px 10px 10px; border-top: 1px solid var(--line); }
+    .chart-area.open { display: block; }
+    .chart-area canvas { width: 100%; height: 70px; display: block; }
+    .chart-empty { font-size: 11px; color: var(--muted); text-align: center; padding: 8px 0; }
   </style>
 </head>
 <body>
@@ -167,29 +178,111 @@
           ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(name)}" loading="lazy">`
           : "";
         return `
-          <a class="bev-card" href="${escapeHtml(item.partners_link)}" target="_blank" rel="noopener"
-             data-item-key="${escapeHtml(item.item_key)}">
-            <div class="bev-rank ${i < 3 ? "top3" : ""}">${i + 1}</div>
-            <div class="bev-img-wrap">${imgTag}</div>
-            <div class="bev-body">
-              <div class="bev-name">${escapeHtml(name)}</div>
-              <div class="bev-meta">
-                <span class="bev-price">${priceText}</span>
-                <span class="buy-badge">구매하기</span>
+          <div class="bev-card" data-item-key="${escapeHtml(item.item_key)}">
+            <a class="bev-card-link" href="${escapeHtml(item.partners_link)}" target="_blank" rel="noopener">
+              <div class="bev-rank ${i < 3 ? "top3" : ""}">${i + 1}</div>
+              <div class="bev-img-wrap">${imgTag}</div>
+              <div class="bev-body">
+                <div class="bev-name">${escapeHtml(name)}</div>
+                <div class="bev-meta">
+                  <span class="bev-price">${priceText}</span>
+                  <span class="buy-badge">구매하기</span>
+                </div>
               </div>
-            </div>
-          </a>
+            </a>
+            <button class="chart-toggle" type="button">📈 가격추이</button>
+            <div class="chart-area"></div>
+          </div>
         `;
       }).join("");
 
-      gridEl.querySelectorAll(".bev-card").forEach((card) => {
-        card.addEventListener("click", () => {
-          const itemKey = card.getAttribute("data-item-key");
+      gridEl.querySelectorAll(".bev-card-link").forEach((link) => {
+        link.addEventListener("click", () => {
+          const itemKey = link.closest(".bev-card").getAttribute("data-item-key");
           try {
             fetch(`/api/beverage-click/${encodeURIComponent(itemKey)}`, { method: "POST", keepalive: true });
           } catch (e) {}
         });
       });
+
+      gridEl.querySelectorAll(".chart-toggle").forEach((btn) => {
+        btn.addEventListener("click", () => togglePriceChart(btn, "beverage"));
+      });
+    }
+
+    async function togglePriceChart(btn, slug) {
+      const card = btn.closest(".bev-card");
+      const itemKey = card.getAttribute("data-item-key");
+      const areaEl = card.querySelector(".chart-area");
+
+      if (areaEl.classList.contains("open")) {
+        areaEl.classList.remove("open");
+        return;
+      }
+      areaEl.classList.add("open");
+      if (areaEl.dataset.loaded) return;
+
+      areaEl.innerHTML = '<div class="chart-empty">불러오는 중...</div>';
+      try {
+        const res = await fetch(`/api/${slug}-price-history/${encodeURIComponent(itemKey)}`);
+        const data = await res.json();
+        const points = data.points || [];
+        if (points.length < 2) {
+          areaEl.innerHTML = '<div class="chart-empty">아직 가격 추이 데이터가 부족합니다.</div>';
+        } else {
+          areaEl.innerHTML = "<canvas></canvas>";
+          drawPriceChart(areaEl.querySelector("canvas"), points);
+        }
+        areaEl.dataset.loaded = "1";
+      } catch (e) {
+        areaEl.innerHTML = '<div class="chart-empty">불러오지 못했습니다.</div>';
+      }
+    }
+
+    function drawPriceChart(canvas, points) {
+      const dpr = window.devicePixelRatio || 1;
+      const cssWidth = canvas.parentElement.clientWidth || 220;
+      const cssHeight = 70;
+      canvas.width = cssWidth * dpr;
+      canvas.height = cssHeight * dpr;
+      canvas.style.width = cssWidth + "px";
+      canvas.style.height = cssHeight + "px";
+      const ctx = canvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+
+      const prices = points.map((p) => p.price);
+      const min = Math.min(...prices);
+      const max = Math.max(...prices);
+      const padX = 4;
+      const topPad = 12;
+      const w = cssWidth - padX * 2;
+      const h = cssHeight - topPad - 6;
+      const range = max - min || 1;
+
+      const xAt = (i) => padX + (i / (points.length - 1)) * w;
+      const yAt = (v) => topPad + h - ((v - min) / range) * h;
+
+      ctx.strokeStyle = "#14b8a6";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      points.forEach((p, i) => {
+        const x = xAt(i), y = yAt(p.price);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      const lastX = xAt(points.length - 1), lastY = yAt(points[points.length - 1].price);
+      ctx.fillStyle = "#14b8a6";
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#6b7280";
+      ctx.font = "10px sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(`최저 ${min.toLocaleString()}원`, padX, 9);
+      ctx.textAlign = "right";
+      ctx.fillText(`최고 ${max.toLocaleString()}원`, padX + w, 9);
     }
 
     load();

@@ -741,6 +741,36 @@ def _handle_vendor_toggle_command(chat_id: str, text: str) -> None:
     send_message(chat_id, f"{vendors.VENDORS[vendor_id]['name']}를 {action}했습니다.")
 
 
+def _handle_admin_price_alert_reply(chat_id: str, text: str) -> bool:
+    """대표님 개인 chat_id(ADMIN_CHAT_ID)에서 "전체발송"/"생략" 응답이 오면
+    처리한다. 대기 중인(status='notified', 오늘 다이제스트로 이미 알려드린)
+    최저가 알림이 없으면 아무 것도 안 하고 False를 돌려줘서 평소 로직(발주 등)
+    으로 그대로 넘어가게 한다 - 일반 문구에서 우연히 같은 단어를 썼을 때
+    오작동을 막기 위함."""
+    if text not in ("전체발송", "생략", "스킵"):
+        return False
+
+    status = "broadcast" if text == "전체발송" else "skipped"
+    alerts = product_ranking.resolve_pending_alerts(status)
+    if not alerts:
+        return False
+
+    if status == "skipped":
+        send_message(chat_id, "최저가 알림을 넘어갔습니다.")
+        return True
+
+    lines = ["🎉 최저가 소식!\n"]
+    for a in alerts:
+        old_low_text = f"{a['old_low']:,}원 → " if a["old_low"] else ""
+        lines.append(f"• {a['item_name']} {old_low_text}{a['new_price']:,}원")
+    message = "\n".join(lines)
+
+    stores = [s for s in telegram_store.list_stores() if s["approved"]]
+    sent = sum(1 for s in stores if send_message(s["chat_id"], message))
+    send_message(chat_id, f"{sent}/{len(stores)}개 매장에 발송했습니다.")
+    return True
+
+
 def handle_update(update: dict) -> None:
     message = update.get("message") or {}
     chat = message.get("chat") or {}
@@ -748,6 +778,9 @@ def handle_update(update: dict) -> None:
     text = (message.get("text") or "").strip()
 
     if not chat_id or not text:
+        return
+
+    if chat_id == ADMIN_CHAT_ID and _handle_admin_price_alert_reply(chat_id, text):
         return
 
     reg = telegram_store.get_registration(chat_id)

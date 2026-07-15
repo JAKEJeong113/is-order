@@ -28,6 +28,7 @@ import pandas as pd
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 import secrets
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
@@ -119,6 +120,7 @@ vendors.init_store_vendor_prefs_table()
 web_auth.init_web_auth_tables()
 product_ranking.init_table(product_ranking.BEVERAGE)
 product_ranking.init_table(product_ranking.SNACK)
+product_ranking.init_price_tracking_tables()
 biz_tools.init_table()
 patch_notes.init_patch_notes_table()
 web_cart.init_web_cart_table()
@@ -161,6 +163,49 @@ scheduler.add_job(
     id="daily_snack_product_backfill",
     replace_existing=True,
 )
+
+# 가격 추이 트래킹: 이미 매칭된 상품들의 오늘자 가격을 순환 조회해서 쌓는다.
+# 226개(음료 149 + 과자 77) 전체를 한 번에 조회하면 시간당 호출 한도를
+# 넘으므로, 15개씩 30분 간격으로 나눠 돈다 - 시간당 30건(실측 한도 약
+# 90건/시간 대비 3배 여유), 전체 카탈로그 한 바퀴 도는 데 약 8시간이라
+# 하루 2~3회 자연스럽게 갱신된다.
+scheduler.add_job(
+    functools.partial(product_ranking.snapshot_prices, product_ranking.BEVERAGE, limit=15),
+    trigger=IntervalTrigger(minutes=30),
+    id="price_snapshot_beverage",
+    replace_existing=True,
+)
+scheduler.add_job(
+    functools.partial(product_ranking.snapshot_prices, product_ranking.SNACK, limit=15),
+    trigger=IntervalTrigger(minutes=30),
+    id="price_snapshot_snack",
+    replace_existing=True,
+)
+
+
+def _send_price_alert_digest() -> None:
+    """밤새/낮 동안 쌓인 신규 최저가를 하루 한 번 묶어서 대표님 개인
+    텔레그램으로만 보낸다(전체 가맹점 발송 여부는 대표님이 직접 결정 -
+    telegram_bot.py의 관리자 응답 처리에서 "전체발송"/"생략"으로 확정)."""
+    alerts = product_ranking.list_notifiable_alerts()
+    if not alerts or not telegram_bot.ADMIN_CHAT_ID:
+        return
+    lines = ["🎉 오늘의 신규 최저가\n"]
+    for a in alerts:
+        old_low_text = f"{a['old_low']:,}원 → " if a["old_low"] else ""
+        lines.append(f"• {a['item_name']} {old_low_text}{a['new_price']:,}원")
+    lines.append("\n전체 매장에 보내려면 '전체발송', 넘어가려면 '생략'이라고 답장해주세요.")
+    telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
+    product_ranking.mark_alerts_notified([a["id"] for a in alerts])
+
+
+scheduler.add_job(
+    _send_price_alert_digest,
+    trigger=CronTrigger(hour=9, minute=0, timezone=KST),
+    id="daily_price_alert_digest",
+    replace_existing=True,
+)
+
 scheduler.start()
 
 app.add_middleware(
@@ -869,19 +914,23 @@ def register_product_routes(pt: product_ranking.ProductType, *, slug: str, page_
 
         conn = product_ranking.get_conn()
         cur = conn.cursor()
-        cur.execute(f"SELECT item_key, item_name, image_url, price, reference_url, manual_override, category FROM {pt.table_name}")
+        cur.execute(f"SELECT item_key, item_name, image_url, price, reference_url, manual_override, category, deleted FROM {pt.table_name}")
         db_rows = {
             r[0]: {
                 "item_name": r[1], "image_url": r[2], "price": r[3], "reference_url": r[4],
-                "manual_override": bool(r[5]), "category": r[6],
+                "manual_override": bool(r[5]), "category": r[6], "deleted": bool(r[7]),
             }
             for r in cur.fetchall()
         }
         conn.close()
 
+        # 삭제 표시(deleted=1)된 항목은 카탈로그에 남아있어도 관리 페이지에
+        # "미완료" 유령으로 다시 뜨지 않게 완전히 제외한다.
+        deleted_keys = {k for k, v in db_rows.items() if v["deleted"]}
+
         # 카탈로그 원본(직접 추가한 이름은 없을 수 있음) + DB에만 있는 관리 페이지
         # 직접 추가분(카탈로그엔 없음)을 합집합으로 합친다.
-        all_keys = set(catalog_names) | set(db_rows)
+        all_keys = (set(catalog_names) | set(db_rows)) - deleted_keys
 
         items = []
         for item_key in all_keys:
@@ -911,9 +960,7 @@ def register_product_routes(pt: product_ranking.ProductType, *, slug: str, page_
 
     @app.delete(f"/admin/api/{slug}s/{{item_key}}")
     def _admin_delete(item_key: str, _: bool = Depends(require_admin)):
-        """추천 목록(고객용 페이지)에서 제거한다. 카탈로그(엑셀)에도 있는 상품이면
-        관리 페이지에는 미완료 상태로 다시 나타난다(카탈로그 자체를 지우는 게 아니라
-        이 상품의 이미지/링크 등록만 지우는 것)."""
+        """추천 목록(고객용 페이지)과 관리 페이지 양쪽에서 영구적으로 제거한다."""
         product_ranking.delete_product(pt, item_key)
         return {"ok": True}
 
@@ -926,6 +973,10 @@ def register_product_routes(pt: product_ranking.ProductType, *, slug: str, page_
     @app.get(f"/api/{slug}-ranking")
     def _store_ranking(_: dict = Depends(require_web_user)):
         return {"items": product_ranking.get_rankings(pt)}
+
+    @app.get(f"/api/{slug}-price-history/{{item_key}}")
+    def _store_price_history(item_key: str, _: dict = Depends(require_web_user)):
+        return {"points": product_ranking.get_price_history(pt, item_key)}
 
     @app.post(f"/api/{slug}-ranking/refresh-products")
     def _store_refresh(limit: int | None = Query(None, ge=1, le=200), _: bool = Depends(require_admin)):

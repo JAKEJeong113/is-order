@@ -37,6 +37,7 @@ import requests
 
 import db_conn
 import mapping
+import product_match
 
 BASE_DIR = Path(__file__).resolve().parent
 COUPANG_CATALOG_XLSX_PATH = BASE_DIR / "coupang_catalog_sample_2.xlsx"
@@ -73,7 +74,7 @@ BEVERAGE = ProductType(
 # 과자 포장 형태 기준 분류.
 SNACK = ProductType(
     key="snack", table_name="snack_catalog", catalog_category="과자",
-    package_types=["봉지", "박스", "낱개", "미분류"],
+    package_types=["봉지", "박스", "낱개", "초콜릿", "젤리", "사탕", "미분류"],
 )
 
 
@@ -109,7 +110,45 @@ def init_table(pt: ProductType) -> None:
         cur.execute(f"ALTER TABLE {pt.table_name} ADD COLUMN manual_override INTEGER NOT NULL DEFAULT 0")
     if "category" not in existing_cols:
         cur.execute(f"ALTER TABLE {pt.table_name} ADD COLUMN category TEXT NOT NULL DEFAULT '{pt.default_package_type}'")
+    if "deleted" not in existing_cols:
+        cur.execute(f"ALTER TABLE {pt.table_name} ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+    if "price_checked_at" not in existing_cols:
+        cur.execute(f"ALTER TABLE {pt.table_name} ADD COLUMN price_checked_at TEXT")
 
+    conn.commit()
+    conn.close()
+
+
+def init_price_tracking_tables() -> None:
+    """음료/과자 공통으로 쓰는 가격 이력 + 최저가 알림 큐. product_type
+    ("beverage"/"snack")으로 상품군을 구분한다 - 카탈로그 테이블처럼 상품군별로
+    나누지 않는 이유는 두 테이블 다 조회 패턴이 거의 없고(주로 item_key로만
+    조회), 나눠봐야 얻는 이득이 없기 때문."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS price_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_type TEXT NOT NULL,
+        item_key TEXT NOT NULL,
+        price INTEGER NOT NULL,
+        recorded_at TEXT NOT NULL
+    )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_price_history_item ON price_history (product_type, item_key, recorded_at)")
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS pending_price_alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_type TEXT NOT NULL,
+        item_key TEXT NOT NULL,
+        item_name TEXT NOT NULL,
+        old_low INTEGER,
+        new_price INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending'
+    )
+    """)
     conn.commit()
     conn.close()
 
@@ -126,8 +165,8 @@ def set_manual_link(
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(f"""
-    INSERT INTO {pt.table_name} (item_key, item_name, image_url, price, reference_url, partners_link, click_count, image_refreshed_at, link_refreshed_at, manual_override, category)
-    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 1, ?)
+    INSERT INTO {pt.table_name} (item_key, item_name, image_url, price, reference_url, partners_link, click_count, image_refreshed_at, link_refreshed_at, manual_override, category, deleted)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 1, ?, 0)
     ON CONFLICT(item_key) DO UPDATE SET
         item_name=excluded.item_name,
         image_url=excluded.image_url,
@@ -137,7 +176,8 @@ def set_manual_link(
         image_refreshed_at=excluded.image_refreshed_at,
         link_refreshed_at=excluded.link_refreshed_at,
         manual_override=1,
-        category=excluded.category
+        category=excluded.category,
+        deleted=0
     """, (item_key, item_name, image_url, price, reference_url, reference_url, now, now, category))
     conn.commit()
     conn.close()
@@ -183,6 +223,7 @@ def search_coupang_product(keyword: str) -> dict | None:
         "image_url": top.get("productImage"),
         "price": top.get("productPrice"),
         "reference_url": top.get("productUrl"),
+        "product_name": top.get("productName"),
     }
 
 
@@ -210,7 +251,7 @@ def refresh_products(pt: ProductType, limit: int | None = None) -> dict:
 
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(f"SELECT item_key FROM {pt.table_name} WHERE reference_url IS NOT NULL OR manual_override = 1")
+    cur.execute(f"SELECT item_key FROM {pt.table_name} WHERE reference_url IS NOT NULL OR manual_override = 1 OR deleted = 1")
     already_done = {r[0] for r in cur.fetchall()}
 
     pending_entries = [(k, e) for k, e in entries.items() if k not in already_done]
@@ -276,7 +317,7 @@ def get_rankings(pt: ProductType) -> list[dict]:
     cur.execute(f"""
     SELECT item_key, item_name, image_url, price, partners_link, click_count, link_refreshed_at, category
     FROM {pt.table_name}
-    WHERE partners_link IS NOT NULL
+    WHERE partners_link IS NOT NULL AND deleted = 0
     ORDER BY click_count DESC, item_name ASC
     """)
     rows = cur.fetchall()
@@ -327,14 +368,196 @@ def search_products(keyword: str, limit: int = 5) -> list[dict]:
 
 
 def delete_product(pt: ProductType, item_key: str) -> bool:
-    """추천 목록(고객용 페이지)에서 제거한다. 카탈로그(엑셀)에도 있는 상품이면
-    관리 페이지에는 "미완료" 상태로 다시 나타난다(카탈로그 자체를 지우는 게
-    아니라 이 상품의 이미지/링크 등록만 지우는 것이기 때문) - 관리 페이지에서
-    직접 추가한 상품(카탈로그에 없음)이면 완전히 사라진다."""
+    """추천 목록(고객용 페이지)과 관리 페이지 양쪽에서 영구적으로 제거한다.
+    카탈로그(엑셀)에도 있는 상품이면 소프트 삭제(deleted=1)로 표시만 남겨서
+    다음 백필 때 자동 검색으로 다시 살아나지 못하게 막는다(예전엔 하드
+    삭제라, 카탈로그에 남아있는 상품은 다음 날 백필에서 그대로 재생성됐다).
+    카탈로그에 아직 없던 item_key라도 최소 행(tombstone)을 남겨 동일하게 막는다."""
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(f"DELETE FROM {pt.table_name} WHERE item_key = ?", (item_key,))
-    deleted = cur.rowcount > 0
+    cur.execute(f"""
+    INSERT INTO {pt.table_name} (item_key, deleted)
+    VALUES (?, 1)
+    ON CONFLICT(item_key) DO UPDATE SET deleted = 1
+    """, (item_key,))
     conn.commit()
     conn.close()
-    return deleted
+    return True
+
+
+# 재검색 결과가 원래 저장된 상품과 다른 상품일 가능성이 있으면(다른 맛/용량 등)
+# 그날 가격은 기록하지 않는다 - product_match.similarity()는 이미 도매처 간
+# 크로스 매칭에 쓰던 bigram 기반 유사도(0~1)라, 여기서는 "정말 같은 상품인지"를
+# 재확인하는 용도로 좀 더 높은 기준을 쓴다.
+PRICE_CHECK_SIMILARITY_THRESHOLD = 0.4
+
+SEARCH_DELAY_SECONDS_PRICE_CHECK = 2.0
+
+
+def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
+    """이미 매칭된 상품들의 오늘자 가격을 순환 조회해서 price_history에
+    쌓는다. reference_url/image_url/partners_link는 절대 건드리지 않는다 -
+    가격만 갱신하려고 매번 키워드로 재검색하면 그날그날 검색 1순위가 바뀌어
+    엉뚱한 상품의 가격으로 기록될 위험이 있어서, 재검색 결과 상품명을 저장된
+    이름과 비교해 유사도가 낮으면(다른 상품으로 의심) 그날 가격 기록만
+    건너뛴다(카드 자체는 그대로 유지).
+
+    price_checked_at 기준 오래된 순으로 limit개씩만 처리하므로, 여러 번에
+    걸쳐 나눠 부르면(스케줄러가 짧은 간격으로 반복 호출) 결국 전체 카탈로그를
+    한 바퀴 돈다 - 시간당 호출 한도를 넘지 않게 batch 크기/간격을 호출하는
+    쪽(main.py 스케줄러)에서 조절한다.
+
+    반환하는 new_lows: 이번 배치에서 역대 최저가를 갱신한 상품 목록
+    (pending_price_alerts에도 같이 기록됨)."""
+    try:
+        catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
+    except Exception as e:
+        print(f"[PRODUCT_RANKING:{pt.key}] 카탈로그 로드 실패:", e)
+        return {"ok": False, "error": str(e)}
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"""
+    SELECT item_key, item_name FROM {pt.table_name}
+    WHERE reference_url IS NOT NULL AND deleted = 0
+    ORDER BY price_checked_at ASC NULLS FIRST
+    LIMIT ?
+    """, (limit,))
+    targets = cur.fetchall()
+
+    checked = 0
+    recorded = 0
+    rate_limited = False
+    new_lows = []
+    now = datetime.now().isoformat(timespec="seconds")
+
+    for item_key, stored_name in targets:
+        entry = catalog.get(item_key)
+        keyword = (entry.search_keyword or entry.menu_name) if entry else stored_name
+        checked += 1
+
+        try:
+            result = search_coupang_product(keyword)
+        except CoupangRateLimitError as e:
+            print(f"[PRODUCT_RANKING:{pt.key}] 가격 조회 중 API 한도 초과, 이번 배치 중단: {e}")
+            rate_limited = True
+            break
+        except Exception as e:
+            print(f"[PRODUCT_RANKING:{pt.key}] {keyword!r} 가격 조회 실패:", e)
+            cur.execute(f"UPDATE {pt.table_name} SET price_checked_at = ? WHERE item_key = ?", (now, item_key))
+            conn.commit()
+            time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
+            continue
+
+        # 실패/스킵이어도 순환 커서는 앞으로 보낸다 - 안 그러면 매번 같은
+        # 항목에서 계속 걸려서 뒤쪽 항목들이 영영 갱신 안 됨.
+        cur.execute(f"UPDATE {pt.table_name} SET price_checked_at = ? WHERE item_key = ?", (now, item_key))
+
+        if not result or not result.get("price"):
+            conn.commit()
+            time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
+            continue
+
+        found_name = result.get("product_name") or ""
+        if product_match.similarity(stored_name or "", found_name) < PRICE_CHECK_SIMILARITY_THRESHOLD:
+            print(f"[PRODUCT_RANKING:{pt.key}] {item_key!r} 재검색 결과가 다른 상품으로 의심됨"
+                  f"(저장된 이름={stored_name!r}, 검색결과={found_name!r}) - 가격 기록 건너뜀")
+            conn.commit()
+            time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
+            continue
+
+        new_price = result["price"]
+
+        cur.execute(
+            "SELECT MIN(price) FROM price_history WHERE product_type = ? AND item_key = ?",
+            (pt.key, item_key),
+        )
+        prior_low = cur.fetchone()[0]
+
+        cur.execute(
+            "INSERT INTO price_history (product_type, item_key, price, recorded_at) VALUES (?, ?, ?, ?)",
+            (pt.key, item_key, new_price, now),
+        )
+        cur.execute(f"UPDATE {pt.table_name} SET price = ? WHERE item_key = ?", (new_price, item_key))
+        recorded += 1
+
+        if prior_low is not None and new_price < prior_low:
+            cur.execute("""
+            INSERT INTO pending_price_alerts (product_type, item_key, item_name, old_low, new_price, created_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending')
+            """, (pt.key, item_key, stored_name, prior_low, new_price, now))
+            new_lows.append({"item_key": item_key, "item_name": stored_name, "old_low": prior_low, "new_price": new_price})
+
+        conn.commit()
+        time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
+
+    conn.close()
+    return {
+        "ok": True, "checked": checked, "recorded": recorded,
+        "rate_limited": rate_limited, "new_lows": new_lows,
+    }
+
+
+def get_price_history(pt: ProductType, item_key: str) -> list[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT price, recorded_at FROM price_history
+    WHERE product_type = ? AND item_key = ?
+    ORDER BY recorded_at ASC
+    """, (pt.key, item_key))
+    rows = cur.fetchall()
+    conn.close()
+    return [{"price": r[0], "recorded_at": r[1]} for r in rows]
+
+
+def list_notifiable_alerts() -> list[dict]:
+    """아직 대표님께 알리지 않은(status='pending') 최저가 알림 전체를 가져온다."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT id, product_type, item_key, item_name, old_low, new_price
+    FROM pending_price_alerts WHERE status = 'pending'
+    ORDER BY id ASC
+    """)
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {"id": r[0], "product_type": r[1], "item_key": r[2], "item_name": r[3], "old_low": r[4], "new_price": r[5]}
+        for r in rows
+    ]
+
+
+def mark_alerts_notified(ids: list[int]) -> None:
+    if not ids:
+        return
+    conn = get_conn()
+    cur = conn.cursor()
+    placeholders = ",".join("?" * len(ids))
+    cur.execute(f"UPDATE pending_price_alerts SET status = 'notified' WHERE id IN ({placeholders})", ids)
+    conn.commit()
+    conn.close()
+
+
+def resolve_pending_alerts(status: str) -> list[dict]:
+    """대표님이 텔레그램에서 "전체발송"/"생략"으로 응답했을 때, 알림 보냈던
+    (status='notified') 건들을 전부 확정 상태로 바꾸고 그 목록을 돌려준다
+    (방송 메시지 구성용)."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT id, product_type, item_key, item_name, old_low, new_price
+    FROM pending_price_alerts WHERE status = 'notified'
+    ORDER BY id ASC
+    """)
+    rows = cur.fetchall()
+    if rows:
+        ids = [r[0] for r in rows]
+        placeholders = ",".join("?" * len(ids))
+        cur.execute(f"UPDATE pending_price_alerts SET status = ? WHERE id IN ({placeholders})", [status, *ids])
+        conn.commit()
+    conn.close()
+    return [
+        {"id": r[0], "product_type": r[1], "item_key": r[2], "item_name": r[3], "old_low": r[4], "new_price": r[5]}
+        for r in rows
+    ]
