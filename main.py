@@ -52,6 +52,7 @@ import cart_add_logic
 import cart_jobs
 import catalog_cache
 import catalog_crawler
+import consumables
 import godomall_bot
 import patch_notes
 import popularity
@@ -122,6 +123,8 @@ product_ranking.init_table(product_ranking.BEVERAGE)
 product_ranking.init_table(product_ranking.SNACK)
 product_ranking.init_price_tracking_tables()
 biz_tools.init_table()
+consumables.init_table()
+product_ranking.init_custom_catalog_table()
 patch_notes.init_patch_notes_table()
 web_cart.init_web_cart_table()
 cart_jobs.init_cart_jobs_table()
@@ -1053,6 +1056,68 @@ def admin_api_biz_tools_update(tool_id: int, req: BizToolRequest, _: bool = Depe
 @app.delete("/admin/api/biz-tools/{tool_id}")
 def admin_api_biz_tools_delete(tool_id: int, _: bool = Depends(require_admin)):
     ok = biz_tools.delete_tool(tool_id)
+    return {"ok": ok}
+
+
+@app.get("/admin/consumables", response_class=HTMLResponse)
+def admin_consumables_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("consumable_admin.html", {"request": request})
+
+
+@app.get("/admin/api/consumables")
+def admin_api_consumables_list(_: bool = Depends(require_admin)):
+    return {"ok": True, "items": consumables.list_items()}
+
+
+class ConsumableRequest(BaseModel):
+    item_name: str = Field(..., min_length=1)
+    image_url: str = ""
+    product_url: str = Field(..., min_length=1)
+
+
+@app.post("/admin/api/consumables")
+def admin_api_consumables_create(req: ConsumableRequest, _: bool = Depends(require_admin)):
+    new_id = consumables.add_item(req.item_name, req.image_url, req.product_url)
+    return {"ok": True, "id": new_id}
+
+
+@app.put("/admin/api/consumables/{item_id}")
+def admin_api_consumables_update(item_id: int, req: ConsumableRequest, _: bool = Depends(require_admin)):
+    ok = consumables.update_item(item_id, req.item_name, req.image_url, req.product_url)
+    return {"ok": ok}
+
+
+@app.delete("/admin/api/consumables/{item_id}")
+def admin_api_consumables_delete(item_id: int, _: bool = Depends(require_admin)):
+    ok = consumables.delete_item(item_id)
+    return {"ok": ok}
+
+
+@app.get("/admin/barcode-catalog", response_class=HTMLResponse)
+def admin_barcode_catalog_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("barcode_admin.html", {"request": request})
+
+
+@app.get("/admin/api/barcode-catalog")
+def admin_api_barcode_catalog_list(_: bool = Depends(require_admin)):
+    return {"ok": True, "items": product_ranking.list_custom_catalog_items()}
+
+
+class BarcodeCatalogRequest(BaseModel):
+    barcode: str = Field(..., min_length=1)
+    menu_name: str = Field(..., min_length=1)
+    recommended_price: int | None = None
+
+
+@app.post("/admin/api/barcode-catalog")
+def admin_api_barcode_catalog_create(req: BarcodeCatalogRequest, _: bool = Depends(require_admin)):
+    product_ranking.add_custom_catalog_item(req.barcode, req.menu_name, req.recommended_price)
+    return {"ok": True}
+
+
+@app.delete("/admin/api/barcode-catalog/{barcode}")
+def admin_api_barcode_catalog_delete(barcode: str, _: bool = Depends(require_admin)):
+    ok = product_ranking.delete_custom_catalog_item(barcode)
     return {"ok": ok}
 
 
