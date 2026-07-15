@@ -15,6 +15,7 @@ class CoupangCatalogItem:
     icecream_box_qty: int = 1
     category: str = ""
     menu_code: str = ""
+    recommended_price: int = 0
 
 
 def _safe_str(v) -> str:
@@ -86,6 +87,7 @@ def load_coupang_catalog_xlsx(path: str) -> dict:
             icecream_box_qty=_safe_int(row.get("icecream_box_qty"), 0),
             category=_safe_str(row.get("category")),
             menu_code=_safe_str(row.get("menu_code")),
+            recommended_price=_safe_int(row.get("recommended_price"), 0),
         )
 
     return catalog

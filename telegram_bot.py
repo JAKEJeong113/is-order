@@ -56,6 +56,9 @@ ACCOUNT_STATUS_TRIGGER_WORDS = {"계정현황", "계정목록", "계정확인"}
 # 발주(도매처 가격비교)와는 별개로, 음료/과자 추천 카드에 등록해둔 쿠팡 링크를
 # 바로 찾아주는 명령 - "이 상품 쿠팡 링크 좀" 같은 요청에 대응한다.
 PRODUCT_LINK_TRIGGER_WORDS = {"구매링크", "쿠팡링크", "상품검색", "쿠팡검색"}
+# 카탈로그 원본(바코드/추천판매가)을 조회하는 명령 - 위 구매링크(추천 카드에
+# 등록된 쿠팡 링크)와는 별개로, 대표님이 관리하는 전체 상품 마스터 데이터를 찾는다.
+BARCODE_TRIGGER_WORDS = {"바코드", "바코드검색", "바코드조회"}
 HELP_WORDS = {"도움말", "명령어", "help", "도움", "명령"}
 
 # 웹 장바구니(/cart)와 공유(vendors.py가 단일 소스).
@@ -94,6 +97,10 @@ HELP_TEXT = """사용 가능한 명령어입니다:
 
 [구매링크 (상품명)]
 음료/과자 추천에 등록된 상품의 쿠팡 구매 링크를 찾아드려요. 예: 구매링크 스프라이트
+
+[바코드]
+전체 상품 카탈로그에서 제품명이나 바코드로 찾아 추천판매가를 알려드려요.
+'바코드'라고 보내면 제품명이나 바코드를 물어봐요.
 
 [주거래처 설정 (도매처명)]
 가격이 같을 때 우선으로 담을 도매처를 지정합니다. 예: 주거래처 설정 야미몰
@@ -230,6 +237,28 @@ def _format_product_search_results(keyword: str, results: list[dict]) -> str:
         price_text = f"{r['price']:,}원" if r.get("price") else "가격 확인 필요"
         lines.append(f"• {r['item_name']} ({price_text})\n{r['partners_link']}")
     return "\n\n".join(lines)
+
+
+def _format_barcode_results(results: list[dict]) -> str:
+    lines = []
+    for r in results:
+        price_text = f"{r['recommended_price']:,}원" if r.get("recommended_price") else "가격 정보 없음"
+        lines.append(f"제품명: {r['menu_name']}\n바코드: {r['barcode']}\n추천판매가: {price_text}")
+    return "\n\n".join(lines)
+
+
+def _handle_barcode_lookup_reply(chat_id: str, text: str) -> None:
+    telegram_store.set_disambig_state(chat_id, None)
+    query = text.strip()
+    if query.lower() in CANCEL_WORDS:
+        send_message(chat_id, "바코드 조회를 취소했습니다.")
+        return
+
+    results = product_ranking.search_catalog(query)
+    if not results:
+        send_message(chat_id, f"'{query}'에 해당하는 상품을 찾지 못했어요.")
+        return
+    send_message(chat_id, _format_barcode_results(results))
 
 
 def _store_prefs(chat_id: str) -> tuple[set, str | None]:
@@ -825,6 +854,8 @@ def handle_update(update: dict) -> None:
             _handle_account_choice_reply(chat_id, disambig_state, text)
         elif mode == "account_delete":
             _handle_account_delete_reply(chat_id, disambig_state, text)
+        elif mode == "barcode_lookup":
+            _handle_barcode_lookup_reply(chat_id, text)
         else:
             _handle_disambiguation_reply(chat_id, disambig_state, text)
         return
@@ -867,6 +898,12 @@ def handle_update(update: dict) -> None:
 
     if text.strip() in ACCOUNT_STATUS_TRIGGER_WORDS:
         send_message(chat_id, _format_account_status(store_name))
+        return
+
+    if text.strip() in BARCODE_TRIGGER_WORDS:
+        state = {"mode": "barcode_lookup", "current": True}
+        telegram_store.set_disambig_state(chat_id, state)
+        send_message(chat_id, "제품명이나 바코드를 입력해주세요.")
         return
 
     is_link_trigger, link_keyword = _match_product_link_trigger(text)

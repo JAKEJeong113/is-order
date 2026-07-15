@@ -367,6 +367,40 @@ def search_products(keyword: str, limit: int = 5) -> list[dict]:
     return results[:limit]
 
 
+def search_catalog(query: str, limit: int = 5) -> list[dict]:
+    """전체 상품 카탈로그 원본 엑셀(바코드/추천판매가 등 마스터 데이터, 음료·과자·
+    아이스크림 등 카테고리 구분 없이 전부)에서 바코드 또는 상품명으로 찾는다.
+    텔레그램 "바코드" 명령에서 쓴다 - 도매처 발주용 가격비교(price_compare)나
+    고객용 추천 카드(음료/과자 캐시 테이블)와는 완전히 별개로, 카탈로그 자체의
+    바코드/추천판매가를 그대로 조회한다."""
+    query = query.strip()
+    if not query:
+        return []
+
+    try:
+        catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
+    except Exception as e:
+        print("[PRODUCT_RANKING] 카탈로그 로드 실패:", e)
+        return []
+
+    query_lower = query.lower()
+    matched = [
+        entry for entry in catalog.values()
+        if query in entry.barcode
+        or query_lower in (entry.menu_name or "").lower()
+        or query_lower in (entry.search_keyword or "").lower()
+    ]
+
+    # 바코드가 정확히 일치하는 게 있으면 그것만(가장 명확한 케이스, 다른 상품과 안 섞이게)
+    exact = [e for e in matched if e.barcode == query]
+    chosen = exact or matched
+
+    return [
+        {"barcode": e.barcode, "menu_name": e.menu_name, "recommended_price": e.recommended_price}
+        for e in chosen[:limit]
+    ]
+
+
 def delete_product(pt: ProductType, item_key: str) -> bool:
     """추천 목록(고객용 페이지)과 관리 페이지 양쪽에서 영구적으로 제거한다.
     카탈로그(엑셀)에도 있는 상품이면 소프트 삭제(deleted=1)로 표시만 남겨서
