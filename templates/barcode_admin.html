@@ -60,13 +60,19 @@
 <body>
   <h1>바코드 카탈로그 관리 (엑셀 미등록 신상품)</h1>
   <div class="hint-text">
-    카탈로그 원본 엑셀에 아직 없는 상품만 여기 등록하세요. 엑셀에 이미 있는
-    바코드는 검색 시 엑셀 쪽이 우선됩니다. 텔레그램 "바코드추가"(관리자 전용)로도
-    등록할 수 있습니다.
+    새 상품은 "+ 새 바코드 추가"로 등록하세요. 엑셀 원본 카탈로그에 이미 있는
+    상품을 고치려면 아래에서 바코드로 불러온 뒤 값을 수정해 저장하세요(저장한
+    값이 이후 항상 엑셀보다 우선 적용됩니다). 텔레그램 "바코드추가"(관리자
+    전용)로도 등록할 수 있습니다.
   </div>
   <div class="top-row">
     <button class="add-btn" id="addNewBtn">+ 새 바코드 추가</button>
   </div>
+  <div class="top-row">
+    <input type="text" id="lookupInput" placeholder="수정할 바코드 입력" style="flex:1; padding:9px 12px; border:1px solid var(--line); border-radius:8px; font-size:13px;" />
+    <button class="add-btn" id="lookupBtn">기존 상품 불러오기</button>
+  </div>
+  <div id="lookupStatus" class="status-text" style="margin: -10px 0 10px;"></div>
   <div id="list"></div>
 
   <script>
@@ -98,7 +104,7 @@
         : '<span class="badge locked">저장됨</span>';
 
       return `
-        <div class="bev-row ${isNew ? "" : "locked"}" data-barcode="${escapeHtml(it.barcode ?? "")}" data-temp-key="${it._tempKey ?? ""}">
+        <div class="bev-row ${isNew ? "" : "locked"}" data-barcode="${escapeHtml(it.barcode ?? "")}" data-temp-key="${it._tempKey ?? ""}" data-is-preview="${it._isPreview ? "1" : ""}">
           <div class="bev-main">
             <div class="bev-top-row">
               ${badge}
@@ -134,6 +140,34 @@
       render();
     });
 
+    document.getElementById("lookupBtn").addEventListener("click", async () => {
+      const barcode = document.getElementById("lookupInput").value.trim();
+      const statusEl = document.getElementById("lookupStatus");
+      statusEl.classList.remove("error");
+      if (!barcode) {
+        statusEl.textContent = "바코드를 입력해주세요.";
+        statusEl.classList.add("error");
+        return;
+      }
+      statusEl.textContent = "불러오는 중...";
+      try {
+        const res = await fetch(`/admin/api/barcode-catalog/lookup/${encodeURIComponent(barcode)}`);
+        const data = await res.json();
+        if (!data.ok) {
+          statusEl.textContent = data.error || "불러오기 실패";
+          statusEl.classList.add("error");
+          return;
+        }
+        statusEl.textContent = "불러왔습니다. 값을 수정하고 저장하세요.";
+        const tempKey = "preview_" + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random());
+        newItems.unshift({ ...data.item, _tempKey: tempKey, _isPreview: true });
+        render();
+      } catch (err) {
+        statusEl.textContent = "불러오는 중 오류 발생";
+        statusEl.classList.add("error");
+      }
+    });
+
     document.getElementById("list").addEventListener("click", async (e) => {
       const row = e.target.closest(".bev-row");
       if (!row) return;
@@ -142,7 +176,8 @@
       const statusEl = row.querySelector(".row-actions .status-text");
 
       if (e.target.classList.contains("delete-btn")) {
-        if (!barcode) {
+        const isPreview = row.dataset.isPreview === "1";
+        if (!barcode || isPreview) {
           newItems = newItems.filter((it) => it._tempKey !== tempKey);
           render();
           return;

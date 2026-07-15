@@ -195,6 +195,35 @@ def list_custom_catalog_items() -> list[dict]:
     return [{"barcode": r[0], "menu_name": r[1], "recommended_price": r[2]} for r in rows]
 
 
+def lookup_catalog_item(barcode: str) -> dict | None:
+    """관리자 페이지에서 바코드 하나의 현재 값을 불러올 때 쓴다(수정 폼에
+    미리 채워 넣기 위함) - 이미 덮어쓴 값이 있으면 그걸, 없으면 엑셀 원본
+    값을 돌려준다."""
+    barcode = barcode.strip()
+    if not barcode:
+        return None
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT barcode, menu_name, recommended_price FROM custom_catalog_items WHERE barcode = ?",
+        (barcode,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if row:
+        return {"barcode": row[0], "menu_name": row[1], "recommended_price": row[2]}
+
+    try:
+        catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
+    except Exception:
+        return None
+    entry = catalog.get(barcode)
+    if not entry:
+        return None
+    return {"barcode": entry.barcode, "menu_name": entry.menu_name, "recommended_price": entry.recommended_price}
+
+
 def delete_custom_catalog_item(barcode: str) -> bool:
     conn = get_conn()
     cur = conn.cursor()
@@ -420,11 +449,15 @@ def search_products(keyword: str, limit: int = 5) -> list[dict]:
 
 
 def search_catalog(query: str, limit: int = 5) -> list[dict]:
-    """전체 상품 카탈로그(원본 엑셀 + custom_catalog_items에 직접 등록해둔
-    신상품)에서 바코드 또는 상품명으로 찾는다. 텔레그램 "바코드" 명령에서
-    쓴다 - 도매처 발주용 가격비교(price_compare)나 고객용 추천 카드(음료/과자
-    캐시 테이블)와는 완전히 별개로, 카탈로그 자체의 바코드/추천판매가를
-    그대로 조회한다."""
+    """전체 상품 카탈로그(원본 엑셀 + custom_catalog_items)에서 바코드 또는
+    상품명으로 찾는다. 텔레그램 "바코드" 명령에서 쓴다 - 도매처 발주용
+    가격비교(price_compare)나 고객용 추천 카드(음료/과자 캐시 테이블)와는
+    완전히 별개로, 카탈로그 자체의 바코드/추천판매가를 그대로 조회한다.
+
+    custom_catalog_items는 두 가지 역할을 겸한다: (1) 엑셀에 아직 없는
+    신상품, (2) 엑셀에 이미 있지만 관리자가 값을 고친 항목(덮어쓰기) - 같은
+    바코드면 항상 이쪽이 우선이다(엑셀은 배포에 묶여 있어 즉시 수정이 안 되므로,
+    가격 인상 등 개별 수정은 여기로 반영한다)."""
     query = query.strip()
     if not query:
         return []
@@ -435,22 +468,26 @@ def search_catalog(query: str, limit: int = 5) -> list[dict]:
         print("[PRODUCT_RANKING] 카탈로그 로드 실패:", e)
         catalog = {}
 
+    overrides = {item["barcode"]: item for item in list_custom_catalog_items()}
     query_lower = query.lower()
-    matched = [
-        {"barcode": e.barcode, "menu_name": e.menu_name, "recommended_price": e.recommended_price}
-        for e in catalog.values()
-        if query in e.barcode
-        or query_lower in (e.menu_name or "").lower()
-        or query_lower in (e.search_keyword or "").lower()
-    ]
 
-    # custom_catalog_items(엑셀에 아직 없는 신상품, "바코드추가"/관리자 페이지로
-    # 등록)도 같이 찾는다 - 엑셀에 이미 있는 바코드는 마스터 데이터가 우선이라
-    # 건너뛴다(같은 상품이 두 번 나오거나 정보가 충돌하는 걸 방지).
-    for item in list_custom_catalog_items():
-        if item["barcode"] in catalog:
+    matched = []
+    for e in catalog.values():
+        if not (
+            query in e.barcode
+            or query_lower in (e.menu_name or "").lower()
+            or query_lower in (e.search_keyword or "").lower()
+        ):
             continue
-        if query in item["barcode"] or query_lower in (item["menu_name"] or "").lower():
+        override = overrides.get(e.barcode)
+        matched.append(override if override else
+                       {"barcode": e.barcode, "menu_name": e.menu_name, "recommended_price": e.recommended_price})
+
+    # 엑셀에 아예 없는 순수 신상품도 찾는다.
+    for barcode, item in overrides.items():
+        if barcode in catalog:
+            continue
+        if query in barcode or query_lower in (item["menu_name"] or "").lower():
             matched.append(item)
 
     # 바코드가 정확히 일치하는 게 있으면 그것만(가장 명확한 케이스, 다른 상품과 안 섞이게)
