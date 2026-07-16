@@ -65,6 +65,20 @@ a{text-decoration:none;color:inherit}
   box-shadow:0 10px 24px rgba(47,197,179,.25);
 }
 .nav-dropdown{position:relative}
+.nav-toggle{
+  display:none;
+  width:42px;
+  height:42px;
+  align-items:center;
+  justify-content:center;
+  border-radius:10px;
+  border:1px solid var(--line);
+  background:white;
+  font-size:20px;
+  cursor:pointer;
+  color:var(--dark);
+  flex-shrink:0;
+}
 .dropdown-menu{
   position:absolute;
   top:100%;
@@ -359,9 +373,34 @@ section{padding:80px 0}
 }
 
 @media(max-width:900px){
-  .nav-inner{height:auto;padding:12px 0;align-items:flex-start;flex-direction:column}
+  .nav-inner{height:auto;padding:12px 0;flex-wrap:wrap}
   .logo img{height:58px}
-  .nav-menu{width:100%;overflow-x:auto;gap:18px;padding-bottom:8px}
+  .nav-toggle{display:flex}
+  .nav-menu{
+    display:none;
+    width:100%;
+    flex-direction:column;
+    align-items:stretch;
+    gap:2px;
+    padding-top:12px;
+  }
+  .nav-menu.open{display:flex}
+  .nav-dropdown{display:block;width:100%}
+  .nav-dropdown > a{display:block;padding:12px 4px}
+  .nav-menu > a:not(.nav-cta){display:block;padding:12px 4px}
+  .nav-menu .nav-cta{width:100%;text-align:center;margin-top:8px}
+  .dropdown-menu{
+    position:static;
+    transform:none;
+    box-shadow:none;
+    border:none;
+    border-radius:0;
+    padding:0 0 8px 14px;
+    display:none;
+    min-width:0;
+  }
+  .nav-dropdown:hover .dropdown-menu{display:none}
+  .nav-dropdown.open .dropdown-menu{display:block}
   .benefit-grid,
   .advantage-grid,
   .advantage-points{
@@ -392,7 +431,9 @@ section{padding:80px 0}
       <img src="./images/logo-header.png" alt="i'S CREAM 로고">
     </a>
 
-    <nav class="nav-menu">
+    <button class="nav-toggle" id="navToggle" type="button" aria-label="메뉴 열기" aria-expanded="false">☰</button>
+
+    <nav class="nav-menu" id="navMenu">
       <div class="nav-dropdown">
         <a href="./brand.html">브랜드소개 ▾</a>
         <div class="dropdown-menu">
@@ -577,5 +618,45 @@ section{padding:80px 0}
 
 </section>
 
+<script>
+(function(){
+  var toggle = document.getElementById("navToggle");
+  var menu = document.getElementById("navMenu");
+  if(!toggle || !menu) return;
+
+  function isMobileNav(){
+    return window.matchMedia("(max-width:900px)").matches;
+  }
+
+  toggle.addEventListener("click", function(){
+    var open = menu.classList.toggle("open");
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+
+  menu.querySelectorAll(".nav-dropdown > a").forEach(function(link){
+    link.addEventListener("click", function(e){
+      if(!isMobileNav()) return;
+      e.preventDefault();
+      link.parentElement.classList.toggle("open");
+    });
+  });
+
+  menu.querySelectorAll(".nav-menu > a").forEach(function(link){
+    link.addEventListener("click", function(){
+      if(!isMobileNav()) return;
+      menu.classList.remove("open");
+      toggle.setAttribute("aria-expanded", "false");
+    });
+  });
+
+  menu.querySelectorAll(".dropdown-menu a").forEach(function(link){
+    link.addEventListener("click", function(){
+      if(!isMobileNav()) return;
+      menu.classList.remove("open");
+      toggle.setAttribute("aria-expanded", "false");
+    });
+  });
+})();
+</script>
 </body>
 </html>

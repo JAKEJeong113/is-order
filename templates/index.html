@@ -75,6 +75,21 @@
       align-items:center;
     }
 
+    .nav-toggle{
+      display:none;
+      width:42px;
+      height:42px;
+      align-items:center;
+      justify-content:center;
+      border-radius:10px;
+      border:1px solid var(--line);
+      background:white;
+      font-size:20px;
+      cursor:pointer;
+      color:var(--ink);
+      flex-shrink:0;
+    }
+
     .dropdown-menu{
       position:absolute;
       top:100%;
@@ -431,9 +446,34 @@
     }
 
     @media(max-width:900px){
-      .nav-inner{height:auto;padding:12px 0;align-items:flex-start;flex-direction:column}
+      .nav-inner{height:auto;padding:12px 0;flex-wrap:wrap}
       .logo img{height:58px}
-      .nav-menu{width:100%;overflow-x:auto;gap:18px;padding-bottom:8px}
+      .nav-toggle{display:flex}
+      .nav-menu{
+        display:none;
+        width:100%;
+        flex-direction:column;
+        align-items:stretch;
+        gap:2px;
+        padding-top:12px;
+      }
+      .nav-menu.open{display:flex}
+      .nav-dropdown{display:block;width:100%}
+      .nav-dropdown > a{display:block;padding:12px 4px}
+      .nav-menu > a:not(.nav-cta){display:block;padding:12px 4px}
+      .nav-menu .nav-cta{width:100%;text-align:center;margin-top:8px}
+      .dropdown-menu{
+        position:static;
+        transform:none;
+        box-shadow:none;
+        border:none;
+        border-radius:0;
+        padding:0 0 8px 14px;
+        display:none;
+        min-width:0;
+      }
+      .nav-dropdown:hover .dropdown-menu{display:none}
+      .nav-dropdown.open .dropdown-menu{display:block}
       .hero-grid,.split,.order-card,.contact-band,.footer-grid{grid-template-columns:1fr}
       .ice-visual{min-height:300px}
       .process{grid-template-columns:1fr}
@@ -574,7 +614,9 @@
         <img src="./images/logo-header.png" alt="i'S CREAM 로고">
       </a>
 
-      <nav class="nav-menu" aria-label="상단 메뉴">
+      <button class="nav-toggle" id="navToggle" type="button" aria-label="메뉴 열기" aria-expanded="false">☰</button>
+
+      <nav class="nav-menu" id="navMenu" aria-label="상단 메뉴">
         <div class="nav-dropdown">
           <a href="./brand.html">브랜드소개 ▾</a>
           <div class="dropdown-menu">
@@ -761,27 +803,27 @@
 
         <div class="process">
           <div class="step">
-            <div class="step-icon"><img src="./images/process-consult.png"></div>
+            <div class="step-icon">📞</div>
             <b>1. 상담 신청</b>
             <span>온라인 또는 전화로 상담을 신청합니다.</span>
           </div>
           <div class="step">
-            <div class="step-icon"><img src="./images/process-analysis.png"></div>
+            <div class="step-icon">🔍</div>
             <b>2. 상권 분석</b>
             <span>전문가가 상권과 입지를 분석해드립니다.</span>
           </div>
           <div class="step">
-            <div class="step-icon"><img src="./images/process-contract.png"></div>
+            <div class="step-icon">🤝</div>
             <b>3. 계약 체결</b>
             <span>상호 협의 후 계약을 체결합니다.</span>
           </div>
           <div class="step">
-            <div class="step-icon"><img src="./images/process-training.png"></div>
+            <div class="step-icon">🎓</div>
             <b>4. 교육 진행</b>
             <span>체계적인 교육으로 운영 노하우를 전수합니다.</span>
           </div>
           <div class="step">
-            <div class="step-icon"><img src="./images/process-launch.png"></div>
+            <div class="step-icon">🏪</div>
             <b>5. 오픈 & 관리</b>
             <span>성공적인 오픈과 지속적인 사후 관리를 지원합니다.</span>
           </div>
@@ -813,7 +855,7 @@
           <h2>i'S CREAM의 강점</h2>
           <div class="strength-grid">
             <div class="strength-item">
-              <div class="strength-icon">🏅</div>
+              <div class="strength-icon">✅</div>
               <div><b>검증된 브랜드</b><span>높은 고객 만족도와 신뢰도</span></div>
             </div>
             <div class="strength-item">
@@ -825,7 +867,7 @@
               <div><b>높은 수익성</b><span>효율적인 운영으로 안정적인 수익</span></div>
             </div>
             <div class="strength-item">
-              <div class="strength-icon">🎧</div>
+              <div class="strength-icon">🛠️</div>
               <div><b>체계적인 지원</b><span>창업부터 운영까지 전문 지원</span></div>
             </div>
           </div>
@@ -925,6 +967,45 @@
   </footer>
 
   <script>
+  (function(){
+    var toggle = document.getElementById("navToggle");
+    var menu = document.getElementById("navMenu");
+    if(!toggle || !menu) return;
+
+    function isMobileNav(){
+      return window.matchMedia("(max-width:900px)").matches;
+    }
+
+    toggle.addEventListener("click", function(){
+      var open = menu.classList.toggle("open");
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+
+    menu.querySelectorAll(".nav-dropdown > a").forEach(function(link){
+      link.addEventListener("click", function(e){
+        if(!isMobileNav()) return;
+        e.preventDefault();
+        link.parentElement.classList.toggle("open");
+      });
+    });
+
+    menu.querySelectorAll(".nav-menu > a").forEach(function(link){
+      link.addEventListener("click", function(){
+        if(!isMobileNav()) return;
+        menu.classList.remove("open");
+        toggle.setAttribute("aria-expanded", "false");
+      });
+    });
+
+    menu.querySelectorAll(".dropdown-menu a").forEach(function(link){
+      link.addEventListener("click", function(){
+        if(!isMobileNav()) return;
+        menu.classList.remove("open");
+        toggle.setAttribute("aria-expanded", "false");
+      });
+    });
+  })();
+
   function moveTools(direction){
     const row = document.getElementById("toolRow");
     const card = row.querySelector(".tool-card");
