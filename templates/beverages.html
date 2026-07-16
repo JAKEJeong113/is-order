@@ -17,6 +17,7 @@
     .app-main { padding-bottom: 80px; }
     h1 { font-size: 20px; margin: 0 0 6px; }
     .sub-note { font-size: 12px; color: var(--muted); margin: 0 0 16px; }
+    .partners-disclosure { font-size: 11px; color: var(--muted); background: var(--mint-soft); border-radius: 8px; padding: 8px 12px; margin: 0 0 14px; }
     .bev-grid {
       display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
       gap: 14px;
@@ -90,6 +91,7 @@
 <body>
   {% include "_sidebar.html" %}
   <h1>음료 추천</h1>
+  <div class="partners-disclosure">*본 링크를 통하여 구매를 진행하실 경우 쿠팡 파트너스 활동의 일환으로 그에 따른 일정액의 수수료를 제공받습니다.</div>
   <div class="sub-note" id="refreshedNote">선택 많이 받은 순 · 매일 자동 갱신</div>
   <div class="search-row"><input type="text" id="searchInput" placeholder="음료 이름으로 검색..." /></div>
   <div class="filter-row" id="filterRow"></div>

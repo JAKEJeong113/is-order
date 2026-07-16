@@ -111,6 +111,10 @@ HELP_TEXT = """사용 가능한 명령어입니다:
 전체 상품 카탈로그에서 제품명이나 바코드로 찾아 추천판매가를 알려드려요.
 '바코드'라고 보내면 제품명이나 바코드를 물어봐요.
 
+[바코드추가 / 바코드수정] (관리자만 사용 가능)
+새 상품을 바코드로 등록하거나, 기존 상품의 제품명·추천판매가를 수정합니다.
+순서대로 바코드 → 제품명 → 추천판매가를 물어봐요.
+
 [꿀템추천]
 등록된 영업 꿀템 상품명과 구매 링크를 바로 보여드려요.
 
@@ -247,7 +251,10 @@ def _match_product_link_trigger(text: str) -> tuple[bool, str | None]:
 
 
 def _format_product_search_results(keyword: str, results: list[dict]) -> str:
-    lines = [f"'{keyword}' 검색 결과:\n"]
+    lines = [
+        "*본 링크를 통하여 구매를 진행하실 경우 쿠팡 파트너스 활동의 일환으로 그에 따른 일정액의 수수료를 제공받습니다.\n",
+        f"'{keyword}' 검색 결과:\n",
+    ]
     for r in results:
         price_text = f"{r['price']:,}원" if r.get("price") else "가격 확인 필요"
         lines.append(f"• {r['item_name']} ({price_text})\n{r['partners_link']}")
@@ -437,6 +444,7 @@ def _format_disambig_prompt(keyword: str, groups: list[dict]) -> str:
         lines.append(f"\n(그 외 {len(groups) - len(shown)}개 더 있어요. 상품명을 더 구체적으로 적어주시면 좁혀져요.)")
     lines.append("\n여러 개를 담으려면 쉼표로 구분해서 답장해주세요. (예: 2,4)")
     lines.append("해당하는 상품이 없으면 '스킵'이라고 답장해주세요.")
+    lines.append("전체를 취소하려면 '취소'라고 답장해주세요.")
     return "\n".join(lines)
 
 
@@ -524,6 +532,7 @@ def _format_stockout_prompt(entry: dict) -> str:
         price_text = f"{o['price']:,}원" if o.get("price") else "가격 확인 필요"
         lines.append(f"{i}. {o['vendor_name']} {price_text}")
     lines.append("\n담지 않으려면 '스킵'이라고 답장해주세요.")
+    lines.append("전체를 취소하려면 '취소'라고 답장해주세요.")
     return "\n".join(lines)
 
 
@@ -580,6 +589,7 @@ def _format_account_choice_prompt(store_id: str, vendor_id: str) -> str:
     for i, acc in enumerate(accounts, start=1):
         tag = " (기본)" if acc["is_default"] else ""
         lines.append(f"{i}. {acc['nickname']}{tag}")
+    lines.append("\n취소하려면 '취소'라고 답장해주세요.")
     return "\n".join(lines)
 
 
@@ -982,7 +992,7 @@ def handle_update(update: dict) -> None:
     if text.strip() in BARCODE_TRIGGER_WORDS:
         state = {"mode": "barcode_lookup", "current": True}
         telegram_store.set_disambig_state(chat_id, state)
-        send_message(chat_id, "제품명이나 바코드를 입력해주세요.")
+        send_message(chat_id, "제품명이나 바코드를 입력해주세요.\n(취소하려면 '취소')")
         return
 
     if text.strip() in BARCODE_ADD_TRIGGER_WORDS:
