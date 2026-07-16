@@ -61,15 +61,16 @@
   <h1>바코드 카탈로그 관리 (엑셀 미등록 신상품)</h1>
   <div class="hint-text">
     새 상품은 "+ 새 바코드 추가"로 등록하세요. 엑셀 원본 카탈로그에 이미 있는
-    상품을 고치려면 아래에서 바코드로 불러온 뒤 값을 수정해 저장하세요(저장한
-    값이 이후 항상 엑셀보다 우선 적용됩니다). 텔레그램 "바코드추가"(관리자
-    전용)로도 등록할 수 있습니다.
+    상품을 고치려면 아래에서 제품명이나 바코드로 검색한 뒤 값을 수정해
+    저장하세요(저장한 값이 이후 항상 엑셀보다 우선 적용됩니다). 한 번에 여러
+    개가 검색되면 전부 불러와서 나눠서 고칠 수 있습니다. 텔레그램
+    "바코드추가"(관리자 전용)로도 등록할 수 있습니다.
   </div>
   <div class="top-row">
     <button class="add-btn" id="addNewBtn">+ 새 바코드 추가</button>
   </div>
   <div class="top-row">
-    <input type="text" id="lookupInput" placeholder="수정할 바코드 입력" style="flex:1; padding:9px 12px; border:1px solid var(--line); border-radius:8px; font-size:13px;" />
+    <input type="text" id="lookupInput" placeholder="제품명 또는 바코드로 검색" style="flex:1; padding:9px 12px; border:1px solid var(--line); border-radius:8px; font-size:13px;" />
     <button class="add-btn" id="lookupBtn">기존 상품 불러오기</button>
   </div>
   <div id="lookupStatus" class="status-text" style="margin: -10px 0 10px;"></div>
@@ -141,29 +142,31 @@
     });
 
     document.getElementById("lookupBtn").addEventListener("click", async () => {
-      const barcode = document.getElementById("lookupInput").value.trim();
+      const query = document.getElementById("lookupInput").value.trim();
       const statusEl = document.getElementById("lookupStatus");
       statusEl.classList.remove("error");
-      if (!barcode) {
-        statusEl.textContent = "바코드를 입력해주세요.";
+      if (!query) {
+        statusEl.textContent = "제품명이나 바코드를 입력해주세요.";
         statusEl.classList.add("error");
         return;
       }
-      statusEl.textContent = "불러오는 중...";
+      statusEl.textContent = "검색 중...";
       try {
-        const res = await fetch(`/admin/api/barcode-catalog/lookup/${encodeURIComponent(barcode)}`);
+        const res = await fetch(`/admin/api/barcode-catalog/search?q=${encodeURIComponent(query)}`);
         const data = await res.json();
-        if (!data.ok) {
-          statusEl.textContent = data.error || "불러오기 실패";
+        if (!data.ok || !data.items || data.items.length === 0) {
+          statusEl.textContent = "해당하는 상품을 찾지 못했습니다.";
           statusEl.classList.add("error");
           return;
         }
-        statusEl.textContent = "불러왔습니다. 값을 수정하고 저장하세요.";
-        const tempKey = "preview_" + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random());
-        newItems.unshift({ ...data.item, _tempKey: tempKey, _isPreview: true });
+        statusEl.textContent = `${data.items.length}개 불러왔습니다. 값을 수정하고 저장하세요.`;
+        data.items.forEach((item) => {
+          const tempKey = "preview_" + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random());
+          newItems.unshift({ ...item, _tempKey: tempKey, _isPreview: true });
+        });
         render();
       } catch (err) {
-        statusEl.textContent = "불러오는 중 오류 발생";
+        statusEl.textContent = "검색 중 오류 발생";
         statusEl.classList.add("error");
       }
     });

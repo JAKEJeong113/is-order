@@ -195,35 +195,6 @@ def list_custom_catalog_items() -> list[dict]:
     return [{"barcode": r[0], "menu_name": r[1], "recommended_price": r[2]} for r in rows]
 
 
-def lookup_catalog_item(barcode: str) -> dict | None:
-    """관리자 페이지에서 바코드 하나의 현재 값을 불러올 때 쓴다(수정 폼에
-    미리 채워 넣기 위함) - 이미 덮어쓴 값이 있으면 그걸, 없으면 엑셀 원본
-    값을 돌려준다."""
-    barcode = barcode.strip()
-    if not barcode:
-        return None
-
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT barcode, menu_name, recommended_price FROM custom_catalog_items WHERE barcode = ?",
-        (barcode,),
-    )
-    row = cur.fetchone()
-    conn.close()
-    if row:
-        return {"barcode": row[0], "menu_name": row[1], "recommended_price": row[2]}
-
-    try:
-        catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
-    except Exception:
-        return None
-    entry = catalog.get(barcode)
-    if not entry:
-        return None
-    return {"barcode": entry.barcode, "menu_name": entry.menu_name, "recommended_price": entry.recommended_price}
-
-
 def delete_custom_catalog_item(barcode: str) -> bool:
     conn = get_conn()
     cur = conn.cursor()

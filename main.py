@@ -1103,14 +1103,14 @@ def admin_api_barcode_catalog_list(_: bool = Depends(require_admin)):
     return {"ok": True, "items": product_ranking.list_custom_catalog_items()}
 
 
-@app.get("/admin/api/barcode-catalog/lookup/{barcode}")
-def admin_api_barcode_catalog_lookup(barcode: str, _: bool = Depends(require_admin)):
-    """엑셀 카탈로그에 이미 있는 상품을 수정 폼에 불러올 때 쓴다(현재 값을
-    미리 채워 넣기 위함) - 이미 덮어쓴 값이 있으면 그걸, 없으면 엑셀 원본을 준다."""
-    item = product_ranking.lookup_catalog_item(barcode)
-    if not item:
-        return {"ok": False, "error": "해당 바코드를 찾을 수 없습니다."}
-    return {"ok": True, "item": item}
+@app.get("/admin/api/barcode-catalog/search")
+def admin_api_barcode_catalog_search(q: str = Query(..., min_length=1), _: bool = Depends(require_admin)):
+    """엑셀 카탈로그에 이미 있는 상품을 바코드 또는 제품명으로 찾아 수정 폼에
+    불러올 때 쓴다(현재 값을 미리 채워 넣기 위함) - search_catalog()와 동일
+    로직(이미 덮어쓴 값이 있으면 그걸, 없으면 엑셀 원본을 준다)이지만 관리자가
+    여러 개를 한 번에 훑어볼 수 있게 더 넉넉히 돌려준다."""
+    items = product_ranking.search_catalog(q, limit=20)
+    return {"ok": True, "items": items}
 
 
 class BarcodeCatalogRequest(BaseModel):
