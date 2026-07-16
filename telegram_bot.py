@@ -339,7 +339,10 @@ def _handle_barcode_add_reply(chat_id: str, state: dict, text: str) -> None:
 def _format_link_list(title: str, items: list[dict]) -> str:
     if not items:
         return f"등록된 {title}이(가) 없습니다."
-    lines = [f"{title}:\n"]
+    lines = [
+        "*본 링크를 통하여 구매를 진행하실 경우 쿠팡 파트너스 활동의 일환으로 그에 따른 일정액의 수수료를 제공받습니다.\n",
+        f"{title}:\n",
+    ]
     for it in items:
         lines.append(f"• {it['item_name']}\n{it['product_url']}")
     return "\n\n".join(lines)
