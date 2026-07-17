@@ -172,28 +172,16 @@ scheduler.add_job(
 # 넘으므로, 15개씩 30분 간격으로 나눠 돈다 - 시간당 30건(실측 한도 약
 # 90건/시간 대비 3배 여유), 전체 카탈로그 한 바퀴 도는 데 약 8시간이라
 # 하루 2~3회 자연스럽게 갱신된다.
-scheduler.add_job(
-    functools.partial(product_ranking.snapshot_prices, product_ranking.BEVERAGE, limit=15),
-    trigger=IntervalTrigger(minutes=30),
-    id="price_snapshot_beverage",
-    replace_existing=True,
-)
-scheduler.add_job(
-    functools.partial(product_ranking.snapshot_prices, product_ranking.SNACK, limit=15),
-    trigger=IntervalTrigger(minutes=30),
-    id="price_snapshot_snack",
-    replace_existing=True,
-)
-
-
-def _send_price_alert_digest() -> None:
-    """밤새/낮 동안 쌓인 신규 최저가를 하루 한 번 묶어서 대표님 개인
-    텔레그램으로만 보낸다(전체 가맹점 발송 여부는 대표님이 직접 결정 -
-    telegram_bot.py의 관리자 응답 처리에서 "전체발송"/"생략"으로 확정)."""
+#
+# 쿠팡 가격은 실시간으로 바뀌기 때문에, 신규 최저가는 하루치를 모았다가
+# 한 번에 보내는 게 아니라 스캔 주기(30분)마다 감지 즉시 대표님 개인
+# 텔레그램으로 보낸다(전체 가맹점 발송 여부는 대표님이 직접 결정 -
+# telegram_bot.py의 관리자 응답 처리에서 "전체발송"/"생략"으로 확정).
+def _notify_price_alerts() -> None:
     alerts = product_ranking.list_notifiable_alerts()
     if not alerts or not telegram_bot.ADMIN_CHAT_ID:
         return
-    lines = ["🎉 오늘의 신규 최저가\n"]
+    lines = ["🎉 신규 최저가 감지!\n"]
     for a in alerts:
         old_low_text = f"{a['old_low']:,}원 → " if a["old_low"] else ""
         lines.append(f"• {a['item_name']} {old_low_text}{a['new_price']:,}원")
@@ -202,10 +190,25 @@ def _send_price_alert_digest() -> None:
     product_ranking.mark_alerts_notified([a["id"] for a in alerts])
 
 
+def _run_price_snapshot_and_notify(pt: product_ranking.ProductType) -> None:
+    try:
+        product_ranking.snapshot_prices(pt, limit=15)
+        _notify_price_alerts()
+    except Exception as e:
+        telegram_bot.alert_admin(f"가격 스냅샷/알림 작업 실패 ({pt.table_name}): {e}")
+        raise
+
+
 scheduler.add_job(
-    _send_price_alert_digest,
-    trigger=CronTrigger(hour=9, minute=0, timezone=KST),
-    id="daily_price_alert_digest",
+    functools.partial(_run_price_snapshot_and_notify, product_ranking.BEVERAGE),
+    trigger=IntervalTrigger(minutes=30),
+    id="price_snapshot_beverage",
+    replace_existing=True,
+)
+scheduler.add_job(
+    functools.partial(_run_price_snapshot_and_notify, product_ranking.SNACK),
+    trigger=IntervalTrigger(minutes=30),
+    id="price_snapshot_snack",
     replace_existing=True,
 )
 
