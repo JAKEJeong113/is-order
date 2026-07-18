@@ -311,8 +311,6 @@ def create_partners_link_from_search_keyword(keyword: str) -> str:
 
 
 class OrderQueenImportRequest(BaseModel):
-    login_id: str
-    login_pw: str
     period_from: date
     period_to: date
     safety_stock: int = Field(0, ge=0, le=9999, description="전 품목 공통 안전재고")
@@ -329,13 +327,22 @@ class OrderQueenImportResponse(BaseModel):
     representative_partner_link: Optional[str] = None
 
 class YamimallCartRequest(BaseModel):
-    username: str
-    password: str
     items: list[dict]
 
 
 @app.post("/api/yamimall/cart")
-def yamimall_cart(req: YamimallCartRequest):
+def yamimall_cart(req: YamimallCartRequest, user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    creds = vendors.get_store_vendor_credentials(store_id, "yamimall")
+    if not creds:
+        return {
+            "ok": False,
+            "message": "야미몰 계정이 등록되어 있지 않습니다. '내 도매처 계정'에서 먼저 등록해주세요.",
+            "success": [],
+            "failed": []
+        }
+    username, password = creds
+
     yamimall_items = [
         item for item in req.items
         if int(item.get("is_coupang", item.get("is_coupang_type", 0)) or 0) == 2
@@ -353,10 +360,10 @@ def yamimall_cart(req: YamimallCartRequest):
     yamimall_items = yamimall_items[:30]
 
     print(f"[YAMIMALL API] test items = {len(yamimall_items)}")
-    
+
     result = add_yamimall_cart(
-        username=req.username,
-        password=req.password,
+        username=username,
+        password=password,
         items=yamimall_items
     )
 
@@ -1522,14 +1529,23 @@ def download_export(job_id: str):
 
 
 @app.post("/import/orderqueen", response_model=OrderQueenImportResponse)
-def import_from_orderqueen(req: OrderQueenImportRequest):
+def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    creds = vendors.get_store_vendor_credentials(store_id, "orderqueen")
+    if not creds:
+        raise HTTPException(
+            status_code=400,
+            detail="오더퀸 계정이 등록되어 있지 않습니다. '내 도매처 계정'에서 먼저 등록해주세요.",
+        )
+    login_id, login_pw = creds
+
     job_id = uuid.uuid4().hex[:8]
     sales_xlsx_path = str(DOWNLOAD_DIR / f"아이즈크림 오산세교_{job_id}.xlsx")
 
     # 1) 주문퀸 다운로드
     download_orderqueen_xlsx(
-        login_id=req.login_id,
-        login_pw=req.login_pw,
+        login_id=login_id,
+        login_pw=login_pw,
         period_from=req.period_from,
         period_to=req.period_to,
         save_path=sales_xlsx_path,
@@ -1554,24 +1570,24 @@ def import_from_orderqueen(req: OrderQueenImportRequest):
     sales_xlsx_path_4w = str(DOWNLOAD_DIR / f"sales_{job_id}_4w.xlsx")
 
     download_orderqueen_xlsx(
-        login_id=req.login_id,
-        login_pw=req.login_pw,
+        login_id=login_id,
+        login_pw=login_pw,
         period_from=period_from_2w,
         period_to=period_to,
         save_path=sales_xlsx_path_2w,
     )
 
     download_orderqueen_xlsx(
-        login_id=req.login_id,
-        login_pw=req.login_pw,
+        login_id=login_id,
+        login_pw=login_pw,
         period_from=period_from_3w,
         period_to=period_to,
         save_path=sales_xlsx_path_3w,
     )
 
     download_orderqueen_xlsx(
-        login_id=req.login_id,
-        login_pw=req.login_pw,
+        login_id=login_id,
+        login_pw=login_pw,
         period_from=period_from_4w,
         period_to=period_to,
         save_path=sales_xlsx_path_4w,
@@ -1792,9 +1808,9 @@ def import_from_orderqueen(req: OrderQueenImportRequest):
         barcode = str(item.get("바코드번호", "") or "").strip()
         name = str(item.get("메뉴명", "") or "")
         if item.get("is_coupang") == 0:
-            popularity.log_event(req.login_id, "icecream", barcode or name, name, qty)
+            popularity.log_event(login_id, "icecream", barcode or name, name, qty)
         elif item.get("is_coupang") == 1:
-            popularity.log_event(req.login_id, "coupang", barcode or name, name, qty)
+            popularity.log_event(login_id, "coupang", barcode or name, name, qty)
 
     # 7) 엑셀 생성
     export_path = None

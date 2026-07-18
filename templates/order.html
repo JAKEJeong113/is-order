@@ -194,6 +194,28 @@
       margin-bottom: 10px;
     }
 
+    .account-status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .account-status-row:last-of-type {
+      border-bottom: none;
+    }
+
+    .account-status-text.registered {
+      color: var(--green-text);
+      font-weight: 700;
+    }
+
+    .account-status-text.missing {
+      color: var(--muted);
+    }
+
     .muted {
       color: var(--muted);
       font-size: 13px;
@@ -764,31 +786,16 @@
       </div>
 
       <div class="field-group">
-        <div class="field-group-label">오더퀸 계정</div>
-        <div class="grid grid-2">
-          <div>
-            <div class="muted" style="margin-bottom:6px;">오더퀸 ID</div>
-            <input id="loginId" type="text" placeholder="오더퀸 ID">
-          </div>
-          <div>
-            <div class="muted" style="margin-bottom:6px;">오더퀸 PW</div>
-            <input id="loginPw" type="password" placeholder="오더퀸 PW">
-          </div>
+        <div class="field-group-label">연동 계정</div>
+        <div class="account-status-row">
+          <span>오더퀸 계정</span>
+          <span id="orderqueenStatusText" class="account-status-text">확인 중...</span>
         </div>
-      </div>
-
-      <div class="field-group">
-        <div class="field-group-label">야미몰 계정</div>
-        <div class="grid grid-2">
-          <div>
-            <div class="muted" style="margin-bottom:6px;">야미몰 ID</div>
-            <input id="yamimallId" type="text" placeholder="야미몰 ID">
-          </div>
-          <div>
-            <div class="muted" style="margin-bottom:6px;">야미몰 PW</div>
-            <input id="yamimallPw" type="password" placeholder="야미몰 PW">
-          </div>
+        <div class="account-status-row">
+          <span>야미몰 계정</span>
+          <span id="yamimallStatusText" class="account-status-text">확인 중...</span>
         </div>
+        <a class="btn-light" href="/my-vendors" style="display:inline-block; margin-top:10px; text-decoration:none;">계정 관리 →</a>
       </div>
 
       <div class="field-group">
@@ -806,10 +813,6 @@
           <input id="saveStoreName" type="checkbox" checked>
           지점명 저장
         </label>
-        <label class="checkbox-label">
-          <input id="autoLoginEnabled" type="checkbox" checked>
-          오더퀸 자동 로그인 사용
-        </label>
       </div>
 
       <div class="row-actions" style="margin-top:16px;">
@@ -818,7 +821,8 @@
       </div>
 
       <div class="top-note">
-        저장된 지점명과 오더퀸 로그인 정보는 현재 브라우저에만 저장됩니다.
+        저장된 지점명은 현재 브라우저에만 저장됩니다. 오더퀸/야미몰 계정은
+        '내 도매처 계정'에서 등록하면 여기서 자동으로 사용됩니다.
       </div>
     </div>
 
@@ -1164,14 +1168,9 @@
 <script>
   const STORAGE_KEYS = {
     storeName: "branchOrder.storeName",
-    loginId: "branchOrder.loginId",
-    loginPw: "branchOrder.loginPw",
-    autoLoginEnabled: "branchOrder.autoLoginEnabled",
     saveStoreName: "branchOrder.saveStoreName",
     defaultSafetyStock: "branchOrder.defaultSafetyStock",
     orderHistory: "branchOrder.orderHistory",
-    yamimallId: "branchOrder.yamimallId",
-    yamimallPw: "branchOrder.yamimallPw",
   };
 
   let currentData = null;
@@ -1209,22 +1208,10 @@
 
   function loadSettings() {
     const storeName = localStorage.getItem(STORAGE_KEYS.storeName) || "";
-    const loginId = localStorage.getItem(STORAGE_KEYS.loginId) || "";
-    const loginPw = localStorage.getItem(STORAGE_KEYS.loginPw) || "";
-    const autoLoginEnabled = localStorage.getItem(STORAGE_KEYS.autoLoginEnabled);
     const saveStoreName = localStorage.getItem(STORAGE_KEYS.saveStoreName);
     const defaultSafetyStock = localStorage.getItem(STORAGE_KEYS.defaultSafetyStock);
 
-    const yamimallId = localStorage.getItem(STORAGE_KEYS.yamimallId) || "";
-    const yamimallPw = localStorage.getItem(STORAGE_KEYS.yamimallPw) || "";
-
-    document.getElementById("yamimallId").value = yamimallId;
-    document.getElementById("yamimallPw").value = yamimallPw;
-
     document.getElementById("storeName").value = storeName;
-    document.getElementById("loginId").value = loginId;
-    document.getElementById("loginPw").value = loginPw;
-    document.getElementById("autoLoginEnabled").checked = autoLoginEnabled !== "false";
     document.getElementById("saveStoreName").checked = saveStoreName !== "false";
     document.getElementById("defaultSafetyStock").value = defaultSafetyStock ?? "0";
     document.getElementById("safetyStock").value = defaultSafetyStock ?? "0";
@@ -1234,15 +1221,8 @@
 
   function saveSettings() {
     const storeName = document.getElementById("storeName").value.trim();
-    const loginId = document.getElementById("loginId").value.trim();
-    const loginPw = document.getElementById("loginPw").value.trim();
-    const autoLoginEnabled = document.getElementById("autoLoginEnabled").checked;
     const saveStoreName = document.getElementById("saveStoreName").checked;
     const defaultSafetyStock = document.getElementById("defaultSafetyStock").value || "0";
-    const yamimallId = document.getElementById("yamimallId").value.trim();
-    const yamimallPw = document.getElementById("yamimallPw").value.trim();
-
-
 
     if (saveStoreName) {
       localStorage.setItem(STORAGE_KEYS.storeName, storeName);
@@ -1250,21 +1230,8 @@
       localStorage.removeItem(STORAGE_KEYS.storeName);
     }
 
-    if (autoLoginEnabled) {
-      localStorage.setItem(STORAGE_KEYS.loginId, loginId);
-      localStorage.setItem(STORAGE_KEYS.loginPw, loginPw);
-    } else {
-      localStorage.removeItem(STORAGE_KEYS.loginId);
-      localStorage.removeItem(STORAGE_KEYS.loginPw);
-    }
-
-    localStorage.setItem(STORAGE_KEYS.autoLoginEnabled, String(autoLoginEnabled));
     localStorage.setItem(STORAGE_KEYS.saveStoreName, String(saveStoreName));
     localStorage.setItem(STORAGE_KEYS.defaultSafetyStock, String(defaultSafetyStock));
-    localStorage.setItem(STORAGE_KEYS.yamimallId, yamimallId);
-    localStorage.setItem(STORAGE_KEYS.yamimallPw, yamimallPw);
-
-
 
     document.getElementById("safetyStock").value = defaultSafetyStock;
     updatePageTitle();
@@ -1273,26 +1240,42 @@
 
   function clearSettings() {
     localStorage.removeItem(STORAGE_KEYS.storeName);
-    localStorage.removeItem(STORAGE_KEYS.loginId);
-    localStorage.removeItem(STORAGE_KEYS.loginPw);
-    localStorage.removeItem(STORAGE_KEYS.autoLoginEnabled);
     localStorage.removeItem(STORAGE_KEYS.saveStoreName);
     localStorage.removeItem(STORAGE_KEYS.defaultSafetyStock);
-    localStorage.removeItem(STORAGE_KEYS.yamimallId);
-    localStorage.removeItem(STORAGE_KEYS.yamimallPw);
 
-    document.getElementById("yamimallId").value = "";
-    document.getElementById("yamimallPw").value = "";
     document.getElementById("storeName").value = "";
-    document.getElementById("loginId").value = "";
-    document.getElementById("loginPw").value = "";
     document.getElementById("defaultSafetyStock").value = "0";
     document.getElementById("safetyStock").value = "0";
-    document.getElementById("autoLoginEnabled").checked = true;
     document.getElementById("saveStoreName").checked = true;
 
     updatePageTitle();
     alert("저장된 설정이 초기화되었습니다.");
+  }
+
+  async function loadAccountStatus() {
+    const targets = [
+      { vendorId: "orderqueen", elId: "orderqueenStatusText" },
+      { vendorId: "yamimall", elId: "yamimallStatusText" },
+    ];
+    await Promise.all(targets.map(async ({ vendorId, elId }) => {
+      const el = document.getElementById(elId);
+      try {
+        const res = await fetch(`/api/my-vendors/${vendorId}/accounts`);
+        const data = await res.json();
+        const accounts = data.accounts || [];
+        if (accounts.length > 0) {
+          const defaultAcc = accounts.find(a => a.is_default) || accounts[0];
+          el.textContent = `✓ 등록됨 (${defaultAcc.nickname || "기본"})`;
+          el.className = "account-status-text registered";
+        } else {
+          el.textContent = "미등록";
+          el.className = "account-status-text missing";
+        }
+      } catch (e) {
+        el.textContent = "확인 실패";
+        el.className = "account-status-text missing";
+      }
+    }));
   }
 
   function getHistory() {
@@ -1615,14 +1598,6 @@
     btn.innerText = "야미몰 장바구니 담는 중...";
 
     try {
-      const username = document.getElementById("yamimallId").value.trim();
-      const password = document.getElementById("yamimallPw").value.trim();
-
-      if (!username || !password) {
-        alert("야미몰 ID와 PW를 입력해줘.");
-        return;
-      }
-
       const yamimallItems = (currentData?.top_items || []).filter(item => {
         return Number(item.is_coupang ?? item.is_coupang_type ?? 0) === 2;
       });
@@ -1640,8 +1615,6 @@
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          username,
-          password,
           items: yamimallItems
         })
       });
@@ -1653,6 +1626,10 @@
       }
 
       const data = await res.json();
+      if (!data.ok) {
+        alert(data.message || "야미몰 장바구니 처리에 실패했습니다.");
+        return;
+      }
       showYamimallResultPopup(data);
 
     } catch (e) {
@@ -2126,21 +2103,16 @@ function hideBarcodeSection() {
   }
 
   async function generateOrder() {
-    const loginId = document.getElementById("loginId").value.trim();
-    const loginPw = document.getElementById("loginPw").value.trim();
     const periodFrom = document.getElementById("periodFrom").value;
     const periodTo = document.getElementById("periodTo").value;
     const safetyStock = Number(document.getElementById("safetyStock").value || 0);
-    
 
-    if (!loginId || !loginPw || !periodFrom || !periodTo) {
-      alert("오더퀸 ID, PW, 조회기간을 모두 입력해줘.");
+    if (!periodFrom || !periodTo) {
+      alert("조회기간을 모두 입력해줘.");
       return;
     }
 
     const payload = {
-      login_id: loginId,
-      login_pw: loginPw,
       period_from: periodFrom,
       period_to: periodTo,
       safety_stock: safetyStock,
@@ -2158,7 +2130,11 @@ function hideBarcodeSection() {
 
       if (!res.ok) {
         const txt = await res.text();
-        alert("에러가 발생했어.\n\n" + txt);
+        let message = txt;
+        try {
+          message = JSON.parse(txt).detail || txt;
+        } catch (e) {}
+        alert("에러가 발생했어.\n\n" + message);
         return;
       }
 
@@ -2247,6 +2223,7 @@ function hideBarcodeSection() {
 
   setDefaultDates();
   loadSettings();
+  loadAccountStatus();
   renderHistory();
 </script>
 </body>

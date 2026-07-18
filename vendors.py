@@ -38,6 +38,11 @@ VENDORS = {
             "001008001", "001008002", "001008003", "001008004", "001008006", "001008007",
         ],
     },
+    # 발주처(도매몰)가 아니라 POS 판매데이터 조회용 외부 서비스 계정 - 카탈로그
+    # 크롤링/가격비교/자동담기와는 무관하다. base_url 등 도매처 전용 필드가
+    # 없으므로 CART_SUPPORTED_VENDORS/STORE_MANAGED_VENDOR_IDS에는 넣지 않고,
+    # 지점별 계정 저장(store_vendor_credentials)만 재사용한다.
+    "orderqueen": {"name": "오더퀸"},
 }
 
 # 실제 자동 담기(add_to_cart)가 구현된 도매처 목록. 텔레그램 봇/웹 장바구니
@@ -81,6 +86,8 @@ def list_vendors() -> list[dict]:
 
     result = []
     for vendor_id, meta in VENDORS.items():
+        if vendor_id not in CART_SUPPORTED_VENDORS:
+            continue
         row = rows.get(vendor_id)
         result.append({
             "vendor_id": vendor_id,

@@ -77,7 +77,8 @@
   <div class="hint-text">
     여기에 등록한 계정으로 실제 "담기"가 진행됩니다. 도매처 자체 계정(아이디/비밀번호)이 필요합니다.
     한 도매처에 계정을 여러 개(다매장 운영 시 등) 등록할 수 있고, 담기 전에 어떤 계정을 쓸지 고를 수 있습니다.
-    비활성화하면 가격비교에서 제외됩니다.
+    비활성화하면 가격비교에서 제외됩니다. 오더퀸 계정도 여기서 등록해두면
+    발주 가져오기 페이지에서 아이디/비밀번호를 따로 입력할 필요 없이 자동으로 사용됩니다.
   </div>
   <div id="vendor-list"></div>
 
@@ -91,6 +92,60 @@
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
+    function buildVendorCardHtml(v, accounts, opts) {
+      opts = opts || {};
+      const showToggle = opts.showToggle !== false;
+      const showPreferred = opts.showPreferred !== false;
+
+      const accountRows = accounts.length
+        ? accounts.map((acc) => `
+            <div class="account-row" data-vendor="${v.vendor_id}" data-account="${acc.id}">
+              <span class="account-nickname">${escapeHtml(acc.nickname)}</span>
+              ${acc.is_default
+                ? '<span class="badge locked">기본</span>'
+                : `<button class="set-default-btn" data-vendor="${v.vendor_id}" data-account="${acc.id}">기본으로 설정</button>`}
+              <button class="delete-account-btn" data-vendor="${v.vendor_id}" data-account="${acc.id}">삭제</button>
+            </div>
+          `).join("")
+        : '';
+
+      return `
+        <div class="vendor-head">
+          <div class="vendor-head-left">
+            <span class="vendor-name">${v.name}</span>
+            ${v.registered ? `<span class="badge">계정 ${accounts.length}개</span>` : ""}
+            ${showPreferred && v.is_preferred ? '<span class="badge preferred">주 도매처</span>' : ""}
+          </div>
+          <div class="vendor-head-left">
+            ${showPreferred ? `
+            <button class="prefer-btn ${v.is_preferred ? "active" : ""}" data-vendor="${v.vendor_id}" data-action="prefer">
+              ${v.is_preferred ? "주 도매처 해제" : "주 도매처로 설정"}
+            </button>
+            ` : ""}
+            ${showToggle ? `
+            <label class="toggle-label">
+              <input type="checkbox" class="enable-toggle" data-vendor="${v.vendor_id}" ${v.enabled ? "checked" : ""}>
+              활성화
+            </label>
+            ` : ""}
+          </div>
+        </div>
+        <div class="account-list" data-vendor="${v.vendor_id}">${accountRows}</div>
+        ${accounts.length === 0 ? '<div class="no-accounts-text">등록된 계정이 없습니다.</div>' : ""}
+        <button class="add-account-toggle-btn" data-vendor="${v.vendor_id}">+ 계정 추가</button>
+        <div class="add-account-form" data-vendor="${v.vendor_id}">
+          <input type="text" placeholder="별명 (예: 본점, 생략 가능)" class="new-nickname"
+            name="nickname_${v.vendor_id}" autocomplete="off" data-vendor="${v.vendor_id}">
+          <input type="text" placeholder="아이디" class="new-login-id"
+            name="login_id_${v.vendor_id}" autocomplete="off" data-vendor="${v.vendor_id}">
+          <input type="password" placeholder="비밀번호" class="new-login-pwd"
+            name="login_pwd_${v.vendor_id}" autocomplete="new-password" data-vendor="${v.vendor_id}">
+          <button class="save-btn" data-vendor="${v.vendor_id}">추가</button>
+        </div>
+        <div class="status-text account-status" data-vendor="${v.vendor_id}"></div>
+      `;
+    }
+
     async function loadVendors() {
       const res = await fetch("/api/my-vendors");
       const data = await res.json();
@@ -102,57 +157,27 @@
         accountsByVendor[v.vendor_id] = accData.accounts || [];
       }));
 
+      // 오더퀸은 발주처(도매몰)가 아니라 POS 판매데이터 조회 계정이라 가격비교
+      // 활성화/주거래처 개념이 없다 - /api/my-vendors 목록에는 안 나오므로
+      // 계정 목록만 따로 불러와 별도 카드로 그린다.
+      const orderqueenAccRes = await fetch("/api/my-vendors/orderqueen/accounts");
+      const orderqueenAccData = await orderqueenAccRes.json();
+      const orderqueenAccounts = orderqueenAccData.accounts || [];
+      const orderqueenVendor = { vendor_id: "orderqueen", name: "오더퀸", registered: orderqueenAccounts.length > 0 };
+
       const list = document.getElementById("vendor-list");
       list.innerHTML = "";
+
+      const orderqueenCard = document.createElement("div");
+      orderqueenCard.className = "vendor-card";
+      orderqueenCard.innerHTML = buildVendorCardHtml(orderqueenVendor, orderqueenAccounts, { showToggle: false, showPreferred: false });
+      list.appendChild(orderqueenCard);
 
       data.vendors.forEach((v) => {
         const accounts = accountsByVendor[v.vendor_id] || [];
         const card = document.createElement("div");
         card.className = "vendor-card" + (v.enabled ? "" : " disabled");
-
-        const accountRows = accounts.length
-          ? accounts.map((acc) => `
-              <div class="account-row" data-vendor="${v.vendor_id}" data-account="${acc.id}">
-                <span class="account-nickname">${escapeHtml(acc.nickname)}</span>
-                ${acc.is_default
-                  ? '<span class="badge locked">기본</span>'
-                  : `<button class="set-default-btn" data-vendor="${v.vendor_id}" data-account="${acc.id}">기본으로 설정</button>`}
-                <button class="delete-account-btn" data-vendor="${v.vendor_id}" data-account="${acc.id}">삭제</button>
-              </div>
-            `).join("")
-          : '';
-
-        card.innerHTML = `
-          <div class="vendor-head">
-            <div class="vendor-head-left">
-              <span class="vendor-name">${v.name}</span>
-              ${v.registered ? `<span class="badge">계정 ${accounts.length}개</span>` : ""}
-              ${v.is_preferred ? '<span class="badge preferred">주 도매처</span>' : ""}
-            </div>
-            <div class="vendor-head-left">
-              <button class="prefer-btn ${v.is_preferred ? "active" : ""}" data-vendor="${v.vendor_id}" data-action="prefer">
-                ${v.is_preferred ? "주 도매처 해제" : "주 도매처로 설정"}
-              </button>
-              <label class="toggle-label">
-                <input type="checkbox" class="enable-toggle" data-vendor="${v.vendor_id}" ${v.enabled ? "checked" : ""}>
-                활성화
-              </label>
-            </div>
-          </div>
-          <div class="account-list" data-vendor="${v.vendor_id}">${accountRows}</div>
-          ${accounts.length === 0 ? '<div class="no-accounts-text">등록된 계정이 없습니다.</div>' : ""}
-          <button class="add-account-toggle-btn" data-vendor="${v.vendor_id}">+ 계정 추가</button>
-          <div class="add-account-form" data-vendor="${v.vendor_id}">
-            <input type="text" placeholder="별명 (예: 본점, 생략 가능)" class="new-nickname"
-              name="nickname_${v.vendor_id}" autocomplete="off" data-vendor="${v.vendor_id}">
-            <input type="text" placeholder="아이디" class="new-login-id"
-              name="login_id_${v.vendor_id}" autocomplete="off" data-vendor="${v.vendor_id}">
-            <input type="password" placeholder="비밀번호" class="new-login-pwd"
-              name="login_pwd_${v.vendor_id}" autocomplete="new-password" data-vendor="${v.vendor_id}">
-            <button class="save-btn" data-vendor="${v.vendor_id}">추가</button>
-          </div>
-          <div class="status-text account-status" data-vendor="${v.vendor_id}"></div>
-        `;
+        card.innerHTML = buildVendorCardHtml(v, accounts);
         list.appendChild(card);
       });
 
