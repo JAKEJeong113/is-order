@@ -448,42 +448,6 @@
       font-size: 14px;
     }
 
-    .history-list {
-      display: grid;
-      gap: 12px;
-    }
-
-    .history-card{
-      background:white;
-      border:1px solid #ecfdf5;
-      transition:.2s;
-    }
-
-    .history-card:hover{
-      transform:translateY(-4px);
-      box-shadow:0 12px 24px rgba(20,184,166,.1);
-    }
-
-    .history-top {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-      margin-bottom: 10px;
-    }
-
-    .history-date {
-      font-weight: 700;
-      font-size: 14px;
-    }
-
-    .history-meta {
-      font-size: 13px;
-      color: var(--muted);
-      line-height: 1.6;
-    }
-
     .checkbox-row {
       display: flex;
       gap: 20px;
@@ -621,35 +585,6 @@
         display: none;
       }
 
-      /* 바코드 검색표는 3개 컬럼 유지 */
-      #barcodeSearchCard table {
-        min-width: 100%;
-        table-layout: fixed;
-      }
-
-      #barcodeSearchCard th,
-      #barcodeSearchCard td {
-        font-size: 13px;
-        padding: 10px 8px;
-        white-space: normal;
-        word-break: break-word;
-      }
-
-      #barcodeSearchCard th:nth-child(1),
-      #barcodeSearchCard td:nth-child(1) {
-        width: 42%;
-      }
-
-      #barcodeSearchCard th:nth-child(2),
-      #barcodeSearchCard td:nth-child(2) {
-        width: 38%;
-      }
-
-      #barcodeSearchCard th:nth-child(3),
-      #barcodeSearchCard td:nth-child(3) {
-        width: 20%;
-      }
-
       /* 쿠팡 발주표 모바일 최적화 */
       .coupang-table {
         min-width: 100% !important;
@@ -765,15 +700,6 @@
       <div class="muted">지점용 자동발주 MVP</div>
       <h1 id="pageTitle" style="margin:6px 0 0 0;">지점 발주 화면</h1>
     </div>
-    <div class="row-actions">
-        <!-- 개발용 -->
-        <!--
-        <button class="btn-light" onclick="location.href='/docs'">
-          API 문서
-        </button>
-        -->
-      <button class="btn-light" onclick="showBarcodeSection()">바코드 검색</button>
-    </div>
   </div>
 
   <div class="grid grid-2">
@@ -867,39 +793,6 @@
     </div>
   </div>
 
-  <div id="barcodeSearchCard" class="card" style="display:none;">
-    <div class="section-title">상품 바코드 검색</div>
-    <button class="btn-light" onclick="hideBarcodeSection()">닫기</button>
-    <div class="muted" style="margin-bottom:12px;">
-      상품명, 바코드로 검색할 수 있습니다. 추천 판매가는 값이 없으면 공란으로 표시됩니다.
-    </div>
-
-    <div class="search-toolbar">
-      <div>
-        <div class="muted" style="margin-bottom:6px;">검색어</div>
-        <input id="barcodeSearchKeyword" type="text" placeholder="예: 메로나 / 880xxxx ">
-      </div>
-      <button class="btn-primary" onclick="searchBarcode()">검색</button>
-      <button class="btn-light" onclick="clearBarcodeSearch()">초기화</button>
-    </div>
-
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>상품명</th>
-            <th>바코드</th>
-            <th>추천 판매가</th>
-          </tr>
-        </thead>
-        <tbody id="barcodeSearchResultBody">
-          <tr>
-            <td colspan="10" class="empty-box">상품명을 검색하면 결과가 여기에 표시됩니다.</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
 
   <div class="card">
     <div class="section-title">발주 추천 생성</div>
@@ -947,16 +840,6 @@
     <div class="summary-card">
       <div class="summary-label">문구완구 품목 수</div>
       <div class="summary-value" id="sumToyCount">-</div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-top: 28px;">
-    <div class="history-top">
-      <div class="section-title" style="margin-bottom:0;">최근 발주 이력</div>
-      <button class="btn-light" onclick="clearHistory()">이력 초기화</button>
-    </div>
-    <div id="historyList" class="history-list">
-      <div class="empty-box">아직 저장된 발주 이력이 없습니다.</div>
     </div>
   </div>
 
@@ -1170,7 +1053,6 @@
     storeName: "branchOrder.storeName",
     saveStoreName: "branchOrder.saveStoreName",
     defaultSafetyStock: "branchOrder.defaultSafetyStock",
-    orderHistory: "branchOrder.orderHistory",
   };
 
   let currentData = null;
@@ -1276,86 +1158,6 @@
         el.className = "account-status-text missing";
       }
     }));
-  }
-
-  function getHistory() {
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEYS.orderHistory) || "[]");
-    } catch {
-      return [];
-    }
-  }
-
-  function saveHistory(history) {
-    localStorage.setItem(STORAGE_KEYS.orderHistory, JSON.stringify(history));
-  }
-
-  function addHistoryEntry(data) {
-    const storeName = document.getElementById("storeName").value.trim() || "지점명 미입력";
-    const history = getHistory();
-
-    const entry = {
-      createdAt: new Date().toISOString(),
-      storeName,
-      periodFrom: data.summary?.period_from ?? "",
-      periodTo: data.summary?.period_to ?? "",
-      totalSold: data.summary?.["총판매수량"] ?? 0,
-      skuCount: data.summary?.["상품종류수"] ?? 0,
-      icecreamCount: data.summary?.["아이스크림품목수"] ?? 0,
-      coupangCount: data.summary?.["쿠팡품목수"] ?? 0,
-      wholesaleCount: data.summary?.["도매몰품목수"] ?? 0,
-      toyCount: data.summary?.["문구완구품목수"] ?? 0,
-      representativeName: data.representative_product?.menu_name ?? "없음",
-      representativeLink: data.representative_partner_link ?? "",
-      jobId: data.job_id ?? ""
-    };
-
-    history.unshift(entry);
-    saveHistory(history.slice(0, 10));
-    renderHistory();
-  }
-
-  function renderHistory() {
-    const historyList = document.getElementById("historyList");
-    const history = getHistory();
-
-    if (!history.length) {
-      historyList.innerHTML = '<div class="empty-box">아직 저장된 발주 이력이 없습니다.</div>';
-      return;
-    }
-
-    historyList.innerHTML = history.map(item => {
-      const dt = new Date(item.createdAt);
-      const createdText = isNaN(dt.getTime()) ? item.createdAt : dt.toLocaleString("ko-KR");
-
-      return `
-        <div class="history-card">
-          <div class="history-top">
-            <div class="history-date">${item.storeName}</div>
-            <span class="badge ${item.representativeLink ? "badge-coupang" : "badge-other"}">
-              ${item.representativeLink ? "대표링크 생성" : "대표링크 없음"}
-            </span>
-          </div>
-
-          <div class="history-meta">
-            <div><b>생성시각:</b> ${createdText}</div>
-            <div><b>조회기간:</b> ${item.periodFrom} ~ ${item.periodTo}</div>
-            <div><b>총판매수량:</b> ${item.totalSold}개 / <b>상품종류수:</b> ${item.skuCount}종</div>
-            <div><b>아이스크림 품목 수:</b> ${item.icecreamCount ?? 0}종</div>
-            <div><b>쿠팡 품목 수:</b> ${item.coupangCount ?? 0}종</div>
-            <div><b>도매몰 품목 수:</b> ${item.wholesaleCount ?? 0}종</div>
-            <div><b>문구완구 품목 수:</b> ${item.toyCount ?? 0}종</div>
-            <div><b>대표상품:</b> ${item.representativeName}</div>
-          </div>
-        </div>
-      `;
-    }).join("");
-  }
-
-  function clearHistory() {
-    localStorage.removeItem(STORAGE_KEYS.orderHistory);
-    renderHistory();
-    alert("최근 발주 이력이 초기화되었습니다.");
   }
 
   function setFilter(type) {
@@ -1527,13 +1329,6 @@
     });
   }
 
-  function formatRecommendedPrice(value) {
-    if (value === null || value === undefined || value === "") return "";
-    const num = Number(value);
-    if (Number.isNaN(num)) return String(value);
-    return `${num.toLocaleString("ko-KR")}원`;
-  }
-
   function formatBarcode(value) {
     if (value === null || value === undefined || value === "") return "";
     const text = String(value).trim();
@@ -1546,50 +1341,6 @@
   function buildCoupangSearchUrl(item) {
     const keyword = (item["메뉴명"] || "").trim();
     return `https://www.coupang.com/np/search?q=${encodeURIComponent(keyword)}`;
-  }
-
-  function renderBarcodeSearchResults(items) {
-    const tbody = document.getElementById("barcodeSearchResultBody");
-
-    if (!items || !items.length) {
-      tbody.innerHTML = `<tr><td colspan="3" class="empty-box">검색 결과가 없습니다.</td></tr>`;
-      return;
-    }
-
-    tbody.innerHTML = items.map(item => `
-      <tr>
-        <td>${item.menu_name ?? ""}</td>
-        <td>${formatBarcode(item.barcode)}</td>
-        <td>${formatRecommendedPrice(item.recommended_price)}</td>
-      </tr>
-    `).join("");
-  }
-
-  async function searchBarcode() {
-    const keyword = document.getElementById("barcodeSearchKeyword").value.trim();
-    const tbody = document.getElementById("barcodeSearchResultBody");
-
-    if (!keyword) {
-      alert("검색어를 입력해줘.");
-      return;
-    }
-
-    tbody.innerHTML = `<tr><td colspan="3" class="empty-box">검색 중...</td></tr>`;
-
-    try {
-      const res = await fetch(`/api/products/search?q=${encodeURIComponent(keyword)}`);
-
-      if (!res.ok) {
-        const txt = await res.text();
-        tbody.innerHTML = `<tr><td colspan="3" class="empty-box">검색 중 오류가 발생했습니다.<br>${txt}</td></tr>`;
-        return;
-      }
-
-      const data = await res.json();
-      renderBarcodeSearchResults(data.items || []);
-    } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="3" class="empty-box">요청 중 오류가 발생했습니다.<br>${String(e)}</td></tr>`;
-    }
   }
 
   async function startYamimallCart() {
@@ -1722,22 +1473,6 @@ function closeYamimallResultPopup() {
   document.getElementById("yamimallResultModal").style.display = "none";
 }
 
-
-  function clearBarcodeSearch() {
-    document.getElementById("barcodeSearchKeyword").value = "";
-    document.getElementById("barcodeSearchResultBody").innerHTML =
-      `<tr><td colspan="3" class="empty-box">상품명을 검색하면 결과가 여기에 표시됩니다.</td></tr>`;
-  }
-
-  function showBarcodeSection() {
-    const card = document.getElementById("barcodeSearchCard");
-    card.style.display = "block";
-    card.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-function hideBarcodeSection() {
-  document.getElementById("barcodeSearchCard").style.display = "none";
-}
 
   function openCoupangActionModal() {
     if (!currentData) {
@@ -2146,7 +1881,6 @@ function hideBarcodeSection() {
 
       renderSummary(data);
       renderTable();
-      addHistoryEntry(data);
 
       const coupangBtn = document.getElementById("coupangStartBtn");
       const excelBtn = document.getElementById("excelDownloadBtn");
@@ -2187,12 +1921,6 @@ function hideBarcodeSection() {
 
   document.getElementById("storeName").addEventListener("input", updatePageTitle);
 
-  document.getElementById("barcodeSearchKeyword").addEventListener("keydown", function(e) {
-    if (e.key === "Enter") {
-      searchBarcode();
-    }
-  });
-
   window.addEventListener("click", function(e) {
     const actionModal = document.getElementById("coupangActionModal");
     const sheetModal = document.getElementById("coupangSheetModal");
@@ -2224,7 +1952,6 @@ function hideBarcodeSection() {
   setDefaultDates();
   loadSettings();
   loadAccountStatus();
-  renderHistory();
 </script>
 </body>
 </html>

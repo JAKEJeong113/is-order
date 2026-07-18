@@ -1246,6 +1246,13 @@ def home_page(request: Request):
     return templates.TemplateResponse("home.html", {"request": request, "active_page": "home"})
 
 
+@app.get("/barcode-search", response_class=HTMLResponse)
+def barcode_search_page(request: Request):
+    if not get_current_web_user(request):
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("barcode_search.html", {"request": request, "active_page": "barcode_search"})
+
+
 @app.get("/api/popular")
 def api_popular(category: str = Query(...), limit: int = Query(30, ge=1, le=100)):
     if category not in popularity.CATEGORIES:
@@ -1505,6 +1512,15 @@ def search_products(q: str = Query(..., min_length=1)):
         })
 
     return {"items": items}
+
+
+@app.get("/api/barcode-search")
+def api_barcode_search(q: str = Query(..., min_length=1), user: dict = Depends(require_web_user)):
+    """텔레그램 "바코드" 명령과 동일한 검색(product_ranking.search_catalog) -
+    바코드추가/바코드수정으로 저장된 custom_catalog_items 덮어쓰기 값도
+    반영된다(main.py의 /api/products/search는 엑셀 원본만 보는 별개 구현)."""
+    return {"ok": True, "items": product_ranking.search_catalog(q, limit=10)}
+
 
 @app.get("/docs-link")
 def docs_link():

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>바코드 검색</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+    }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .sub-text { font-size: 13px; color: var(--muted); margin: 0 0 20px; }
+    .search-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px 18px; margin-bottom: 20px;
+    }
+    .search-row { display: flex; gap: 8px; }
+    .search-row input {
+      flex: 1; padding: 10px 12px; border: 1px solid var(--line);
+      border-radius: 8px; font-size: 14px;
+    }
+    .search-row button {
+      padding: 10px 16px; border: none; border-radius: 8px;
+      background: var(--mint); color: white; font-weight: 700; cursor: pointer;
+    }
+    .result-list { display: flex; flex-direction: column; gap: 10px; }
+    .result-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .result-name { font-size: 15px; font-weight: 700; margin: 0 0 6px; }
+    .result-meta { font-size: 13px; color: var(--muted); margin: 0; }
+    .result-price { font-size: 16px; font-weight: 700; color: var(--mint-text); margin-top: 8px; }
+    .empty-text { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  </style>
+</head>
+<body>
+  {% include "_sidebar.html" %}
+  <h1>바코드 검색</h1>
+  <p class="sub-text">전체 상품 카탈로그에서 제품명이나 바코드로 찾아 추천판매가를 확인합니다.</p>
+
+  <div class="search-card">
+    <div class="search-row">
+      <input id="searchInput" type="text" placeholder="제품명 또는 바코드 입력 (예: 메로나 / 880xxxx)" />
+      <button id="searchBtn">검색</button>
+    </div>
+  </div>
+
+  <div id="results" class="result-list"></div>
+
+      </div>
+    </div>
+
+  <script>
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    async function runSearch() {
+      const keyword = document.getElementById("searchInput").value.trim();
+      const resultsEl = document.getElementById("results");
+      if (!keyword) return;
+
+      resultsEl.innerHTML = '<div class="empty-text">검색 중...</div>';
+      try {
+        const res = await fetch(`/api/barcode-search?q=${encodeURIComponent(keyword)}`);
+        const data = await res.json();
+
+        if (!data.ok || !data.items || data.items.length === 0) {
+          resultsEl.innerHTML = '<div class="empty-text">해당하는 상품을 찾지 못했습니다.</div>';
+          return;
+        }
+
+        resultsEl.innerHTML = data.items.map((item) => `
+          <div class="result-card">
+            <p class="result-name">${escapeHtml(item.menu_name)}</p>
+            <p class="result-meta">바코드: ${escapeHtml(item.barcode)}</p>
+            <p class="result-price">${item.recommended_price ? Number(item.recommended_price).toLocaleString() + "원" : "추천판매가 미등록"}</p>
+          </div>
+        `).join("");
+      } catch (e) {
+        resultsEl.innerHTML = `<div class="empty-text">검색 중 오류가 발생했습니다.<br>${escapeHtml(String(e))}</div>`;
+      }
+    }
+
+    document.getElementById("searchBtn").addEventListener("click", runSearch);
+    document.getElementById("searchInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") runSearch();
+    });
+  </script>
+</body>
+</html>
