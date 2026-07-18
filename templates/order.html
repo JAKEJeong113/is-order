@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <title>지점 발주 화면</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet"
+  href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <style>
     :root{
       --bg:#f8faf9;
@@ -31,10 +33,9 @@
     * { box-sizing: border-box; }
 
     body {
-      font-family: Arial, sans-serif;
+      font-family: 'Pretendard', sans-serif;
       background: var(--bg);
       margin: 0;
-      padding: 24px;
       color: var(--text);
     }
 
@@ -55,8 +56,8 @@
     .card {
       background: var(--card);
       border-radius: 18px;
-      padding: 20px;
-      margin-bottom: 36px;
+      padding: 24px;
+      margin-bottom: 28px;
       box-shadow: var(--shadow);
     }
 
@@ -178,6 +179,19 @@
       font-size: 18px;
       font-weight: 700;
       margin-bottom: 12px;
+    }
+
+    .field-group {
+      padding-top: 16px;
+      margin-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .field-group-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--mint-text);
+      margin-bottom: 10px;
     }
 
     .muted {
@@ -715,6 +729,7 @@
   </style>
 </head>
 <body>
+{% include "_sidebar.html" %}
 <div class="container">
   <div class="welcome-banner">
     <div>
@@ -736,39 +751,53 @@
         </button>
         -->
       <button class="btn-light" onclick="showBarcodeSection()">바코드 검색</button>
-      <button class="btn-dark" id="coupangStartTopBtn" disabled>쿠팡 발주 시작</button>
     </div>
   </div>
 
   <div class="grid grid-2">
     <div class="card">
       <div class="section-title">지점 정보 / 자동 로그인</div>
-      <div class="grid grid-3">
-        <div>
-          <div class="muted" style="margin-bottom:6px;">지점명</div>
-          <input id="storeName" type="text" placeholder="예: 아이즈크림 오산세교">
-        </div>
-        <div>
-          <div class="muted" style="margin-bottom:6px;">오더퀸 ID</div>
-          <input id="loginId" type="text" placeholder="오더퀸 ID">
-        </div>
-        <div>
-          <div class="muted" style="margin-bottom:6px;">오더퀸 PW</div>
-          <input id="loginPw" type="password" placeholder="오더퀸 PW">
-        </div>
 
-        <div>
-          <div class="muted" style="margin-bottom:6px;">야미몰 ID</div>
-          <input id="yamimallId" type="text" placeholder="야미몰 ID">
-        </div>
+      <div style="margin-bottom:18px;">
+        <div class="muted" style="margin-bottom:6px;">지점명</div>
+        <input id="storeName" type="text" placeholder="예: 아이즈크림 오산세교">
+      </div>
 
-        <div>
-          <div class="muted" style="margin-bottom:6px;">야미몰 PW</div>
-          <input id="yamimallPw" type="password" placeholder="야미몰 PW">
+      <div class="field-group">
+        <div class="field-group-label">오더퀸 계정</div>
+        <div class="grid grid-2">
+          <div>
+            <div class="muted" style="margin-bottom:6px;">오더퀸 ID</div>
+            <input id="loginId" type="text" placeholder="오더퀸 ID">
+          </div>
+          <div>
+            <div class="muted" style="margin-bottom:6px;">오더퀸 PW</div>
+            <input id="loginPw" type="password" placeholder="오더퀸 PW">
+          </div>
         </div>
-        <div>
-          <div class="muted" style="margin-bottom:6px;">기본 안전재고</div>
-          <input id="defaultSafetyStock" type="number" value="0">
+      </div>
+
+      <div class="field-group">
+        <div class="field-group-label">야미몰 계정</div>
+        <div class="grid grid-2">
+          <div>
+            <div class="muted" style="margin-bottom:6px;">야미몰 ID</div>
+            <input id="yamimallId" type="text" placeholder="야미몰 ID">
+          </div>
+          <div>
+            <div class="muted" style="margin-bottom:6px;">야미몰 PW</div>
+            <input id="yamimallPw" type="password" placeholder="야미몰 PW">
+          </div>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-group-label">발주 추천 기본값</div>
+        <div class="grid grid-3">
+          <div>
+            <div class="muted" style="margin-bottom:6px;">기본 안전재고</div>
+            <input id="defaultSafetyStock" type="number" value="0">
+          </div>
         </div>
       </div>
 
@@ -2144,7 +2173,6 @@ function hideBarcodeSection() {
       addHistoryEntry(data);
 
       const coupangBtn = document.getElementById("coupangStartBtn");
-      const coupangTopBtn = document.getElementById("coupangStartTopBtn");
       const excelBtn = document.getElementById("excelDownloadBtn");
       const icecreamSheetBtn = document.getElementById("icecreamSheetBtn");
       const yamimallCartBtn =
@@ -2159,12 +2187,9 @@ function hideBarcodeSection() {
 
       if (data.representative_partner_link) {
         coupangBtn.disabled = false;
-        coupangTopBtn.disabled = false;
         coupangBtn.onclick = openCoupangActionModal;
-        coupangTopBtn.onclick = openCoupangActionModal;
       } else {
         coupangBtn.disabled = true;
-        coupangTopBtn.disabled = true;
       }
 
       icecreamSheetBtn.disabled = false;
