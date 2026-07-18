@@ -688,13 +688,18 @@ def mark_alerts_notified(ids: list[int]) -> None:
 def resolve_pending_alerts(status: str) -> list[dict]:
     """대표님이 텔레그램에서 "전체발송"/"생략"으로 응답했을 때, 알림 보냈던
     (status='notified') 건들을 전부 확정 상태로 바꾸고 그 목록을 돌려준다
-    (방송 메시지 구성용)."""
+    (방송 메시지 구성용). 가맹점이 "구매링크 (상품명)"을 따로 안 쳐도 되도록
+    구매 링크도 같이 실어서 돌려준다."""
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT id, product_type, item_key, item_name, old_low, new_price
-    FROM pending_price_alerts WHERE status = 'notified'
-    ORDER BY id ASC
+    SELECT a.id, a.product_type, a.item_key, a.item_name, a.old_low, a.new_price,
+           COALESCE(b.partners_link, s.partners_link) AS partners_link
+    FROM pending_price_alerts a
+    LEFT JOIN beverage_catalog b ON a.product_type = 'beverage' AND a.item_key = b.item_key
+    LEFT JOIN snack_catalog s ON a.product_type = 'snack' AND a.item_key = s.item_key
+    WHERE a.status = 'notified'
+    ORDER BY a.id ASC
     """)
     rows = cur.fetchall()
     if rows:
@@ -704,6 +709,9 @@ def resolve_pending_alerts(status: str) -> list[dict]:
         conn.commit()
     conn.close()
     return [
-        {"id": r[0], "product_type": r[1], "item_key": r[2], "item_name": r[3], "old_low": r[4], "new_price": r[5]}
+        {
+            "id": r[0], "product_type": r[1], "item_key": r[2], "item_name": r[3],
+            "old_low": r[4], "new_price": r[5], "partners_link": r[6],
+        }
         for r in rows
     ]

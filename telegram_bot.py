@@ -878,11 +878,17 @@ def _handle_admin_price_alert_reply(chat_id: str, text: str) -> bool:
         send_message(chat_id, "최저가 알림을 넘어갔습니다.")
         return True
 
-    lines = ["🎉 최저가 소식!\n"]
+    lines = [
+        "🎉 최저가 소식!\n",
+        "*본 링크를 통하여 구매를 진행하실 경우 쿠팡 파트너스 활동의 일환으로 그에 따른 일정액의 수수료를 제공받습니다.\n",
+    ]
     for a in alerts:
         old_low_text = f"{a['old_low']:,}원 → " if a["old_low"] else ""
-        lines.append(f"• {a['item_name']} {old_low_text}{a['new_price']:,}원")
-    message = "\n".join(lines)
+        entry = f"• {a['item_name']} {old_low_text}{a['new_price']:,}원"
+        if a.get("partners_link"):
+            entry += f"\n{a['partners_link']}"
+        lines.append(entry)
+    message = "\n\n".join(lines)
 
     stores = [s for s in telegram_store.list_stores() if s["approved"]]
     sent = sum(1 for s in stores if send_message(s["chat_id"], message))
