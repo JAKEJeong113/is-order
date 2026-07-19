@@ -160,3 +160,12 @@ def link_store(user_id: int, store_name: str | None) -> None:
     cur.execute("UPDATE web_users SET linked_store_name = ? WHERE id = ?", (store_name or None, user_id))
     conn.commit()
     conn.close()
+
+
+def get_linked_store_name_by_email(email: str) -> str | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT linked_store_name FROM web_users WHERE email = ?", (email.strip().lower(),))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None

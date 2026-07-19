@@ -793,6 +793,53 @@
     </div>
   </div>
 
+  <div class="card">
+    <div class="section-title">자동 메시지 예약</div>
+    <div class="top-note" style="margin-bottom:16px;">
+      판매 수량을 예약한 주기로 집계해서 텔레그램으로 발주 리스트를 보내드립니다.
+      1타(구매 단위) 대비 60% 이상 팔린 상품만 도매처 담기 대상으로 추천하고,
+      쿠팡 품목은 구매 링크를, 아이스크림은 참고용 판매량을 함께 보내드립니다.
+      리포트를 받으면 텔레그램에서 '확인'/'스킵'/'N 빼줘'/'N M타로'로 바로
+      처리할 수 있습니다.
+    </div>
+
+    <div id="scheduleNoLinkNotice" class="top-note" style="display:none; background:var(--red-soft); color:var(--red-text);">
+      이 계정에 연결된 텔레그램 지점이 없어 자동 메시지 예약을 사용할 수 없습니다.
+      관리자에게 지점 연결을 요청해주세요.
+    </div>
+
+    <div id="scheduleContent">
+      <div id="scheduleList" class="field-group" style="margin-bottom:18px;">
+        <div class="field-group-label">등록된 예약</div>
+        <div id="scheduleListBody" class="muted">불러오는 중...</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-group-label">예약 추가</div>
+        <div class="grid grid-3">
+          <div>
+            <div class="muted" style="margin-bottom:6px;">요일</div>
+            <select id="scheduleDayOfWeek" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid #d1d5db; background:white; box-sizing:border-box;">
+              <option value="0">월요일</option>
+              <option value="1">화요일</option>
+              <option value="2">수요일</option>
+              <option value="3">목요일</option>
+              <option value="4">금요일</option>
+              <option value="5">토요일</option>
+              <option value="6">일요일</option>
+            </select>
+          </div>
+          <div>
+            <div class="muted" style="margin-bottom:6px;">시각</div>
+            <input id="scheduleTime" type="time" value="07:00">
+          </div>
+          <div style="display:flex; align-items:end;">
+            <button class="btn-primary" style="width:100%;" onclick="addStoreReportSchedule()">예약 추가</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="card">
     <div class="section-title">발주 추천 생성</div>
@@ -1158,6 +1205,91 @@
         el.className = "account-status-text missing";
       }
     }));
+  }
+
+  const DAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"];
+
+  async function loadStoreReportSchedules() {
+    try {
+      const res = await fetch("/api/store-reports/schedules");
+      const data = await res.json();
+      const notice = document.getElementById("scheduleNoLinkNotice");
+      const content = document.getElementById("scheduleContent");
+      if (!data.linked_store_name) {
+        notice.style.display = "block";
+        content.style.display = "none";
+        return;
+      }
+      notice.style.display = "none";
+      content.style.display = "block";
+      renderStoreReportSchedules(data.schedules || []);
+    } catch (e) {
+      document.getElementById("scheduleListBody").textContent = "예약 목록을 불러오지 못했습니다.";
+    }
+  }
+
+  function renderStoreReportSchedules(schedules) {
+    const body = document.getElementById("scheduleListBody");
+    if (!schedules.length) {
+      body.innerHTML = `<div class="muted">등록된 예약이 없습니다.</div>`;
+      return;
+    }
+    body.innerHTML = schedules.map(s => `
+      <div class="account-status-row" style="align-items:center;">
+        <span>${DAY_NAMES[s.day_of_week]}요일 ${s.time}${s.enabled ? "" : " (꺼짐)"}</span>
+        <span style="display:flex; gap:8px;">
+          <button class="btn-light" onclick="toggleStoreReportSchedule(${s.id}, ${!s.enabled})">${s.enabled ? "끄기" : "켜기"}</button>
+          <button class="btn-danger" onclick="deleteStoreReportSchedule(${s.id})">삭제</button>
+        </span>
+      </div>
+    `).join("");
+  }
+
+  async function addStoreReportSchedule() {
+    const day_of_week = parseInt(document.getElementById("scheduleDayOfWeek").value, 10);
+    const time = document.getElementById("scheduleTime").value;
+    if (!time) {
+      alert("시각을 입력해주세요.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/store-reports/schedules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ day_of_week, time }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || "예약 추가에 실패했습니다.");
+        return;
+      }
+      await loadStoreReportSchedules();
+    } catch (e) {
+      alert("예약 추가에 실패했습니다.");
+    }
+  }
+
+  async function deleteStoreReportSchedule(scheduleId) {
+    if (!confirm("이 예약을 삭제할까요?")) return;
+    try {
+      await fetch(`/api/store-reports/schedules/${scheduleId}`, { method: "DELETE" });
+      await loadStoreReportSchedules();
+    } catch (e) {
+      alert("삭제에 실패했습니다.");
+    }
+  }
+
+  async function toggleStoreReportSchedule(scheduleId, enabled) {
+    try {
+      await fetch(`/api/store-reports/schedules/${scheduleId}/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      await loadStoreReportSchedules();
+    } catch (e) {
+      alert("변경에 실패했습니다.");
+    }
   }
 
   function setFilter(type) {
@@ -1952,6 +2084,7 @@ function closeYamimallResultPopup() {
   setDefaultDates();
   loadSettings();
   loadAccountStatus();
+  loadStoreReportSchedules();
 </script>
 </body>
 </html>

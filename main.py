@@ -20,6 +20,7 @@ import hmac
 import hashlib
 import json
 from datetime import date, datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
@@ -57,6 +58,7 @@ import godomall_bot
 import patch_notes
 import popularity
 import product_ranking
+import store_reports
 import telegram_bot
 import telegram_store
 import vendors
@@ -128,6 +130,7 @@ product_ranking.init_custom_catalog_table()
 patch_notes.init_patch_notes_table()
 web_cart.init_web_cart_table()
 cart_jobs.init_cart_jobs_table()
+store_reports.init_store_report_tables()
 
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 # CronTrigger를 직접 만들어서 trigger=로 넘기면 scheduler의 timezone을 자동으로
@@ -209,6 +212,109 @@ scheduler.add_job(
     functools.partial(_run_price_snapshot_and_notify, product_ranking.SNACK),
     trigger=IntervalTrigger(minutes=30),
     id="price_snapshot_snack",
+    replace_existing=True,
+)
+
+
+# 자동 발주 리포트 예약: 지점마다 요일/시각이 달라 개별 add_job 대신 15분마다
+# 도는 틱 하나가 store_report_schedules를 훑어 지금 쏴야 할 예약을 찾는다.
+# (앱이 재시작돼도 DB만 보고 판단하므로 안전 - 인메모리 job 등록 상태에
+# 의존하지 않는다.)
+def _resolve_chat_id_for_store(store_id: str) -> str | None:
+    if not store_id.startswith("web:"):
+        return None
+    email = store_id[len("web:"):]
+    linked_store_name = web_auth.get_linked_store_name_by_email(email)
+    if not linked_store_name:
+        return None
+    matches = [
+        s for s in telegram_store.list_stores()
+        if s["approved"] and s["store_name"] == linked_store_name
+    ]
+    if len(matches) != 1:
+        return None
+    return matches[0]["chat_id"]
+
+
+def _format_store_report_message(report: dict) -> str:
+    wholesale = report["wholesale_items"]
+    coupang = report["coupang_items"]
+    icecream = report["icecream_items"]
+
+    lines = [f"📦 자동 발주 리포트 ({report['period_from']} ~ {report['period_to']} 집계)\n"]
+    idx = 1
+
+    if wholesale:
+        lines.append("[도매처 담기 대상]")
+        for it in wholesale:
+            lines.append(f"{idx}. {it['name']} {it['cases']}타 ({it['vendor_name']}, {it['sold_qty']}개 판매)")
+            idx += 1
+        lines.append("")
+
+    if coupang:
+        lines.append("*본 링크를 통하여 구매를 진행하실 경우 쿠팡 파트너스 활동의 일환으로 그에 따른 일정액의 수수료를 제공받습니다.")
+        lines.append("[쿠팡 구매 링크]")
+        for it in coupang:
+            price_text = f" ({it['price']:,}원)" if it.get("price") else ""
+            link = it.get("partners_link") or ""
+            lines.append(f"{idx}. {it['name']}{price_text} ({it['sold_qty']}개 판매)\n{link}")
+            idx += 1
+        lines.append("")
+
+    if icecream:
+        lines.append("[참고: 아이스크림]")
+        for it in icecream:
+            lines.append(f"- {it['name']} {it['cases']}박스 (판매기준)")
+        lines.append("")
+
+    if wholesale or coupang:
+        lines.append("전체 담기: '확인' / 이번엔 넘어가기: '스킵'")
+        lines.append("특정 항목 빼기: '3 빼줘' / 수량 수정: '1 4타로'")
+        lines.append("(취소하려면 '취소')")
+    elif not icecream:
+        lines.append("이번 집계에서는 발주 대상 상품이 없습니다.")
+
+    return "\n".join(lines)
+
+
+def _run_store_report_tick() -> None:
+    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    due = store_reports.list_due_schedules(now)
+    for sched in due:
+        store_id = sched["store_id"]
+        schedule_id = sched["id"]
+        try:
+            chat_id = _resolve_chat_id_for_store(store_id)
+            if not chat_id:
+                telegram_bot.alert_admin(f"자동 발주 리포트: {store_id}에 연결된 텔레그램 지점을 찾지 못했습니다.")
+                continue
+
+            report = store_reports.generate_report(store_id)
+            if not report.get("ok"):
+                telegram_bot.send_message(chat_id, f"자동 발주 리포트 생성에 실패했습니다.\n\n{report.get('reason')}")
+                continue
+
+            message = _format_store_report_message(report)
+            telegram_bot.send_message(chat_id, message)
+
+            if report["wholesale_items"] or report["coupang_items"]:
+                telegram_store.set_disambig_state(chat_id, {
+                    "mode": "report_confirm",
+                    "current": True,
+                    "store_id": store_id,
+                    "wholesale_items": report["wholesale_items"],
+                    "coupang_items": report["coupang_items"],
+                })
+        except Exception as e:
+            telegram_bot.alert_admin(f"자동 발주 리포트 처리 실패 (store_id={store_id}): {e}")
+        finally:
+            store_reports.mark_schedule_fired(schedule_id, now.date().isoformat())
+
+
+scheduler.add_job(
+    _run_store_report_tick,
+    trigger=IntervalTrigger(minutes=15),
+    id="store_report_tick",
     replace_existing=True,
 )
 
@@ -1232,6 +1338,47 @@ def api_my_vendors_set_preferred(req: MyVendorPreferredRequest, user: dict = Dep
     return {"ok": True}
 
 
+@app.get("/api/store-reports/schedules")
+def api_store_report_schedules_list(user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    return {
+        "linked_store_name": user.get("linked_store_name"),
+        "schedules": store_reports.list_schedules(store_id),
+    }
+
+
+class StoreReportScheduleRequest(BaseModel):
+    day_of_week: int = Field(..., ge=0, le=6, description="0=월 ... 6=일")
+    time: str = Field(..., pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+@app.post("/api/store-reports/schedules")
+def api_store_report_schedules_add(req: StoreReportScheduleRequest, user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    new_id = store_reports.add_schedule(store_id, req.day_of_week, req.time)
+    return {"ok": True, "id": new_id}
+
+
+@app.delete("/api/store-reports/schedules/{schedule_id}")
+def api_store_report_schedules_delete(schedule_id: int, user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    ok = store_reports.delete_schedule(store_id, schedule_id)
+    return {"ok": ok}
+
+
+class StoreReportScheduleToggleRequest(BaseModel):
+    enabled: bool
+
+
+@app.post("/api/store-reports/schedules/{schedule_id}/toggle")
+def api_store_report_schedules_toggle(
+    schedule_id: int, req: StoreReportScheduleToggleRequest, user: dict = Depends(require_web_user)
+):
+    store_id = f"web:{user['email']}"
+    ok = store_reports.set_schedule_enabled(store_id, schedule_id, req.enabled)
+    return {"ok": ok}
+
+
 @app.get("/popular", response_class=HTMLResponse)
 def popular_page(request: Request):
     if not get_current_web_user(request):
@@ -1816,7 +1963,9 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
     summary["도매몰품목수"] = int(sum(1 for x in top_items if x.get("is_coupang") == 2))
     summary["문구완구품목수"] = int(sum(1 for x in top_items if x.get("is_coupang") == 3))
 
-    # 인기상품 집계용 이력 기록 (전 가맹점 합산 TOP30 계산에 사용)
+    # 인기상품 집계용 이력 기록 (전 가맹점 합산 TOP30 계산에 사용) - store_id는
+    # 오더퀸 로그인ID가 아니라 실제 지점 식별자를 써야 지점별 집계(store_count)가
+    # 정확해진다.
     for item in top_items:
         qty = int(item.get("판매수량", 0) or 0)
         if qty <= 0:
@@ -1824,9 +1973,11 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
         barcode = str(item.get("바코드번호", "") or "").strip()
         name = str(item.get("메뉴명", "") or "")
         if item.get("is_coupang") == 0:
-            popularity.log_event(login_id, "icecream", barcode or name, name, qty)
+            popularity.log_event(store_id, "icecream", barcode or name, name, qty)
         elif item.get("is_coupang") == 1:
-            popularity.log_event(login_id, "coupang", barcode or name, name, qty)
+            popularity.log_event(store_id, "coupang", barcode or name, name, qty)
+        elif item.get("is_coupang") == 2:
+            popularity.log_event(store_id, "wholesale", barcode or name, name, qty)
 
     # 7) 엑셀 생성
     export_path = None

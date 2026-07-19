@@ -17,6 +17,7 @@ import consumables
 import popularity
 import price_compare
 import product_ranking
+import store_reports
 import telegram_store
 import vendors
 
@@ -650,6 +651,114 @@ def _handle_account_choice_reply(chat_id: str, state: dict, text: str) -> None:
     _ask_next_account_choice(chat_id, state)
 
 
+def _format_report_confirm_prompt(state: dict) -> str:
+    """항목 제외/수량 수정 이후 대기 리스트를 다시 보여줄 때 쓰는 재출력
+    (최초 발송 메시지는 main.py의 _format_store_report_message가 만든다)."""
+    lines = []
+    idx = 1
+    wholesale = state["wholesale_items"]
+    coupang = state["coupang_items"]
+
+    if wholesale:
+        lines.append("[도매처 담기 대상]")
+        for it in wholesale:
+            lines.append(f"{idx}. {it['name']} {it['cases']}타 ({it['vendor_name']}, {it['sold_qty']}개 판매)")
+            idx += 1
+        lines.append("")
+
+    if coupang:
+        lines.append("[쿠팡 구매 링크 - 위 메시지 참고]")
+        for it in coupang:
+            lines.append(f"{idx}. {it['name']}")
+            idx += 1
+        lines.append("")
+
+    lines.append("전체 담기: '확인' / 이번엔 넘어가기: '스킵'")
+    lines.append("특정 항목 빼기: '3 빼줘' / 수량 수정: '1 4타로'")
+    lines.append("(취소하려면 '취소')")
+    return "\n".join(lines)
+
+
+def _handle_report_confirm_reply(chat_id: str, state: dict, text: str) -> None:
+    stripped = text.strip()
+    store_id = state["store_id"]
+    wholesale = state["wholesale_items"]
+    coupang = state["coupang_items"]
+    total_count = len(wholesale) + len(coupang)
+
+    if stripped.lower() in CANCEL_WORDS or stripped in ("스킵", "skip"):
+        telegram_store.set_disambig_state(chat_id, None)
+        for it in wholesale:
+            store_reports.resolve_carryover_after_reply(store_id, it, "skipped")
+        send_message(chat_id, "자동 발주 리포트를 넘어갔습니다. 담기지 않은 도매처 품목의 판매량은 다음 리포트에 이어서 반영됩니다.")
+        return
+
+    if stripped in CONFIRM_WORDS:
+        telegram_store.set_disambig_state(chat_id, None)
+        if not wholesale:
+            send_message(chat_id, "담을 도매처 품목이 없습니다(쿠팡 링크는 위 메시지를 참고해주세요).")
+            return
+
+        for it in wholesale:
+            store_reports.resolve_carryover_after_reply(store_id, it, "confirmed")
+
+        pending_items = [
+            {
+                "vendor_id": it["vendor_id"], "vendor_name": it["vendor_name"],
+                "product_url": it["product_url"], "item_key": it["item_key"],
+                "item_name": it["name"], "qty": it["cases"],
+            }
+            for it in wholesale
+        ]
+
+        vendor_ids_needing_choice = sorted({
+            it["vendor_id"] for it in pending_items
+            if len(vendors.list_store_vendor_accounts(store_id, it["vendor_id"])) >= 2
+        })
+        if vendor_ids_needing_choice:
+            acc_state = {
+                "mode": "account_select", "store_id": store_id,
+                "queue": vendor_ids_needing_choice, "current": None,
+                "pending_items": pending_items, "resolved_accounts": {},
+            }
+            _ask_next_account_choice(chat_id, acc_state)
+            return
+
+        send_message(chat_id, "장바구니에 담는 중입니다. 잠시만 기다려주세요...")
+        cart_jobs.enqueue_telegram_batch(chat_id, store_id, pending_items, {})
+        return
+
+    m = re.match(r"^(\d+)\s*(?:번)?\s*빼줘$", stripped)
+    if m:
+        num = int(m.group(1))
+        idx = num - 1
+        if idx < 0 or idx >= total_count:
+            send_message(chat_id, f"1~{total_count} 사이 번호로 알려주세요.\n(취소하려면 '취소')")
+            return
+        if idx < len(wholesale):
+            removed = wholesale.pop(idx)
+            store_reports.resolve_carryover_after_reply(store_id, removed, "skipped")
+        else:
+            coupang.pop(idx - len(wholesale))
+        telegram_store.set_disambig_state(chat_id, state)
+        send_message(chat_id, f"{num}번 항목을 뺐습니다.\n\n" + _format_report_confirm_prompt(state))
+        return
+
+    m = re.match(r"^(\d+)\s*(?:번)?\s*(\d+)\s*타로$", stripped)
+    if m:
+        num, new_qty = int(m.group(1)), int(m.group(2))
+        idx = num - 1
+        if idx < 0 or idx >= len(wholesale):
+            send_message(chat_id, "도매처 담기 항목 번호만 수량을 수정할 수 있어요.\n(취소하려면 '취소')")
+            return
+        wholesale[idx]["cases"] = new_qty
+        telegram_store.set_disambig_state(chat_id, state)
+        send_message(chat_id, f"{num}번 항목 수량을 {new_qty}타로 수정했습니다.\n\n" + _format_report_confirm_prompt(state))
+        return
+
+    send_message(chat_id, "이해하지 못했어요. '확인'/'스킵'/'N 빼줘'/'N M타로'로 답장해주세요.\n(취소하려면 '취소')")
+
+
 def _format_account_status(store_id: str) -> str:
     lines = ["도매처별 등록 계정 현황:"]
     for vendor_id in CART_SUPPORTED_VENDORS:
@@ -954,6 +1063,8 @@ def handle_update(update: dict) -> None:
             _handle_barcode_lookup_reply(chat_id, text)
         elif mode == "barcode_add":
             _handle_barcode_add_reply(chat_id, disambig_state, text)
+        elif mode == "report_confirm":
+            _handle_report_confirm_reply(chat_id, disambig_state, text)
         else:
             _handle_disambiguation_reply(chat_id, disambig_state, text)
         return
