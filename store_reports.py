@@ -237,6 +237,25 @@ def set_carryover(store_id: str, item_key: str, category: str, carried_qty: int)
     conn.close()
 
 
+def apply_manual_pull_carryover(store_id: str, period_from: date, period_to: date, wholesale_items: list[dict]) -> None:
+    """예약 주기를 기다리지 않고 사용자가 /order에서 수동으로 판매 데이터를
+    불러왔을 때도 도매몰 판매량이 자동 리포트의 이월에서 누락되지 않게 반영한다.
+    period_from이 마지막 자동 집계 커서 다음날보다 이후(갭 발생)면 커서를 건드리지
+    않는다 - 그 갭 구간은 다음 자동 리포트가 [커서+1 ~ 오늘]을 다시 훑을 때 정상
+    포함되므로, 여기서 섣불리 커서를 전진시켜 그 구간을 영영 건너뛰게 만들면 안 된다."""
+    cursor = get_last_aggregated_until(store_id)
+    if period_from > cursor + timedelta(days=1) or period_to <= cursor:
+        return
+    for item in wholesale_items:
+        item_key = item.get("item_key")
+        qty = int(item.get("qty", 0) or 0)
+        if not item_key or qty <= 0:
+            continue
+        carried = get_carryover(store_id, item_key)
+        set_carryover(store_id, item_key, "wholesale", carried + qty)
+    set_last_aggregated_until(store_id, period_to)
+
+
 def resolve_carryover_after_reply(store_id: str, item: dict, outcome: str, final_qty: int | None = None) -> None:
     """텔레그램 확인/스킵/제외 응답 이후 도매처 품목의 이월값을 정산한다.
     outcome="confirmed": 실제 담은 만큼 소진하고 잔여만 이월.

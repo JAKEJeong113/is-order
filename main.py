@@ -1966,18 +1966,26 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
     # 인기상품 집계용 이력 기록 (전 가맹점 합산 TOP30 계산에 사용) - store_id는
     # 오더퀸 로그인ID가 아니라 실제 지점 식별자를 써야 지점별 집계(store_count)가
     # 정확해진다.
+    manual_wholesale_items = []
     for item in top_items:
         qty = int(item.get("판매수량", 0) or 0)
         if qty <= 0:
             continue
         barcode = str(item.get("바코드번호", "") or "").strip()
         name = str(item.get("메뉴명", "") or "")
+        item_key = barcode or name
         if item.get("is_coupang") == 0:
-            popularity.log_event(store_id, "icecream", barcode or name, name, qty)
+            popularity.log_event(store_id, "icecream", item_key, name, qty)
         elif item.get("is_coupang") == 1:
-            popularity.log_event(store_id, "coupang", barcode or name, name, qty)
+            popularity.log_event(store_id, "coupang", item_key, name, qty)
         elif item.get("is_coupang") == 2:
-            popularity.log_event(store_id, "wholesale", barcode or name, name, qty)
+            popularity.log_event(store_id, "wholesale", item_key, name, qty)
+            manual_wholesale_items.append({"item_key": item_key, "qty": qty})
+
+    # 예약 주기가 도래하지 않아도 수동으로 불러온 도매몰 판매량이 자동 리포트의
+    # 이월(carryover)에서 누락되지 않도록 반영한다 (갭이 있으면 store_reports가
+    # 알아서 커서를 건드리지 않고 건너뜀).
+    store_reports.apply_manual_pull_carryover(store_id, req.period_from, req.period_to, manual_wholesale_items)
 
     # 7) 엑셀 생성
     export_path = None
