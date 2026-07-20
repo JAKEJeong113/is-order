@@ -127,10 +127,12 @@ product_ranking.init_price_tracking_tables()
 biz_tools.init_table()
 consumables.init_table()
 mapping.init_catalog_table()
+mapping.init_unclassified_queue_table()
 patch_notes.init_patch_notes_table()
 web_cart.init_web_cart_table()
 cart_jobs.init_cart_jobs_table()
 store_reports.init_store_report_tables()
+store_reports.init_manual_report_table()
 
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 # CronTrigger를 직접 만들어서 trigger=로 넘기면 scheduler의 timezone을 자동으로
@@ -1303,6 +1305,17 @@ def admin_api_barcode_catalog_delete(barcode: str, _: bool = Depends(require_adm
     return {"ok": ok}
 
 
+@app.get("/admin/api/unclassified-queue")
+def admin_api_unclassified_queue_list(_: bool = Depends(require_admin)):
+    return {"ok": True, "items": mapping.list_unclassified_queue()}
+
+
+@app.delete("/admin/api/unclassified-queue/{barcode}")
+def admin_api_unclassified_queue_dismiss(barcode: str, _: bool = Depends(require_admin)):
+    ok = mapping.dismiss_unclassified_item(barcode)
+    return {"ok": ok}
+
+
 @app.get("/admin/api/catalog/download")
 def admin_api_catalog_download(_: bool = Depends(require_admin)):
     """현재 DB 카탈로그 전체를 엑셀로 받는다 - 로컬에서 수정한 뒤 업로드로
@@ -1843,6 +1856,17 @@ def download_export(job_id: str):
     )
 
 
+@app.get("/api/order/last-report")
+def api_order_last_report(user: dict = Depends(require_web_user)):
+    """order 페이지를 벗어나도(새로고침 포함) 마지막으로 수동 생성한 발주표를
+    이어볼 수 있도록 저장된 결과를 돌려준다 - 지점당 최신 1건만 보관."""
+    store_id = f"web:{user['email']}"
+    saved = store_reports.get_manual_report(store_id)
+    if not saved:
+        return {"ok": False}
+    return {"ok": True, **saved}
+
+
 @app.post("/import/orderqueen", response_model=OrderQueenImportResponse)
 def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(require_web_user)):
     store_id = f"web:{user['email']}"
@@ -1975,6 +1999,8 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
 
         else:
             order_type = 99
+            if barcode:
+                mapping.queue_unclassified_item(barcode, str(item.get("메뉴명", "") or ""), store_id)
 
             item["is_coupang_item"] = False
             item["is_coupang"] = 99
@@ -2203,7 +2229,7 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
             if representative_product:
                 pd.DataFrame([representative_product]).to_excel(w, index=False, sheet_name="대표상품")
 
-    return {
+    response = {
         "job_id": job_id,
         "xlsx_path": sales_xlsx_path,
         "summary": summary,
@@ -2212,3 +2238,10 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
         "representative_product": representative_product,
         "representative_partner_link": representative_partner_link,
     }
+
+    # order 페이지를 벗어나도 마지막 수동 생성 결과를 이어볼 수 있도록 저장.
+    store_reports.save_manual_report(
+        store_id, req.period_from.isoformat(), req.period_to.isoformat(), safety, response,
+    )
+
+    return response

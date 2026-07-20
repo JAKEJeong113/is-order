@@ -726,6 +726,7 @@
 
   <div class="card">
     <div class="section-title">발주 추천 수동 생성</div>
+    <div class="top-note" id="lastGeneratedText" style="display:none; margin-bottom:10px;"></div>
     <div class="grid grid-4">
       <div>
         <div class="muted" style="margin-bottom:6px;">조회 시작일</div>
@@ -1159,6 +1160,10 @@
 
       document.getElementById("sendTelegramBtn").disabled = false;
 
+      const label = document.getElementById("lastGeneratedText");
+      label.style.display = "";
+      label.innerText = `마지막 생성: 방금 (${periodFrom} ~ ${periodTo})`;
+
     } catch (e) {
       alert("요청 중 오류가 발생했어.\n\n" + e);
     } finally {
@@ -1200,8 +1205,28 @@
     }
   }
 
+  async function loadLastReport() {
+    try {
+      const res = await fetch("/api/order/last-report");
+      const data = await res.json();
+      if (!data.ok || !data.report) return;
+
+      currentData = data.report;
+      renderSummary(currentData);
+      renderTable();
+      document.getElementById("sendTelegramBtn").disabled = false;
+
+      const label = document.getElementById("lastGeneratedText");
+      label.style.display = "";
+      label.innerText = `마지막 생성: ${data.generated_at} (${data.period_from} ~ ${data.period_to})`;
+    } catch (e) {
+      // 저장된 리포트가 없거나 불러오기 실패해도 페이지 사용에는 지장 없음
+    }
+  }
+
   setDefaultDates();
   loadStoreReportSchedules();
+  loadLastReport();
 </script>
 </body>
 </html>

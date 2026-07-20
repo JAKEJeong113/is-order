@@ -63,11 +63,35 @@
     .status-text { font-size: 11px; color: var(--muted); }
     .status-text.error { color: #b91c1c; }
     .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
+    .queue-row {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px 14px; margin-bottom: 8px; display: flex; gap: 12px;
+      align-items: center; justify-content: space-between;
+    }
+    .queue-main { flex: 1; min-width: 0; }
+    .queue-name { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+    .queue-meta { font-size: 11px; color: var(--muted); }
+    .queue-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .classify-btn {
+      padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 700; cursor: pointer; background: var(--mint); color: white;
+    }
+    .dismiss-btn {
+      padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px;
+      font-weight: 700; cursor: pointer; background: #f3f4f6; color: var(--muted);
+    }
   </style>
 </head>
 <body>
   <h1>바코드 카탈로그 관리</h1>
   <div class="hint-text" id="totalCountText"></div>
+
+  <h2>미분류 대기목록</h2>
+  <div class="hint-text" id="queueCountText">
+    각 지점에서 수동/자동 발주표를 만들 때 카탈로그에 없는 바코드를 만나면
+    여기 쌓입니다. "분류하기"를 누르면 아래 추가 폼에 바로 채워집니다.
+  </div>
+  <div id="queueList"></div>
 
   <h2>엑셀 업로드/다운로드 (대량 수정)</h2>
   <div class="upload-card">
@@ -120,6 +144,61 @@
         .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
+
+    async function loadQueue() {
+      const res = await fetch("/admin/api/unclassified-queue");
+      const data = await res.json();
+      const listEl = document.getElementById("queueList");
+      if (!data.ok || !data.items || data.items.length === 0) {
+        listEl.innerHTML = '<div class="empty-text">대기 중인 미분류 상품이 없습니다.</div>';
+        return;
+      }
+      listEl.innerHTML = data.items.map((it) => `
+        <div class="queue-row" data-barcode="${escapeHtml(it.barcode)}" data-name="${escapeHtml(it.item_name || "")}">
+          <div class="queue-main">
+            <div class="queue-name">${escapeHtml(it.item_name || "(이름 없음)")}</div>
+            <div class="queue-meta">
+              바코드 ${escapeHtml(it.barcode)} · ${it.occurrence_count}회 발생 ·
+              ${it.store_count}개 지점 · 최초 ${escapeHtml(it.first_seen_at || "")}
+            </div>
+          </div>
+          <div class="queue-actions">
+            <button class="classify-btn">분류하기</button>
+            <button class="dismiss-btn">무시</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    document.getElementById("queueList").addEventListener("click", async (e) => {
+      const row = e.target.closest(".queue-row");
+      if (!row) return;
+      const barcode = row.dataset.barcode;
+      const name = row.dataset.name;
+
+      if (e.target.classList.contains("classify-btn")) {
+        const tempKey = "new_" + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random());
+        newItems.unshift({
+          barcode, _tempKey: tempKey, menu_name: name, recommended_price: null,
+          is_coupang: 99, pack_qty: null, icecream_box_qty: null, search_keyword: "",
+        });
+        render();
+        document.getElementById("list").scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+
+      if (e.target.classList.contains("dismiss-btn")) {
+        if (!confirm(`"${name}"을(를) 대기목록에서 제거할까요? (분류하지 않고 그냥 숨김 처리)`)) return;
+        e.target.disabled = true;
+        try {
+          const res = await fetch(`/admin/api/unclassified-queue/${encodeURIComponent(barcode)}`, { method: "DELETE" });
+          const data = await res.json();
+          if (data.ok) await loadQueue();
+        } finally {
+          e.target.disabled = false;
+        }
+      }
+    });
 
     async function loadItems() {
       const res = await fetch("/admin/api/barcode-catalog");
@@ -339,6 +418,7 @@
         if (data.ok) {
           statusEl.textContent = "저장 완료";
           await loadItems();
+          await loadQueue();
         } else {
           statusEl.textContent = data.error || "저장 실패";
           statusEl.classList.add("error");
@@ -352,6 +432,7 @@
     });
 
     loadItems();
+    loadQueue();
   </script>
 </body>
 </html>

@@ -3,6 +3,7 @@
 텔레그램으로 발주 리스트(도매처 담기 대상 + 쿠팡 구매링크 + 아이스크림 참고)를
 보낸다. 1타(pack_qty/icecream_box_qty) 대비 60% 이상 팔린 상품만 추천하고,
 미달로 빠진 도매처 품목은 다음 집계 때 이월(carryover)해서 계속 더한다."""
+import json
 import math
 import uuid
 from datetime import date, datetime, timedelta
@@ -70,6 +71,59 @@ def init_store_report_tables() -> None:
         cur.execute("ALTER TABLE store_report_schedules ADD COLUMN account_id INTEGER")
         conn.commit()
     conn.close()
+
+
+def init_manual_report_table() -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS store_manual_reports (
+        store_id TEXT PRIMARY KEY,
+        generated_at TEXT,
+        period_from TEXT,
+        period_to TEXT,
+        safety_stock INTEGER,
+        report_json TEXT
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def save_manual_report(store_id: str, period_from: str, period_to: str, safety_stock: int, report: dict) -> str:
+    """/order 페이지를 벗어나도 마지막으로 수동 생성한 발주표를 이어볼 수
+    있도록 지점당 최신 1건만 저장한다(이력 보관이 목적이 아니라 "새로고침해도
+    안 없어지게"가 목적이라 UPSERT)."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    INSERT INTO store_manual_reports (store_id, generated_at, period_from, period_to, safety_stock, report_json)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(store_id) DO UPDATE SET
+        generated_at=excluded.generated_at, period_from=excluded.period_from, period_to=excluded.period_to,
+        safety_stock=excluded.safety_stock, report_json=excluded.report_json
+    """, (store_id, now, period_from, period_to, safety_stock, json.dumps(report, ensure_ascii=False)))
+    conn.commit()
+    conn.close()
+    return now
+
+
+def get_manual_report(store_id: str) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT generated_at, period_from, period_to, safety_stock, report_json
+    FROM store_manual_reports WHERE store_id = ?
+    """, (store_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "generated_at": row[0], "period_from": row[1], "period_to": row[2],
+        "safety_stock": row[3], "report": json.loads(row[4]),
+    }
 
 
 def report_key(store_id: str, account_id: int | None) -> str:
@@ -397,6 +451,8 @@ def _classify_report_items(
             # 이월값은 여기서 갱신하지 않는다 - 텔레그램 확인/스킵 결과가 나온 뒤
             # resolve_carryover_after_reply()가 확정한다.
         else:
+            if is_coupang == 99 and barcode:
+                mapping.queue_unclassified_item(barcode, name, store_id)
             other_items.append({"item_key": item_key, "name": name, "sold_qty": sold_qty})
 
     return {

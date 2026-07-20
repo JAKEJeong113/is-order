@@ -163,6 +163,92 @@ def init_catalog_table() -> None:
             print(f"[MAPPING] 카탈로그 DB 최초 시드 완료: {len(seed_catalog)}개")
 
 
+# --- 미분류 대기열: 지점(수동/자동 리포트 어디서든)에서 카탈로그에 없는
+# 바코드를 만나면 여기 쌓인다 - 전 지점 공용 하나로 모아서, 관리자가
+# /admin/barcode-catalog에서 한 번에 분류할 수 있게 한다. ---
+
+def init_unclassified_queue_table() -> None:
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS unclassified_queue (
+        barcode TEXT PRIMARY KEY,
+        item_name TEXT,
+        store_ids TEXT,
+        occurrence_count INTEGER NOT NULL DEFAULT 1,
+        first_seen_at TEXT,
+        last_seen_at TEXT
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def queue_unclassified_item(barcode: str, item_name: str, store_id: str) -> None:
+    """카탈로그에 없는 바코드를 리포트 생성 중 만나면 호출한다. 이미 대기열에
+    있으면 발생 횟수/최근 발견 시각/지점 목록만 갱신하고(중복 안 쌓임),
+    처음이면 새로 추가한다."""
+    barcode = (barcode or "").strip()
+    if not barcode:
+        return
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT store_ids, occurrence_count FROM unclassified_queue WHERE barcode = ?", (barcode,))
+    row = cur.fetchone()
+    if row:
+        stores = {s for s in (row[0] or "").split(",") if s}
+        stores.add(store_id)
+        cur.execute("""
+        UPDATE unclassified_queue SET item_name = ?, store_ids = ?, occurrence_count = ?, last_seen_at = ?
+        WHERE barcode = ?
+        """, (item_name or "", ",".join(sorted(stores)), row[1] + 1, now, barcode))
+    else:
+        cur.execute("""
+        INSERT INTO unclassified_queue (barcode, item_name, store_ids, occurrence_count, first_seen_at, last_seen_at)
+        VALUES (?, ?, ?, 1, ?, ?)
+        """, (barcode, item_name or "", store_id, now, now))
+    conn.commit()
+    conn.close()
+
+
+def list_unclassified_queue(limit: int = 200) -> list[dict]:
+    """이미 카탈로그에 등록된(관리자가 분류 완료한) 바코드는 걸러서 안
+    보여준다 - upsert_catalog_item이 대기열에서 지워주긴 하지만, 혹시 놓친
+    경우를 대비해 조회 시점에도 한 번 더 확인한다."""
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT barcode, item_name, store_ids, occurrence_count, first_seen_at, last_seen_at
+    FROM unclassified_queue ORDER BY occurrence_count DESC, last_seen_at DESC LIMIT ?
+    """, (limit,))
+    rows = cur.fetchall()
+    conn.close()
+
+    catalog = load_catalog()
+    result = []
+    for barcode, item_name, store_ids, occurrence_count, first_seen_at, last_seen_at in rows:
+        if barcode in catalog:
+            continue
+        store_count = len([s for s in (store_ids or "").split(",") if s])
+        result.append({
+            "barcode": barcode, "item_name": item_name, "store_count": store_count,
+            "occurrence_count": occurrence_count, "first_seen_at": first_seen_at,
+            "last_seen_at": last_seen_at,
+        })
+    return result
+
+
+def dismiss_unclassified_item(barcode: str) -> bool:
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM unclassified_queue WHERE barcode = ?", (barcode,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
 def _item_values(item: "CoupangCatalogItem", now: str) -> tuple:
     return (
         item.barcode, item.menu_name, item.search_keyword, item.fixed_url,
@@ -202,6 +288,8 @@ def upsert_catalog_item(item: "CoupangCatalogItem") -> None:
     """, _item_values(item, now))
     conn.commit()
     conn.close()
+    if item.is_coupang != 99:
+        dismiss_unclassified_item(item.barcode)
 
 
 def delete_catalog_item(barcode: str) -> bool:
