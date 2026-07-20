@@ -53,7 +53,7 @@ def get_top_items(category: str, limit: int = 30, days: int = 60) -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT item_key, item_name, SUM(qty) AS total_qty, COUNT(DISTINCT store_id) AS store_count
+    SELECT item_key, MAX(item_name) AS item_name, SUM(qty) AS total_qty, COUNT(DISTINCT store_id) AS store_count
     FROM order_events
     WHERE category = ? AND created_at >= ?
     GROUP BY item_key
