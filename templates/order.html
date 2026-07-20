@@ -727,7 +727,11 @@
   <div class="card">
     <div class="section-title">발주 추천 수동 생성</div>
     <div class="top-note" id="lastGeneratedText" style="display:none; margin-bottom:10px;"></div>
-    <div class="grid grid-4">
+    <div class="grid grid-5">
+      <div>
+        <div class="muted" style="margin-bottom:6px;">지점(오더퀸 계정)</div>
+        <select id="manualAccountId" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid #d1d5db; background:white; box-sizing:border-box;"></select>
+      </div>
       <div>
         <div class="muted" style="margin-bottom:6px;">조회 시작일</div>
         <input id="periodFrom" type="date">
@@ -886,12 +890,18 @@
   }
 
   function renderAccountOptions(accounts) {
-    const select = document.getElementById("scheduleAccountId");
     const options = ['<option value="">기본 계정</option>'];
     for (const a of accounts) {
       options.push(`<option value="${a.id}">${a.nickname}</option>`);
     }
-    select.innerHTML = options.join("");
+    const html = options.join("");
+    document.getElementById("scheduleAccountId").innerHTML = html;
+    document.getElementById("manualAccountId").innerHTML = html;
+  }
+
+  function getManualAccountId() {
+    const raw = document.getElementById("manualAccountId").value;
+    return raw ? parseInt(raw, 10) : null;
   }
 
   function renderStoreReportSchedules(schedules) {
@@ -1130,7 +1140,8 @@
       period_from: periodFrom,
       period_to: periodTo,
       safety_stock: safetyStock,
-      export_xlsx: true
+      export_xlsx: true,
+      account_id: getManualAccountId()
     };
 
     showLoadingModal();
@@ -1162,7 +1173,8 @@
 
       const label = document.getElementById("lastGeneratedText");
       label.style.display = "";
-      label.innerText = `마지막 생성: 방금 (${periodFrom} ~ ${periodTo})`;
+      const acctPrefix = data.account_nickname ? `[${data.account_nickname}] ` : "";
+      label.innerText = `${acctPrefix}마지막 생성: 방금 (${periodFrom} ~ ${periodTo})`;
 
     } catch (e) {
       alert("요청 중 오류가 발생했어.\n\n" + e);
@@ -1189,6 +1201,7 @@
           period_from: document.getElementById("periodFrom").value,
           period_to: document.getElementById("periodTo").value,
           top_items: currentData.top_items,
+          account_id: getManualAccountId(),
         }),
       });
       const data = await res.json();
@@ -1206,23 +1219,34 @@
   }
 
   async function loadLastReport() {
+    const accountId = getManualAccountId();
+    const label = document.getElementById("lastGeneratedText");
     try {
-      const res = await fetch("/api/order/last-report");
+      const url = accountId ? `/api/order/last-report?account_id=${accountId}` : "/api/order/last-report";
+      const res = await fetch(url);
       const data = await res.json();
-      if (!data.ok || !data.report) return;
+      if (!data.ok || !data.report) {
+        currentData = null;
+        renderTable();
+        document.getElementById("sendTelegramBtn").disabled = true;
+        label.style.display = "none";
+        return;
+      }
 
       currentData = data.report;
       renderSummary(currentData);
       renderTable();
       document.getElementById("sendTelegramBtn").disabled = false;
 
-      const label = document.getElementById("lastGeneratedText");
+      const acctPrefix = data.report.account_nickname ? `[${data.report.account_nickname}] ` : "";
       label.style.display = "";
-      label.innerText = `마지막 생성: ${data.generated_at} (${data.period_from} ~ ${data.period_to})`;
+      label.innerText = `${acctPrefix}마지막 생성: ${data.generated_at} (${data.period_from} ~ ${data.period_to})`;
     } catch (e) {
       // 저장된 리포트가 없거나 불러오기 실패해도 페이지 사용에는 지장 없음
     }
   }
+
+  document.getElementById("manualAccountId").addEventListener("change", () => loadLastReport());
 
   setDefaultDates();
   loadStoreReportSchedules();

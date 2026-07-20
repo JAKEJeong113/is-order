@@ -90,10 +90,14 @@ def init_manual_report_table() -> None:
     conn.close()
 
 
-def save_manual_report(store_id: str, period_from: str, period_to: str, safety_stock: int, report: dict) -> str:
+def save_manual_report(
+    store_id: str, account_id: int | None, period_from: str, period_to: str, safety_stock: int, report: dict,
+) -> str:
     """/order 페이지를 벗어나도 마지막으로 수동 생성한 발주표를 이어볼 수
-    있도록 지점당 최신 1건만 저장한다(이력 보관이 목적이 아니라 "새로고침해도
-    안 없어지게"가 목적이라 UPSERT)."""
+    있도록 지점(계정)당 최신 1건만 저장한다(이력 보관이 목적이 아니라
+    "새로고침해도 안 없어지게"가 목적이라 UPSERT). account_id로 report_key를
+    계산해써야 다점포 점주가 지점을 바꿔 생성해도 서로 덮어쓰지 않는다."""
+    key = report_key(store_id, account_id)
     now = datetime.now().isoformat(timespec="seconds")
     conn = get_conn()
     cur = conn.cursor()
@@ -103,19 +107,20 @@ def save_manual_report(store_id: str, period_from: str, period_to: str, safety_s
     ON CONFLICT(store_id) DO UPDATE SET
         generated_at=excluded.generated_at, period_from=excluded.period_from, period_to=excluded.period_to,
         safety_stock=excluded.safety_stock, report_json=excluded.report_json
-    """, (store_id, now, period_from, period_to, safety_stock, json.dumps(report, ensure_ascii=False)))
+    """, (key, now, period_from, period_to, safety_stock, json.dumps(report, ensure_ascii=False)))
     conn.commit()
     conn.close()
     return now
 
 
-def get_manual_report(store_id: str) -> dict | None:
+def get_manual_report(store_id: str, account_id: int | None = None) -> dict | None:
+    key = report_key(store_id, account_id)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
     SELECT generated_at, period_from, period_to, safety_stock, report_json
     FROM store_manual_reports WHERE store_id = ?
-    """, (store_id,))
+    """, (key,))
     row = cur.fetchone()
     conn.close()
     if not row:
@@ -312,13 +317,20 @@ def set_carryover(store_id: str, item_key: str, category: str, carried_qty: int)
     conn.close()
 
 
-def apply_manual_pull_carryover(store_id: str, period_from: date, period_to: date, wholesale_items: list[dict]) -> None:
+def apply_manual_pull_carryover(
+    store_id: str, account_id: int | None, period_from: date, period_to: date, wholesale_items: list[dict],
+) -> None:
     """예약 주기를 기다리지 않고 사용자가 /order에서 수동으로 판매 데이터를
     불러왔을 때도 도매몰 판매량이 자동 리포트의 이월에서 누락되지 않게 반영한다.
+    account_id로 report_key를 계산해써야 generate_report()가 쓰는 것과 같은
+    이월/커서 버킷을 공유한다 - 안 그러면 다점포 점주가 지점을 바꿔가며 수동
+    조회할 때 서로 다른 지점의 판매량이 한 버킷에 섞여버린다.
+
     period_from이 마지막 자동 집계 커서 다음날보다 이후(갭 발생)면 커서를 건드리지
     않는다 - 그 갭 구간은 다음 자동 리포트가 [커서+1 ~ 오늘]을 다시 훑을 때 정상
     포함되므로, 여기서 섣불리 커서를 전진시켜 그 구간을 영영 건너뛰게 만들면 안 된다."""
-    cursor = get_last_aggregated_until(store_id)
+    key = report_key(store_id, account_id)
+    cursor = get_last_aggregated_until(key)
     if period_from > cursor + timedelta(days=1) or period_to <= cursor:
         return
     for item in wholesale_items:
@@ -326,9 +338,9 @@ def apply_manual_pull_carryover(store_id: str, period_from: date, period_to: dat
         qty = int(item.get("qty", 0) or 0)
         if not item_key or qty <= 0:
             continue
-        carried = get_carryover(store_id, item_key)
-        set_carryover(store_id, item_key, "wholesale", carried + qty)
-    set_last_aggregated_until(store_id, period_to)
+        carried = get_carryover(key, item_key)
+        set_carryover(key, item_key, "wholesale", carried + qty)
+    set_last_aggregated_until(key, period_to)
 
 
 def resolve_carryover_after_reply(key: str, item: dict, outcome: str, final_qty: int | None = None) -> None:

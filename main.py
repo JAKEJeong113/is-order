@@ -460,6 +460,7 @@ class OrderQueenImportRequest(BaseModel):
     period_to: date
     safety_stock: int = Field(0, ge=0, le=9999, description="전 품목 공통 안전재고")
     export_xlsx: bool = Field(True, description="true면 발주 엑셀을 생성합니다.")
+    account_id: Optional[int] = Field(None, description="다점포 점주가 지점(오더퀸 계정)을 지정할 때. 안 주면 기본 계정.")
 
 
 class OrderQueenImportResponse(BaseModel):
@@ -470,6 +471,8 @@ class OrderQueenImportResponse(BaseModel):
     export_path: Optional[str] = None
     representative_product: Optional[dict] = None
     representative_partner_link: Optional[str] = None
+    account_id: Optional[int] = None
+    account_nickname: Optional[str] = None
 
 class YamimallCartRequest(BaseModel):
     items: list[dict]
@@ -1489,6 +1492,7 @@ class SendManualReportRequest(BaseModel):
     period_from: date
     period_to: date
     top_items: list[dict]
+    account_id: Optional[int] = None
 
 
 @app.post("/api/store-reports/send-manual")
@@ -1501,7 +1505,7 @@ def api_store_reports_send_manual(req: SendManualReportRequest, user: dict = Dep
     if not chat_id:
         return {"ok": False, "message": "이 계정에 연결된 텔레그램 지점이 없습니다. 관리자에게 지점 연결을 요청해주세요."}
 
-    classified = store_reports.build_manual_wholesale_report(store_id, None, req.top_items)
+    classified = store_reports.build_manual_wholesale_report(store_id, req.account_id, req.top_items)
     report = {
         "period_from": req.period_from.isoformat(),
         "period_to": req.period_to.isoformat(),
@@ -1858,11 +1862,11 @@ def download_export(job_id: str):
 
 
 @app.get("/api/order/last-report")
-def api_order_last_report(user: dict = Depends(require_web_user)):
+def api_order_last_report(account_id: Optional[int] = Query(None), user: dict = Depends(require_web_user)):
     """order 페이지를 벗어나도(새로고침 포함) 마지막으로 수동 생성한 발주표를
-    이어볼 수 있도록 저장된 결과를 돌려준다 - 지점당 최신 1건만 보관."""
+    이어볼 수 있도록 저장된 결과를 돌려준다 - 지점(계정)당 최신 1건만 보관."""
     store_id = f"web:{user['email']}"
-    saved = store_reports.get_manual_report(store_id)
+    saved = store_reports.get_manual_report(store_id, account_id)
     if not saved:
         return {"ok": False}
     return {"ok": True, **saved}
@@ -1871,13 +1875,15 @@ def api_order_last_report(user: dict = Depends(require_web_user)):
 @app.post("/import/orderqueen", response_model=OrderQueenImportResponse)
 def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(require_web_user)):
     store_id = f"web:{user['email']}"
-    creds = vendors.get_store_vendor_credentials(store_id, "orderqueen")
+    creds = vendors.get_store_vendor_credentials(store_id, "orderqueen", req.account_id)
     if not creds:
         raise HTTPException(
             status_code=400,
             detail="오더퀸 계정이 등록되어 있지 않습니다. '내 도매처 계정'에서 먼저 등록해주세요.",
         )
     login_id, login_pw = creds
+    account = vendors.resolve_store_vendor_account(store_id, "orderqueen", req.account_id)
+    account_nickname = account["nickname"] if account else None
 
     job_id = uuid.uuid4().hex[:8]
     sales_xlsx_path = str(DOWNLOAD_DIR / f"아이즈크림 오산세교_{job_id}.xlsx")
@@ -2200,7 +2206,7 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
     # 예약 주기가 도래하지 않아도 수동으로 불러온 도매몰 판매량이 자동 리포트의
     # 이월(carryover)에서 누락되지 않도록 반영한다 (갭이 있으면 store_reports가
     # 알아서 커서를 건드리지 않고 건너뜀).
-    store_reports.apply_manual_pull_carryover(store_id, req.period_from, req.period_to, manual_wholesale_items)
+    store_reports.apply_manual_pull_carryover(store_id, req.account_id, req.period_from, req.period_to, manual_wholesale_items)
 
     # 7) 엑셀 생성
     export_path = None
@@ -2238,11 +2244,13 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
         "export_path": export_path,
         "representative_product": representative_product,
         "representative_partner_link": representative_partner_link,
+        "account_id": req.account_id,
+        "account_nickname": account_nickname,
     }
 
     # order 페이지를 벗어나도 마지막 수동 생성 결과를 이어볼 수 있도록 저장.
     store_reports.save_manual_report(
-        store_id, req.period_from.isoformat(), req.period_to.isoformat(), safety, response,
+        store_id, req.account_id, req.period_from.isoformat(), req.period_to.isoformat(), safety, response,
     )
 
     return response
