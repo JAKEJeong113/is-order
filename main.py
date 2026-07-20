@@ -1940,6 +1940,7 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
 
     # 4) 쿠팡 카탈로그 로드
     catalog = mapping.load_catalog()
+    disabled_vendors, preferred_vendor = vendors.get_store_vendor_prefs(store_id)
 
     for item in top_items:
         barcode = str(item.get("바코드번호", "") or "").strip().replace(".0", "")
@@ -2072,6 +2073,41 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
             item["추천발주량_포장반영"] = recommended_qty
             item["주문표시"] = box_display
             item["발주판단사유"] = order_reason
+
+    # 도매몰 발주 계산: 크롤러가 실제로 읽어온 1타 개수(unit_qty)를 알 때만
+    # 60% 규칙(자동 리포트와 동일한 apply_case_rule)을 적용한다 - 카탈로그의
+    # pack_qty는 관리자가 안 채우면 기본값 1이라 "모른다"를 구분할 수 없어서
+    # 안 쓴다(1타=1개로 잘못 가정하면 판매수량=타수 사고가 재현됨).
+        if item["is_coupang"] == 2 and cat:
+            sold_qty = int(item.get("판매수량", 0) or 0)
+            keyword = cat.search_keyword or cat.menu_name or item.get("메뉴명", "")
+            offer = None
+            if keyword:
+                compare_result = price_compare.compare(keyword)
+                groups = price_compare.filter_groups_for_store(compare_result.get("groups", []), disabled_vendors)
+                for group in groups:
+                    offer = store_reports._pick_best_offer(group.get("offers", []), preferred_vendor)
+                    if offer:
+                        break
+
+            unit_qty = int(offer.get("unit_qty") or 0) if offer else 0
+            if unit_qty <= 0:
+                item["추천박스수"] = "1타 수량 미확인"
+                item["포장반영"] = "#N/A"
+                item["추천발주량_포장반영"] = "#N/A"
+                item["주문표시"] = "1타 수량 미확인"
+                continue
+
+            ratio = sold_qty / unit_qty
+            cases = store_reports.apply_case_rule(sold_qty, unit_qty)
+            box_display = f"{cases}타 ({ratio:.2f})" if cases > 0 else f"60% 미달 ({ratio:.2f})"
+
+            item["박스입수"] = unit_qty
+            item["추천박스수"] = box_display
+            item["포장반영"] = cases
+            item["추천발주량_포장반영"] = cases * unit_qty
+            item["주문표시"] = box_display
+            item["wholesale_vendor_name"] = offer.get("vendor_name", offer.get("vendor_id", ""))
 
 
     # 5) 대표 상품 선택
