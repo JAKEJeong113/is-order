@@ -241,7 +241,8 @@ def _format_store_report_message(report: dict) -> str:
     coupang = report["coupang_items"]
     icecream = report["icecream_items"]
 
-    lines = [f"📦 자동 발주 리포트 ({report['period_from']} ~ {report['period_to']} 집계)\n"]
+    branch_label = f" [{report['account_nickname']}]" if report.get("account_nickname") else ""
+    lines = [f"📦{branch_label} 자동 발주 리포트 ({report['period_from']} ~ {report['period_to']} 집계)\n"]
     idx = 1
 
     if wholesale:
@@ -283,13 +284,14 @@ def _run_store_report_tick() -> None:
     for sched in due:
         store_id = sched["store_id"]
         schedule_id = sched["id"]
+        account_id = sched.get("account_id")
         try:
             chat_id = _resolve_chat_id_for_store(store_id)
             if not chat_id:
                 telegram_bot.alert_admin(f"자동 발주 리포트: {store_id}에 연결된 텔레그램 지점을 찾지 못했습니다.")
                 continue
 
-            report = store_reports.generate_report(store_id)
+            report = store_reports.generate_report(store_id, account_id)
             if not report.get("ok"):
                 telegram_bot.send_message(chat_id, f"자동 발주 리포트 생성에 실패했습니다.\n\n{report.get('reason')}")
                 continue
@@ -302,6 +304,7 @@ def _run_store_report_tick() -> None:
                     "mode": "report_confirm",
                     "current": True,
                     "store_id": store_id,
+                    "report_key": report["report_key"],
                     "wholesale_items": report["wholesale_items"],
                     "coupang_items": report["coupang_items"],
                 })
@@ -1341,21 +1344,28 @@ def api_my_vendors_set_preferred(req: MyVendorPreferredRequest, user: dict = Dep
 @app.get("/api/store-reports/schedules")
 def api_store_report_schedules_list(user: dict = Depends(require_web_user)):
     store_id = f"web:{user['email']}"
+    accounts = vendors.list_store_vendor_accounts(store_id, "orderqueen")
+    nickname_by_id = {a["id"]: a["nickname"] for a in accounts}
+    schedules = store_reports.list_schedules(store_id)
+    for s in schedules:
+        s["account_nickname"] = nickname_by_id.get(s["account_id"])
     return {
         "linked_store_name": user.get("linked_store_name"),
-        "schedules": store_reports.list_schedules(store_id),
+        "orderqueen_accounts": accounts,
+        "schedules": schedules,
     }
 
 
 class StoreReportScheduleRequest(BaseModel):
     day_of_week: int = Field(..., ge=0, le=6, description="0=월 ... 6=일")
     time: str = Field(..., pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    account_id: Optional[int] = None
 
 
 @app.post("/api/store-reports/schedules")
 def api_store_report_schedules_add(req: StoreReportScheduleRequest, user: dict = Depends(require_web_user)):
     store_id = f"web:{user['email']}"
-    new_id = store_reports.add_schedule(store_id, req.day_of_week, req.time)
+    new_id = store_reports.add_schedule(store_id, req.day_of_week, req.time, req.account_id)
     return {"ok": True, "id": new_id}
 
 

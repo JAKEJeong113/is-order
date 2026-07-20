@@ -682,6 +682,7 @@ def _format_report_confirm_prompt(state: dict) -> str:
 def _handle_report_confirm_reply(chat_id: str, state: dict, text: str) -> None:
     stripped = text.strip()
     store_id = state["store_id"]
+    carryover_key = state.get("report_key", store_id)
     wholesale = state["wholesale_items"]
     coupang = state["coupang_items"]
     total_count = len(wholesale) + len(coupang)
@@ -689,7 +690,7 @@ def _handle_report_confirm_reply(chat_id: str, state: dict, text: str) -> None:
     if stripped.lower() in CANCEL_WORDS or stripped in ("스킵", "skip"):
         telegram_store.set_disambig_state(chat_id, None)
         for it in wholesale:
-            store_reports.resolve_carryover_after_reply(store_id, it, "skipped")
+            store_reports.resolve_carryover_after_reply(carryover_key, it, "skipped")
         send_message(chat_id, "자동 발주 리포트를 넘어갔습니다. 담기지 않은 도매처 품목의 판매량은 다음 리포트에 이어서 반영됩니다.")
         return
 
@@ -700,7 +701,7 @@ def _handle_report_confirm_reply(chat_id: str, state: dict, text: str) -> None:
             return
 
         for it in wholesale:
-            store_reports.resolve_carryover_after_reply(store_id, it, "confirmed")
+            store_reports.resolve_carryover_after_reply(carryover_key, it, "confirmed")
 
         pending_items = [
             {
@@ -737,7 +738,7 @@ def _handle_report_confirm_reply(chat_id: str, state: dict, text: str) -> None:
             return
         if idx < len(wholesale):
             removed = wholesale.pop(idx)
-            store_reports.resolve_carryover_after_reply(store_id, removed, "skipped")
+            store_reports.resolve_carryover_after_reply(carryover_key, removed, "skipped")
         else:
             coupang.pop(idx - len(wholesale))
         telegram_store.set_disambig_state(chat_id, state)

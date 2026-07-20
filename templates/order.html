@@ -702,96 +702,6 @@
     </div>
   </div>
 
-  <div class="grid grid-2">
-    <div class="card">
-      <div class="section-title">지점 정보 / 자동 로그인</div>
-
-      <div style="margin-bottom:18px;">
-        <div class="muted" style="margin-bottom:6px;">지점명</div>
-        <input id="storeName" type="text" placeholder="예: 아이즈크림 오산세교">
-      </div>
-
-      <div class="field-group">
-        <div class="field-group-label">연동 계정</div>
-        <div class="account-status-row">
-          <span>오더퀸 계정</span>
-          <span id="orderqueenStatusText" class="account-status-text">확인 중...</span>
-        </div>
-        <div class="account-status-row">
-          <span>야미몰 계정</span>
-          <span id="yamimallStatusText" class="account-status-text">확인 중...</span>
-        </div>
-        <a class="btn-light" href="/my-vendors" style="display:inline-block; margin-top:10px; text-decoration:none;">계정 관리 →</a>
-      </div>
-
-      <div class="field-group">
-        <div class="field-group-label">발주 추천 기본값</div>
-        <div class="grid grid-3">
-          <div>
-            <div class="muted" style="margin-bottom:6px;">기본 안전재고</div>
-            <input id="defaultSafetyStock" type="number" value="0">
-          </div>
-        </div>
-      </div>
-
-      <div class="checkbox-row">
-        <label class="checkbox-label">
-          <input id="saveStoreName" type="checkbox" checked>
-          지점명 저장
-        </label>
-      </div>
-
-      <div class="row-actions" style="margin-top:16px;">
-        <button class="btn-primary" onclick="saveSettings()">설정 저장</button>
-        <button class="btn-danger" onclick="clearSettings()">저장값 초기화</button>
-      </div>
-
-      <div class="top-note">
-        저장된 지점명은 현재 브라우저에만 저장됩니다. 오더퀸/야미몰 계정은
-        '내 도매처 계정'에서 등록하면 여기서 자동으로 사용됩니다.
-      </div>
-    </div>
-
-    <div class="rep-card">
-      <div class="rep-top">
-        <div>
-          <div class="rep-title">대표 발주 링크 상태</div>
-          <div class="muted" style="margin-top:4px;">대표 파트너스 링크로 쿠팡 발주를 시작합니다.</div>
-        </div>
-        <div id="repStatusPill" class="status-pill status-none">미생성</div>
-      </div>
-
-      <div class="rep-grid">
-        <div class="rep-box">
-          <div class="rep-box-label">대표 상품</div>
-          <div class="rep-box-value" id="repMenuName">-</div>
-        </div>
-        <div class="rep-box">
-          <div class="rep-box-label">검색 키워드</div>
-          <div class="rep-box-value" id="repKeyword">-</div>
-        </div>
-        <div class="rep-box">
-          <div class="rep-box-label">카탈로그 매핑 상태</div>
-          <div class="rep-box-value" id="repCatalogInfo">-</div>
-        </div>
-      </div>
-
-      <div class="rep-link-box">
-        <div class="rep-link-label">생성된 대표 파트너스 링크</div>
-        <div class="rep-link-value" id="repPartnerLink">아직 생성되지 않았습니다.</div>
-      </div>
-
-      <div class="row-actions" style="margin-top:16px;">
-        <button class="btn-dark" id="coupangStartBtn" disabled>쿠팡 발주 시작</button>
-        <button class="btn-primary" id="yamimallCartBtn" disabled onclick="startYamimallCart()">야미몰 장바구니 담기</button>
-        <button class="btn-light" id="icecreamSheetBtn" disabled>아이스크림 발주표</button>
-        <button class="btn-light" id="excelDownloadBtn" disabled>엑셀 다운로드</button>
-      </div>
-      <div style="margin-top:8px; font-size:12px; color:#1d4ed8;">
-        *본 링크를 통하여 구매를 진행하실 경우 쿠팡 파트너스 활동의 일환으로 그에 따른 일정액의 수수료를 제공받습니다.
-      </div>
-    </div>
-  </div>
 
   <div class="card">
     <div class="section-title">자동 메시지 예약</div>
@@ -816,7 +726,13 @@
 
       <div class="field-group">
         <div class="field-group-label">예약 추가</div>
-        <div class="grid grid-3">
+        <div class="grid grid-4">
+          <div>
+            <div class="muted" style="margin-bottom:6px;">지점(오더퀸 계정)</div>
+            <select id="scheduleAccountId" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid #d1d5db; background:white; box-sizing:border-box;">
+              <option value="">기본 계정</option>
+            </select>
+          </div>
           <div>
             <div class="muted" style="margin-bottom:6px;">요일</div>
             <select id="scheduleDayOfWeek" style="width:100%; padding:10px 12px; border-radius:10px; border:1px solid #d1d5db; background:white; box-sizing:border-box;">
@@ -837,12 +753,16 @@
             <button class="btn-primary" style="width:100%;" onclick="addStoreReportSchedule()">예약 추가</button>
           </div>
         </div>
+        <div class="top-note" style="margin-top:10px;">
+          다점포 점주는 '내 도매처 계정'에서 오더퀸 계정을 지점별로 여러 개
+          등록해두면, 여기서 지점을 선택해 지점마다 다른 예약을 걸 수 있습니다.
+        </div>
       </div>
     </div>
   </div>
 
   <div class="card">
-    <div class="section-title">발주 추천 생성</div>
+    <div class="section-title">발주 추천 수동 생성</div>
     <div class="grid grid-4">
       <div>
         <div class="muted" style="margin-bottom:6px;">조회 시작일</div>
@@ -856,8 +776,9 @@
         <div class="muted" style="margin-bottom:6px;">이번 발주 안전재고</div>
         <input id="safetyStock" type="number" value="0">
       </div>
-      <div style="display:flex; align-items:end;">
-        <button class="btn-primary" style="width:100%;" onclick="generateOrder()">발주 추천 생성</button>
+      <div style="display:flex; flex-direction:column; justify-content:end; gap:8px;">
+        <button class="btn-primary" style="width:100%;" onclick="generateOrder()">발주 추천 수동 생성</button>
+        <button class="btn-light" id="excelDownloadBtn" disabled style="width:100%;">엑셀 다운로드</button>
       </div>
     </div>
   </div>
@@ -959,161 +880,11 @@
   </div>
 </div>
 
-<div id="coupangActionModal" class="modal-overlay">
-  <div class="modal-card" style="max-width:520px;">
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px;">
-      <div>
-        <div style="font-size:22px; font-weight:800; color:#111827;">쿠팡 발주 실행</div>
-        <div style="font-size:13px; color:#6b7280; margin-top:6px;">
-          원하는 실행 방식을 선택해줘.
-        </div>
-      </div>
-      <button class="btn-light" onclick="closeCoupangActionModal()">닫기</button>
-    </div>
-
-    <div class="row-actions" style="margin-top:16px; flex-direction:column;">
-      <button class="btn-dark" style="width:100%;" onclick="openRepresentativePartnerLink()">대표 파트너스 링크 열기</button>
-      <button class="btn-primary" style="width:100%;" onclick="showCoupangSheetFromModal()">쿠팡 발주표 보기</button>
-    </div>
-
-  </div>
-</div>
-
-<div id="coupangSheetModal" class="modal-overlay" style="z-index:10000;">
-  <div class="modal-card" style="max-width:900px; max-height:85vh; overflow:auto;">
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
-      <div>
-        <div style="font-size:22px; font-weight:800; color:#111827;">쿠팡 발주표</div>
-        <div style="font-size:13px; color:#6b7280; margin-top:6px;">
-          상품명 기준으로 쿠팡 검색 결과를 엽니다.
-        </div>
-        <div class="row-actions" style="margin-top:12px;">
-          <button class="btn-dark" onclick="setCoupangSheetFilter('all')">전체</button>
-          <button class="btn-light" onclick="setCoupangSheetFilter('drink')">음료수</button>
-          <button class="btn-light" onclick="setCoupangSheetFilter('snack')">상품류</button>
-
-          <select id="snackPackUnit" onchange="showCoupangSheet()" style="padding:10px; border-radius:10px; border:1px solid #d1d5db;">
-            <option value="10">상품류 10개 단위</option>
-            <option value="20">상품류 20개 단위</option>
-          </select>
-        </div>
-      </div>
-      <button class="btn-light" onclick="closeCoupangSheetModal()">닫기</button>
-    </div>
-
-    <div class="table-wrap">
-      <table class="coupang-table" style="table-layout:fixed; width:100%; min-width:700px;">
-        <thead>
-          <tr>
-            <th>품목명</th>
-            <th>바코드</th>
-            <th onclick="sortCoupangSheet('판매수량')" style="cursor:pointer;">
-              판매 ↕
-            </th>
-            <th onclick="sortCoupangSheet('추천발주량')" style="cursor:pointer;">
-              발주추천 ↕
-            </th>
-            <th>열기</th>
-          </tr>
-        </thead>
-        <tbody id="coupangSheetBody">
-          <tr>
-            <td colspan="5" class="empty-box">쿠팡 품목이 없습니다.</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<div id="icecreamSheetModal" class="modal-overlay" style="z-index:10000;">
-  <div class="modal-card" style="max-width:1000px; max-height:85vh; overflow:auto;">
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px;">
-      <div>
-        <div style="font-size:22px; font-weight:800;">아이스크림 발주표</div>
-        <div style="font-size:13px; color:#6b7280; margin-top:6px;">
-          추천 발주표의 아이스크림만 보기와 동일한 내용입니다.
-        </div>
-      </div>
-      <button class="btn-light" onclick="closeIcecreamSheetModal()">닫기</button>
-    </div>
-
-    <div class="table-wrap">
-      <table class="icecream-table" style="table-layout:fixed; width:100%; min-width:900px;">
-        <thead>
-          <tr>
-            <th>품목명</th>
-            <th>바코드</th>
-            <th style="cursor:pointer;" onclick="sortIcecreamSheet('판매수량')">판매 ↕</th>
-            <th>7일예상</th>
-            <th>안전재고</th>
-            <th>추천발주</th>
-            <th style="cursor:pointer;" onclick="sortIcecreamSheet('추천박스수')">포장반영 ↕</th>
-            <th>발주구분</th>
-          </tr>
-        </thead>
-        <tbody id="icecreamSheetBody">
-          <tr>
-            <td colspan="8" class="empty-box">아이스크림 품목이 없습니다.</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-
-<div id="coupangContinueModal" class="modal-overlay" style="z-index:10001;">
-  <div class="modal-card" style="max-width:520px;">
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px;">
-      <div>
-        <div id="coupangContinueTitle" style="font-size:22px; font-weight:800; color:#111827;">1단계</div>
-        <div id="coupangContinueDesc" style="font-size:13px; color:#6b7280; margin-top:6px;">
-          대표 링크 열기 버튼을 누르면 최초 1회에 한하여 대표 파트너스 링크가 열립니다. 대표 링크 페이지가 열리면 페이지를 닫고 이어서 진행해주세요.
-        </div>
-      </div>
-      <button class="btn-light" style="flex:0 0 auto; padding:8px 14px;" onclick="closeCoupangContinueModal()">닫기</button>
-    </div>
-
-    <div class="row-actions" style="margin-top:16px; flex-direction:column;">
-      <button id="coupangContinueMainBtn" class="btn-primary" style="width:100%;" onclick="handleCoupangContinueStep()">대표링크 열기</button>
-      <button class="btn-light" style="width:100%;" onclick="cancelPendingCoupangItem()">취소</button>
-    </div>
-
-    <div id="coupangContinueFoot" class="info-note">
-      최초 1회만 이 절차가 필요합니다. 이후에는 발주표 상품을 클릭하면 바로 열립니다.
-    </div>
-  </div>
-</div>
-
-<div id="yamimallResultModal" class="modal-overlay" style="z-index:10002;">
-  <div class="modal-card" style="max-width:720px; max-height:85vh; overflow:auto;">
-    <div id="yamimallResultBody"></div>
-    <div class="row-actions" style="margin-top:16px; justify-content:flex-end;">
-      <button class="btn-light" onclick="closeYamimallResultPopup()">닫기</button>
-    </div>
-  </div>
-</div>
-
 <script>
-  const STORAGE_KEYS = {
-    storeName: "branchOrder.storeName",
-    saveStoreName: "branchOrder.saveStoreName",
-    defaultSafetyStock: "branchOrder.defaultSafetyStock",
-  };
-
   let currentData = null;
   let currentFilter = "all";
   let currentSortField = "";
   let currentSortDirection = "asc";
-  let coupangPartnerEntryDone = false;
-  let coupangSheetFilter = "all";
-  let coupangSortField = "";
-  let coupangSortDirection = "desc";
-  let icecreamSortField = "";
-  let icecreamSortDirection = "desc";
-  let pendingCoupangItemUrl = null;
-  let coupangContinueStep = 1;
 
   function setDefaultDates() {
     const today = new Date();
@@ -1127,85 +898,6 @@
   }
 
  
-
-  function updatePageTitle() {
-    const storeName = document.getElementById("storeName").value.trim();
-    document.getElementById("pageTitle").innerText = storeName
-      ? `${storeName} 발주 화면`
-      : "지점 발주 화면";
-  }
-
-  function loadSettings() {
-    const storeName = localStorage.getItem(STORAGE_KEYS.storeName) || "";
-    const saveStoreName = localStorage.getItem(STORAGE_KEYS.saveStoreName);
-    const defaultSafetyStock = localStorage.getItem(STORAGE_KEYS.defaultSafetyStock);
-
-    document.getElementById("storeName").value = storeName;
-    document.getElementById("saveStoreName").checked = saveStoreName !== "false";
-    document.getElementById("defaultSafetyStock").value = defaultSafetyStock ?? "0";
-    document.getElementById("safetyStock").value = defaultSafetyStock ?? "0";
-
-    updatePageTitle();
-  }
-
-  function saveSettings() {
-    const storeName = document.getElementById("storeName").value.trim();
-    const saveStoreName = document.getElementById("saveStoreName").checked;
-    const defaultSafetyStock = document.getElementById("defaultSafetyStock").value || "0";
-
-    if (saveStoreName) {
-      localStorage.setItem(STORAGE_KEYS.storeName, storeName);
-    } else {
-      localStorage.removeItem(STORAGE_KEYS.storeName);
-    }
-
-    localStorage.setItem(STORAGE_KEYS.saveStoreName, String(saveStoreName));
-    localStorage.setItem(STORAGE_KEYS.defaultSafetyStock, String(defaultSafetyStock));
-
-    document.getElementById("safetyStock").value = defaultSafetyStock;
-    updatePageTitle();
-    alert("지점 설정이 저장되었습니다.");
-  }
-
-  function clearSettings() {
-    localStorage.removeItem(STORAGE_KEYS.storeName);
-    localStorage.removeItem(STORAGE_KEYS.saveStoreName);
-    localStorage.removeItem(STORAGE_KEYS.defaultSafetyStock);
-
-    document.getElementById("storeName").value = "";
-    document.getElementById("defaultSafetyStock").value = "0";
-    document.getElementById("safetyStock").value = "0";
-    document.getElementById("saveStoreName").checked = true;
-
-    updatePageTitle();
-    alert("저장된 설정이 초기화되었습니다.");
-  }
-
-  async function loadAccountStatus() {
-    const targets = [
-      { vendorId: "orderqueen", elId: "orderqueenStatusText" },
-      { vendorId: "yamimall", elId: "yamimallStatusText" },
-    ];
-    await Promise.all(targets.map(async ({ vendorId, elId }) => {
-      const el = document.getElementById(elId);
-      try {
-        const res = await fetch(`/api/my-vendors/${vendorId}/accounts`);
-        const data = await res.json();
-        const accounts = data.accounts || [];
-        if (accounts.length > 0) {
-          const defaultAcc = accounts.find(a => a.is_default) || accounts[0];
-          el.textContent = `✓ 등록됨 (${defaultAcc.nickname || "기본"})`;
-          el.className = "account-status-text registered";
-        } else {
-          el.textContent = "미등록";
-          el.className = "account-status-text missing";
-        }
-      } catch (e) {
-        el.textContent = "확인 실패";
-        el.className = "account-status-text missing";
-      }
-    }));
-  }
 
   const DAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"];
 
@@ -1222,10 +914,20 @@
       }
       notice.style.display = "none";
       content.style.display = "block";
+      renderAccountOptions(data.orderqueen_accounts || []);
       renderStoreReportSchedules(data.schedules || []);
     } catch (e) {
       document.getElementById("scheduleListBody").textContent = "예약 목록을 불러오지 못했습니다.";
     }
+  }
+
+  function renderAccountOptions(accounts) {
+    const select = document.getElementById("scheduleAccountId");
+    const options = ['<option value="">기본 계정</option>'];
+    for (const a of accounts) {
+      options.push(`<option value="${a.id}">${a.nickname}</option>`);
+    }
+    select.innerHTML = options.join("");
   }
 
   function renderStoreReportSchedules(schedules) {
@@ -1236,7 +938,7 @@
     }
     body.innerHTML = schedules.map(s => `
       <div class="account-status-row" style="align-items:center;">
-        <span>${DAY_NAMES[s.day_of_week]}요일 ${s.time}${s.enabled ? "" : " (꺼짐)"}</span>
+        <span>${s.account_nickname ? `[${s.account_nickname}] ` : ""}${DAY_NAMES[s.day_of_week]}요일 ${s.time}${s.enabled ? "" : " (꺼짐)"}</span>
         <span style="display:flex; gap:8px;">
           <button class="btn-light" onclick="toggleStoreReportSchedule(${s.id}, ${!s.enabled})">${s.enabled ? "끄기" : "켜기"}</button>
           <button class="btn-danger" onclick="deleteStoreReportSchedule(${s.id})">삭제</button>
@@ -1248,6 +950,8 @@
   async function addStoreReportSchedule() {
     const day_of_week = parseInt(document.getElementById("scheduleDayOfWeek").value, 10);
     const time = document.getElementById("scheduleTime").value;
+    const accountIdRaw = document.getElementById("scheduleAccountId").value;
+    const account_id = accountIdRaw ? parseInt(accountIdRaw, 10) : null;
     if (!time) {
       alert("시각을 입력해주세요.");
       return;
@@ -1256,7 +960,7 @@
       const res = await fetch("/api/store-reports/schedules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ day_of_week, time }),
+        body: JSON.stringify({ day_of_week, time, account_id }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -1332,27 +1036,6 @@
       visibleItems.filter(x => Number(x.is_coupang ?? x.is_coupang_type ?? 0) === 2).length;
     document.getElementById("countStationery").innerText =
       visibleItems.filter(x => Number(x.is_coupang ?? x.is_coupang_type ?? 0) === 3).length;
-
-    const repStatusPill = document.getElementById("repStatusPill");
-    if (data.representative_partner_link) {
-      repStatusPill.className = "status-pill status-ok";
-      repStatusPill.innerText = "생성 완료";
-    } else {
-      repStatusPill.className = "status-pill status-none";
-      repStatusPill.innerText = "미생성";
-    }
-
-    document.getElementById("repMenuName").innerText =
-      data.representative_product?.menu_name ?? "-";
-
-    document.getElementById("repKeyword").innerText =
-      data.representative_product?.search_keyword ?? "-";
-
-    document.getElementById("repCatalogInfo").innerText =
-      data.representative_product ? "대표 상품 선택 완료" : "대표 상품 없음";
-
-    document.getElementById("repPartnerLink").innerText =
-      data.representative_partner_link ?? "아직 생성되지 않았습니다.";
   }
 
   function sortTable(field) {
@@ -1461,506 +1144,6 @@
     });
   }
 
-  function formatBarcode(value) {
-    if (value === null || value === undefined || value === "") return "";
-    const text = String(value).trim();
-    if (text.endsWith(".0")) {
-      return text.slice(0, -2);
-    }
-    return text;
-  }
-
-  function buildCoupangSearchUrl(item) {
-    const keyword = (item["메뉴명"] || "").trim();
-    return `https://www.coupang.com/np/search?q=${encodeURIComponent(keyword)}`;
-  }
-
-  async function startYamimallCart() {
-    const btn = document.getElementById("yamimallCartBtn");
-    btn.disabled = true;
-    btn.innerText = "야미몰 장바구니 담는 중...";
-
-    try {
-      const yamimallItems = (currentData?.top_items || []).filter(item => {
-        return Number(item.is_coupang ?? item.is_coupang_type ?? 0) === 2;
-      });
-
-      if (yamimallItems.length === 0) {
-        alert("야미몰 장바구니 대상 품목이 없습니다.");
-        return;
-      }
-
-      console.log("[YAMIMALL FRONT] request start", yamimallItems.length);
-
-      const res = await fetch("/api/yamimall/cart", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          items: yamimallItems
-        })
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        alert("야미몰 장바구니 처리 중 서버 오류가 발생했습니다.\n\n" + text);
-        return;
-      }
-
-      const data = await res.json();
-      if (!data.ok) {
-        alert(data.message || "야미몰 장바구니 처리에 실패했습니다.");
-        return;
-      }
-      showYamimallResultPopup(data);
-
-    } catch (e) {
-      alert("야미몰 장바구니 요청 중 오류가 발생했습니다.\n\n" + e);
-    } finally {
-      btn.disabled = false;
-      btn.innerText = "야미몰 장바구니 담기";
-  }
-}
-  
-  function showYamimallResultPopup(result) {
-    const successList = result.success || [];
-    const failedList = result.failed || [];
-
-    let html = `
-      <div style="font-size:24px; font-weight:800; margin-bottom:10px;">
-        야미몰 자동 장바구니 완료
-      </div>
-
-      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
-        <span class="status-pill status-ok">성공 ${successList.length}건</span>
-        <span class="status-pill ${failedList.length ? "status-none" : "status-ok"}">
-          실패 ${failedList.length}건
-        </span>
-      </div>
-
-      <div class="row-actions" style="margin-bottom:18px;">
-        <button class="btn-dark" onclick="window.open('https://xn--352blx12s.com/shop/cart.php', '_blank')">
-          장바구니 바로가기
-        </button>
-      </div>
-    `;
-
-    html += `
-      <hr style="border:none; border-top:1px solid #e5e7eb; margin:18px 0;">
-      <h3 style="margin:0 0 10px 0;">성공 품목</h3>
-    `;
-
-    if (successList.length === 0) {
-      html += `<div class="empty-box">성공한 품목이 없습니다.</div>`;
-    } else {
-      html += `<div style="display:grid; gap:10px;">`;
-
-      successList.forEach(item => {
-        html += `
-          <div style="border:1px solid #d1fae5; background:#ecfdf5; border-radius:12px; padding:12px;">
-            <div style="font-weight:800;">${item.name || "-"}</div>
-            <div class="muted" style="margin-top:6px;">
-              판매수량: ${item.sold_qty ?? 0}개 /
-              1타수량: ${item.unit_qty ?? "-"}개 /
-              장바구니수량: ${item.cart_qty ?? "-"}타
-            </div>
-          </div>
-        `;
-      });
-
-      html += `</div>`;
-    }
-
-    html += `
-      <hr style="border:none; border-top:1px solid #e5e7eb; margin:18px 0;">
-      <h3 style="margin:0 0 10px 0;">실패 품목</h3>
-    `;
-
-    if (failedList.length === 0) {
-      html += `<div class="empty-box">실패한 품목이 없습니다.</div>`;
-    } else {
-      html += `<div style="display:grid; gap:10px;">`;
-
-      failedList.forEach(item => {
-        html += `
-          <div style="border:1px solid #fecaca; background:#fef2f2; border-radius:12px; padding:12px;">
-            <div style="font-weight:800; color:#991b1b;">${item.name || "-"}</div>
-            <div class="muted" style="margin-top:6px;">
-              실패사유: ${item.reason || "알 수 없음"}
-            </div>
-          </div>
-        `;
-      });
-
-      html += `</div>`;
-    }
-
-    document.getElementById("yamimallResultBody").innerHTML = html;
-    document.getElementById("yamimallResultModal").style.display = "flex";
-  }
-
-
-function closeYamimallResultPopup() {
-  document.getElementById("yamimallResultModal").style.display = "none";
-}
-
-
-  function openCoupangActionModal() {
-    if (!currentData) {
-      alert("먼저 발주 추천을 생성해줘.");
-      return;
-    }
-    document.getElementById("coupangActionModal").style.display = "flex";
-  }
-
-  function closeCoupangActionModal() {
-    document.getElementById("coupangActionModal").style.display = "none";
-  }
-
-  function closeCoupangSheetModal() {
-    document.getElementById("coupangSheetModal").style.display = "none";
-  }
-
-  function closeIcecreamSheetModal() {
-    document.getElementById("icecreamSheetModal").style.display = "none";
-  }
-
-  function sortIcecreamSheet(field) {
-
-    if (icecreamSortField === field) {
-      icecreamSortDirection =
-        icecreamSortDirection === "asc" ? "desc" : "asc";
-    } else {
-      icecreamSortField = field;
-      icecreamSortDirection = "desc";
-    }
-
-    showIcecreamSheet();
-  }
-
-  function showIcecreamSheet() {
-    if (!currentData || !currentData.top_items) {
-      alert("먼저 발주 추천을 생성해줘.");
-      return;
-    }
-
-    let items = currentData.top_items.filter(item => {
-      const type = Number(item.is_coupang ?? item.is_coupang_type ?? 0);
-      return type === 0;
-    });
-
-    const tbody = document.getElementById("icecreamSheetBody");
-
-    if (icecreamSortField) {
-
-      items = [...items].sort((a, b) => {
-
-        let aVal = a[icecreamSortField];
-        let bVal = b[icecreamSortField];
-
-        // 포장반영 "1박스 (0.88)" 처리
-        if (icecreamSortField === "추천박스수") {
-
-          aVal = parseFloat(
-            String(aVal).match(/[\d.]+/)?.[0] || 0
-          );
-
-          bVal = parseFloat(
-            String(bVal).match(/[\d.]+/)?.[0] || 0
-          );
-
-        } else {
-
-          aVal = Number(aVal || 0);
-          bVal = Number(bVal || 0);
-
-        }
-
-        return icecreamSortDirection === "asc"
-          ? aVal - bVal
-          : bVal - aVal;
-
-      });
-
-    }
-
-    if (!items.length) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty-box">아이스크림 품목이 없습니다.</td></tr>`;
-      return;
-    }
-
-    tbody.innerHTML = items.map(item => {
-      const badge = '<span class="badge badge-other">아이스크림</span>';
-
-      return `
-        <tr>
-          <td>${item["메뉴명"] ?? ""}</td>
-          <td>${formatBarcode(item["바코드번호"])}</td>
-          <td>${item["판매수량"] ?? 0}</td>
-          <td>${item["7일예상수량"] ?? 0}</td>
-          <td>${item["안전재고"] ?? 0}</td>
-          <td>
-            <span class="order-pill">
-              ${item["추천발주량"] ?? 0}
-            </span>
-          </td>
-          <td>${item["추천박스수"] ?? 0}</td>
-          <td>${badge}</td>
-        </tr>
-      `;
-    }).join("");
-
-    document.getElementById("icecreamSheetModal").style.display = "flex";
-  }
-
-
-  function closeCoupangContinueModal() {
-    document.getElementById("coupangContinueModal").style.display = "none";
-  }
-
-  function openRepresentativePartnerLink() {
-    if (!currentData?.representative_partner_link) {
-      alert("대표 파트너스 링크가 없습니다.");
-      return;
-    }
-
-    window.open(currentData.representative_partner_link, "_blank");
-    coupangPartnerEntryDone = true;
-    closeCoupangActionModal();
-  }
-
-  function sortCoupangSheet(field) {
-    if (coupangSortField === field) {
-      coupangSortDirection = coupangSortDirection === "asc" ? "desc" : "asc";
-    } else {
-      coupangSortField = field;
-      coupangSortDirection = "desc";
-    }
-
-    showCoupangSheet();
-  }
-
-  function setCoupangSheetFilter(type) {
-    coupangSheetFilter = type;
-    showCoupangSheet();
-  }
-
-  function showCoupangSheet() {
-    if (!currentData || !currentData.top_items) {
-      alert("먼저 발주 추천을 생성해줘.");
-      return;
-    }
-
-    let items = currentData.top_items.filter(item => {
-      const type = Number(item.is_coupang ?? item.is_coupang_type ?? 0);
-      return type === 1;
-    });
-
-    if (coupangSheetFilter === "drink") {
-      items = items.filter(item => String(item.category ?? "").trim() === "음료수");
-    }
-
-    if (coupangSheetFilter === "snack") {
-      items = items.filter(item => String(item.category ?? "").trim() !== "음료수");
-    }
-
-    const tbody = document.getElementById("coupangSheetBody");
-
-    if (coupangSortField) {
-      items = [...items].sort((a, b) => {
-        let aVal = 0;
-        let bVal = 0;
-
-        if (coupangSortField === "판매수량") {
-          aVal = Number(a["판매수량"] ?? 0);
-          bVal = Number(b["판매수량"] ?? 0);
-        } else if (coupangSortField === "추천발주량") {
-          aVal = Number(a["_sort_boxQty"] ?? 0);
-          bVal = Number(b["_sort_boxQty"] ?? 0);
-        }
-
-        return coupangSortDirection === "asc" ? aVal - bVal : bVal - aVal;
-      });
-    }
-
-    if (!items.length) {
-      tbody.innerHTML = `<tr><td colspan="5" class="empty-box">쿠팡 품목이 없습니다.</td></tr>`;
-      return;
-    }
-
-    tbody.innerHTML = items.map(item => {
-      const url = buildCoupangSearchUrl(item);
-
-      const soldQty = Number(item["판매수량"] ?? 0);
-      const expectedQty = Number(item["7일예상수량"] ?? item["추천발주량"] ?? 0);
-      const category = String(item.category ?? "").trim();
-
-    let packUnit = 1;
-
-    if (category === "음료수") {
-      packUnit = 24;
-    } else {
-      packUnit = Number(document.getElementById("snackPackUnit")?.value || 10);
-    }
-
-    const rawBoxRatio = expectedQty / packUnit;
-    let boxQty = Math.round(rawBoxRatio);
-
-    // 쿠팡도 아이스크림과 같은 4주 보정 로직 구조 적용
-    // 현재는 2~4주 판매량 데이터가 없으므로 이번 조회 판매수량 기준으로 임시 적용
-    if (boxQty === 0) {
-      const twoWeekSoldQty = Number(item["2주판매수량"] ?? 0);
-      const threeWeekSoldQty = Number(item["3주판매수량"] ?? 0);
-      const fourWeekSoldQty = Number(item["4주판매수량"] ?? 0);
-
-      if (twoWeekSoldQty > packUnit * 0.5) {
-        boxQty = 1;
-      } else if (threeWeekSoldQty > packUnit * 0.5) {
-        boxQty = 1;
-      } else if (fourWeekSoldQty > packUnit * 0.5) {
-        boxQty = 1;
-      } else {
-        item["low_rotation"] = true;
-      }
-    }
-
-    let orderDisplay = "";
-    item["_sort_boxQty"] = boxQty;
-
-    if (boxQty === 1 && rawBoxRatio < 1) {
-      orderDisplay = `1박스 (${rawBoxRatio.toFixed(2)}) / ${boxQty * packUnit}개`;
-    } else {
-      orderDisplay = `${boxQty}박스 / ${boxQty * packUnit}개`;
-    }
-
-      return `
-        <tr class="clickable-row" onclick="openCoupangItem('${url.replace(/'/g, "\\'")}')" style="cursor:pointer;">
-          <td style="max-width:260px; white-space:normal; word-break:break-word;">${item["메뉴명"] ?? ""}</td>
-          <td>${formatBarcode(item["바코드번호"])}</td>
-          <td>${soldQty}</td>
-          <td style="white-space:nowrap;"><b>${orderDisplay}</b></td>
-          <td style="white-space:nowrap;"><span class="small-link">열기</span></td>
-        </tr>
-      `;
-
-    }).join("");
-  }
-
-  function showCoupangSheetFromModal() {
-    showCoupangSheet();
-    closeCoupangActionModal();
-    document.getElementById("coupangSheetModal").style.display = "flex";
-  }
-
-  function openCoupangItem(url) {
-    if (coupangPartnerEntryDone) {
-      window.open(url, "_blank");
-      return;
-    }
-
-    if (!currentData?.representative_partner_link) {
-      alert("대표 파트너스 링크가 없습니다.");
-      return;
-    }
-
-    pendingCoupangItemUrl = url;
-    coupangContinueStep = 1;
-
-    document.getElementById("coupangContinueTitle").innerText = "1단계";
-    document.getElementById("coupangContinueDesc").innerText =
-    "대표 링크 열기 버튼을 누르면 최초 1회에 한하여 대표 파트너스 링크가 열립니다. 대표링크 페이지를 닫고 이어서 진행해주세요.";
-    document.getElementById("coupangContinueMainBtn").innerText = "대표링크 열기";
-    document.getElementById("coupangContinueFoot").innerText =
-    "대표 링크 열기 버튼을 누르면 최초 1회에 한하여 대표 파트너스 링크가 열립니다. 대표링크 페이지를 닫고 이어서 진행해주세요.";
-
-    document.getElementById("coupangContinueModal").style.display = "flex";
-  }
-
-
-
-  function handleCoupangContinueStep() {
-    if (coupangContinueStep === 1) {
-      openRepresentativePartnerStep();
-      return;
-    }
-
-    if (coupangContinueStep === 2) {
-      continuePendingCoupangItem();
-      return;
-    }
-  }
-
-  function openRepresentativePartnerStep() {
-    if (!currentData?.representative_partner_link) {
-      alert("대표 파트너스 링크가 없습니다.");
-      return;
-    }
-
-    window.open(currentData.representative_partner_link, "_blank");
-
-    coupangContinueStep = 2;
-
-    document.getElementById("coupangContinueTitle").innerText = "2단계";
-    document.getElementById("coupangContinueDesc").innerText =
-    "대표링크 페이지를 닫았다면 아래 버튼을 눌러 선택한 상품을 열어주세요.";
-    document.getElementById("coupangContinueMainBtn").innerText = "이어서 상품 열기";
-    document.getElementById("coupangContinueFoot").innerText =
-    "대표링크 페이지를 먼저 확인한 뒤, 이어서 상품 열기를 눌러 진행해주세요.";
-  }
-
-  function continuePendingCoupangItem() {
-    if (!pendingCoupangItemUrl) {
-      alert("열 상품 정보가 없습니다.");
-      return;
-    }
-
-    coupangPartnerEntryDone = true;
-    window.open(pendingCoupangItemUrl, "_blank");
-    pendingCoupangItemUrl = null;
-    coupangContinueStep = 1;
-    closeCoupangContinueModal();
-  }
-
-  function cancelPendingCoupangItem() {
-    pendingCoupangItemUrl = null;
-    coupangContinueStep = 1;
-    closeCoupangContinueModal();
-  }
-
-  async function openCoupangAll() {
-    if (!currentData || !currentData.top_items) {
-      alert("먼저 발주 추천을 생성해줘.");
-      return;
-    }
-
-    const items = currentData.top_items.filter(item => {
-      const type = Number(item.is_coupang ?? item.is_coupang_type ?? 0);
-      return type === 1;
-    });
-
-    if (!items.length) {
-      alert("쿠팡 품목이 없습니다.");
-      return;
-    }
-
-    alert("일괄 열기는 브라우저 팝업 차단 영향을 받을 수 있어. 가장 안정적인 방법은 '쿠팡 발주표 보기' 후 상품별로 여는 방식이야.");
-
-    const ok = confirm(`쿠팡 상품 ${items.length}개를 열까요?`);
-    if (!ok) return;
-
-    for (const item of items) {
-      const url = buildCoupangSearchUrl(item);
-      window.open(url, "_blank");
-      await new Promise(r => setTimeout(r, 900));
-    }
-  }
-
-  async function openCoupangAllFromModal() {
-    closeCoupangActionModal();
-    await openCoupangAll();
-  }
-
   function showLoadingModal() {
     document.getElementById("loadingModal").style.display = "flex";
   }
@@ -2007,36 +1190,11 @@ function closeYamimallResultPopup() {
 
       const data = await res.json();
       currentData = data;
-      coupangPartnerEntryDone = false;
-      pendingCoupangItemUrl = null;
-      coupangContinueStep = 1;
 
       renderSummary(data);
       renderTable();
 
-      const coupangBtn = document.getElementById("coupangStartBtn");
       const excelBtn = document.getElementById("excelDownloadBtn");
-      const icecreamSheetBtn = document.getElementById("icecreamSheetBtn");
-      const yamimallCartBtn =
-        document.getElementById("yamimallCartBtn");
-
-      const hasYamimallItems =
-        (data.top_items || []).some(item =>
-          Number(item.is_coupang ?? item.is_coupang_type ?? 0) === 2
-        );
-
-      yamimallCartBtn.disabled = !hasYamimallItems;
-
-      if (data.representative_partner_link) {
-        coupangBtn.disabled = false;
-        coupangBtn.onclick = openCoupangActionModal;
-      } else {
-        coupangBtn.disabled = true;
-      }
-
-      icecreamSheetBtn.disabled = false;
-      icecreamSheetBtn.onclick = showIcecreamSheet;
-
       if (data.job_id) {
         excelBtn.disabled = false;
         excelBtn.onclick = () => window.open(`/export/${data.job_id}`, "_blank");
@@ -2051,39 +1209,7 @@ function closeYamimallResultPopup() {
     }
   }
 
-  document.getElementById("storeName").addEventListener("input", updatePageTitle);
-
-  window.addEventListener("click", function(e) {
-    const actionModal = document.getElementById("coupangActionModal");
-    const sheetModal = document.getElementById("coupangSheetModal");
-    const icecreamModal = document.getElementById("icecreamSheetModal");
-    const continueModal = document.getElementById("coupangContinueModal");
-    const yamimallModal = document.getElementById("yamimallResultModal");
-
-    if (e.target === actionModal) {
-      closeCoupangActionModal();
-    }
-    if (e.target === sheetModal) {
-      closeCoupangSheetModal();
-    }
-
-    if (e.target === continueModal) {
-      closeCoupangContinueModal();
-    }
-
-    if (e.target === icecreamModal) {
-      closeIcecreamSheetModal();
-    }
-
-    if (e.target === yamimallModal) {
-      closeYamimallResultPopup();
-    }
-
-  });
-
   setDefaultDates();
-  loadSettings();
-  loadAccountStatus();
   loadStoreReportSchedules();
 </script>
 </body>

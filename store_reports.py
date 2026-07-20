@@ -62,7 +62,24 @@ def init_store_report_tables() -> None:
     )
     """)
     conn.commit()
+
+    # 다점포 점주 지원: 지점(오더퀸 계정)마다 스케줄을 따로 잡을 수 있게
+    # account_id(store_vendor_credentials.id, orderqueen 계정)를 nullable로 추가.
+    # NULL이면 기본 계정(기존 단일 지점 동작 그대로) 취급.
+    existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(store_report_schedules)").fetchall()}
+    if "account_id" not in existing_cols:
+        cur.execute("ALTER TABLE store_report_schedules ADD COLUMN account_id INTEGER")
+        conn.commit()
     conn.close()
+
+
+def report_key(store_id: str, account_id: int | None) -> str:
+    """store_report_state/store_item_carryover는 지점(오더퀸 계정)별로 서로
+    다른 판매 데이터를 다루므로 커서/이월을 따로 추적해야 한다 - account_id가
+    있으면 store_id에 붙여 별도 키로 만든다(없으면 기존 단일 지점 키 그대로)."""
+    if account_id is None:
+        return store_id
+    return f"{store_id}::acct{account_id}"
 
 
 # --- 1타 60% 규칙 ---
@@ -96,14 +113,14 @@ def _pick_best_offer(offers: list[dict], preferred_vendor: str | None) -> dict |
 
 # --- 스케줄 CRUD ---
 
-def add_schedule(store_id: str, day_of_week: int, time_str: str) -> int:
+def add_schedule(store_id: str, day_of_week: int, time_str: str, account_id: int | None = None) -> int:
     now = datetime.now().isoformat(timespec="seconds")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    INSERT INTO store_report_schedules (store_id, day_of_week, time, enabled, created_at)
-    VALUES (?, ?, ?, 1, ?) RETURNING id
-    """, (store_id, day_of_week, time_str, now))
+    INSERT INTO store_report_schedules (store_id, day_of_week, time, enabled, account_id, created_at)
+    VALUES (?, ?, ?, 1, ?, ?) RETURNING id
+    """, (store_id, day_of_week, time_str, account_id, now))
     conn.commit()
     new_id = cur.fetchone()[0]
     conn.close()
@@ -114,7 +131,7 @@ def list_schedules(store_id: str) -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT id, day_of_week, time, enabled, last_fired_date
+    SELECT id, day_of_week, time, enabled, last_fired_date, account_id
     FROM store_report_schedules WHERE store_id = ? ORDER BY day_of_week ASC, time ASC
     """, (store_id,))
     rows = cur.fetchall()
@@ -122,7 +139,7 @@ def list_schedules(store_id: str) -> list[dict]:
     return [
         {
             "id": r[0], "day_of_week": r[1], "day_name": DAY_NAMES[r[1]], "time": r[2],
-            "enabled": bool(r[3]), "last_fired_date": r[4],
+            "enabled": bool(r[3]), "last_fired_date": r[4], "account_id": r[5],
         }
         for r in rows
     ]
@@ -159,21 +176,21 @@ def list_due_schedules(now: datetime, window_minutes: int = 15) -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT id, store_id, time FROM store_report_schedules
+    SELECT id, store_id, time, account_id FROM store_report_schedules
     WHERE enabled = 1 AND day_of_week = ? AND (last_fired_date IS NULL OR last_fired_date != ?)
     """, (dow, today_str))
     rows = cur.fetchall()
     conn.close()
 
     due = []
-    for schedule_id, store_id, time_str in rows:
+    for schedule_id, store_id, time_str, account_id in rows:
         try:
             hh, mm = (int(x) for x in time_str.split(":"))
         except ValueError:
             continue
         sched_dt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
         if sched_dt <= now < sched_dt + timedelta(minutes=window_minutes):
-            due.append({"id": schedule_id, "store_id": store_id, "time": time_str})
+            due.append({"id": schedule_id, "store_id": store_id, "time": time_str, "account_id": account_id})
     return due
 
 
@@ -256,10 +273,11 @@ def apply_manual_pull_carryover(store_id: str, period_from: date, period_to: dat
     set_last_aggregated_until(store_id, period_to)
 
 
-def resolve_carryover_after_reply(store_id: str, item: dict, outcome: str, final_qty: int | None = None) -> None:
+def resolve_carryover_after_reply(key: str, item: dict, outcome: str, final_qty: int | None = None) -> None:
     """텔레그램 확인/스킵/제외 응답 이후 도매처 품목의 이월값을 정산한다.
     outcome="confirmed": 실제 담은 만큼 소진하고 잔여만 이월.
-    outcome="skipped": 이번엔 안 담았으므로 pending_qty 그대로 이월."""
+    outcome="skipped": 이번엔 안 담았으므로 pending_qty 그대로 이월.
+    key는 report_key(store_id, account_id) - 지점(오더퀸 계정)별로 분리된 값이다."""
     pending_qty = int(item.get("pending_qty", 0))
     pack_qty = int(item.get("pack_qty", 1) or 1)
     item_key = item["item_key"]
@@ -268,20 +286,23 @@ def resolve_carryover_after_reply(store_id: str, item: dict, outcome: str, final
     if outcome == "confirmed":
         qty = final_qty if final_qty is not None else int(item.get("cases", 0))
         remainder = max(0, pending_qty - qty * pack_qty)
-        set_carryover(store_id, item_key, category, remainder)
+        set_carryover(key, item_key, category, remainder)
     else:
-        set_carryover(store_id, item_key, category, pending_qty)
+        set_carryover(key, item_key, category, pending_qty)
 
 
 # --- 리포트 생성 ---
 
-def generate_report(store_id: str) -> dict:
-    creds = vendors.get_store_vendor_credentials(store_id, "orderqueen")
+def generate_report(store_id: str, account_id: int | None = None) -> dict:
+    creds = vendors.get_store_vendor_credentials(store_id, "orderqueen", account_id)
     if not creds:
         return {"ok": False, "reason": "오더퀸 계정이 등록되어 있지 않습니다. '내 도매처 계정'에서 먼저 등록해주세요."}
     login_id, login_pw = creds
+    account = vendors.resolve_store_vendor_account(store_id, "orderqueen", account_id)
+    account_nickname = account["nickname"] if account else None
 
-    period_from = get_last_aggregated_until(store_id) + timedelta(days=1)
+    key = report_key(store_id, account_id)
+    period_from = get_last_aggregated_until(key) + timedelta(days=1)
     period_to = date.today()
     if period_from > period_to:
         return {"ok": False, "reason": "집계할 새 판매 데이터가 아직 없습니다."}
@@ -339,7 +360,7 @@ def generate_report(store_id: str) -> dict:
                     "price": r.get("price"), "partners_link": r.get("partners_link"),
                 })
         elif is_coupang == 2:
-            carried = get_carryover(store_id, item_key)
+            carried = get_carryover(key, item_key)
             pending_qty = carried + sold_qty
             keyword = (cat.search_keyword or cat.menu_name or name) if cat else name
 
@@ -352,13 +373,13 @@ def generate_report(store_id: str) -> dict:
                     break
 
             if not offer:
-                set_carryover(store_id, item_key, "wholesale", pending_qty)
+                set_carryover(key, item_key, "wholesale", pending_qty)
                 continue
 
             pack_qty = int(offer.get("unit_qty") or 1)
             cases = apply_case_rule(pending_qty, pack_qty)
             if cases <= 0:
-                set_carryover(store_id, item_key, "wholesale", pending_qty)
+                set_carryover(key, item_key, "wholesale", pending_qty)
                 continue
 
             wholesale_items.append({
@@ -372,12 +393,15 @@ def generate_report(store_id: str) -> dict:
         else:
             other_items.append({"item_key": item_key, "name": name, "sold_qty": sold_qty})
 
-    set_last_aggregated_until(store_id, period_to)
+    set_last_aggregated_until(key, period_to)
 
     return {
         "ok": True,
         "period_from": period_from.isoformat(),
         "period_to": period_to.isoformat(),
+        "account_id": account_id,
+        "account_nickname": account_nickname,
+        "report_key": key,
         "wholesale_items": wholesale_items,
         "coupang_items": coupang_items,
         "icecream_items": icecream_items,
