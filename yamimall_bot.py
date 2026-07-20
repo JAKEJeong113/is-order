@@ -69,15 +69,23 @@ def extract_wholesale_unit_qty(text: str) -> int | None:
     (묶음) 45g X 8개 [1박스16개] -> 8
     75g x 6개 -> 6
     100g × 10개 -> 10
+    1박스(75g*12입) -> 12 (또요몰 - 같은 플랫폼이라도 "*N입" 표기를 씀)
+    1타(15g*10입) -> 10
     """
     if not text:
         return None
 
     match = re.search(r"[xX×]\s*(\d+)\s*개", text)
-    if not match:
-        return None
+    if match:
+        return int(match.group(1))
 
-    return int(match.group(1))
+    # "*"가 빠진 표기("144g12입")도 있는데, 정규식이 "입" 바로 앞 숫자만
+    # 잡으므로("g"가 자릿수를 끊어줘서) 무게 숫자와 섞이지 않고 12만 잡힌다.
+    match = re.search(r"(\d+)\s*입", text)
+    if match:
+        return int(match.group(1))
+
+    return None
 
 def normalize_text(text: str) -> str:
     return re.sub(r"\s+", "", text or "").lower()
@@ -268,8 +276,6 @@ def _extract_list_page_items(page) -> list[dict]:
         if not text or "SOLD OUT" in text.upper() or "품절" in text:
             continue
 
-        unit_qty = extract_wholesale_unit_qty(text)
-
         try:
             container = link.locator("xpath=ancestor::li[1]")
             price_input = container.locator("input[name='ct_price']")
@@ -277,9 +283,17 @@ def _extract_list_page_items(page) -> list[dict]:
             if price_input.count() > 0:
                 price = _parse_price(price_input.first.get_attribute("value") or "")
             href = link.get_attribute("href")
+            container_text = container.evaluate("(el) => el.innerText || el.textContent || ''")
         except Exception:
             price = None
             href = None
+            container_text = text
+
+        # 같은 플랫폼이라도 사이트마다 "1박스(75g*12입)" 같은 1타 개수 표기가
+        # 상품명 링크 안이 아니라 상품 카드 내 별도 줄(가격 등과 같은 위치)에
+        # 있는 경우가 있다(또요몰에서 확인됨) - 링크 텍스트에서 못 찾으면 카드
+        # 전체 텍스트에서도 찾는다.
+        unit_qty = extract_wholesale_unit_qty(text) or extract_wholesale_unit_qty(container_text)
 
         items.append({
             "name": text,
