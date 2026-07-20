@@ -96,19 +96,24 @@ def apply_case_rule(sold_qty: float, pack_qty: int) -> int:
 
 
 def _pick_best_offer(offers: list[dict], preferred_vendor: str | None) -> dict | None:
-    """telegram_bot._pick_best_offer와 동일한 로직(순환 import를 피하려고 복제) -
-    CART_SUPPORTED_VENDORS 중 담을 수 있는 후보만 놓고 개당 최저가 우선,
-    동률이면 주거래처 우선."""
+    """telegram_bot._pick_best_offer와 비슷하지만(순환 import를 피하려고 복제),
+    1타 개수(unit_qty)를 아는 후보를 우선한다 - 도매몰 대부분(현동몰/또요몰/
+    삼봉몰/무마켓/과자생각)은 아직 크롤러가 1타 개수를 거의 못 읽어와서, 모르는
+    채로 고르면 이후 apply_case_rule()에서 1타=1개로 잘못 가정하는 사고가 난다.
+    CART_SUPPORTED_VENDORS 중 담을 수 있는 후보만 놓고, 그중 1타 개수를 아는
+    것을 우선 최저가순으로, 동률이면 주거래처 우선."""
     candidates = [o for o in offers if o["vendor_id"] in vendors.CART_SUPPORTED_VENDORS and o.get("product_url")]
     if not candidates:
         return None
-    lowest_unit_price = price_compare._unit_price(candidates[0])
-    tied = [o for o in candidates if price_compare._unit_price(o) == lowest_unit_price]
+    known_qty_candidates = [o for o in candidates if o.get("unit_qty") and o["unit_qty"] > 0]
+    pool = known_qty_candidates or candidates
+    lowest_unit_price = price_compare._unit_price(pool[0])
+    tied = [o for o in pool if price_compare._unit_price(o) == lowest_unit_price]
     if preferred_vendor:
         for o in tied:
             if o["vendor_id"] == preferred_vendor:
                 return o
-    return candidates[0]
+    return pool[0]
 
 
 # --- 스케줄 CRUD ---
@@ -326,6 +331,7 @@ def generate_report(store_id: str, account_id: int | None = None) -> dict:
     coupang_items = []
     icecream_items = []
     other_items = []
+    unknown_pack_items = []
 
     for row in top_items:
         barcode = str(row.get("바코드번호", "") or "").strip().replace(".0", "")
@@ -376,7 +382,19 @@ def generate_report(store_id: str, account_id: int | None = None) -> dict:
                 set_carryover(key, item_key, "wholesale", pending_qty)
                 continue
 
-            pack_qty = int(offer.get("unit_qty") or 1)
+            pack_qty = int(offer.get("unit_qty") or 0)
+            if pack_qty <= 0:
+                # 1타 개수를 크롤러가 아직 못 읽어온 상품 - 여기서 1개입으로
+                # 잘못 가정하면 "판매수량 = 타수"로 엉뚱한 발주 추천이 나간다.
+                # 케이스 수를 추정하지 않고 참고용으로만 보여주고, 판매량은
+                # 이월에 그대로 남겨서 나중에 1타 개수가 확인되면 정상 반영되게 한다.
+                set_carryover(key, item_key, "wholesale", pending_qty)
+                unknown_pack_items.append({
+                    "item_key": item_key, "name": name, "sold_qty": sold_qty,
+                    "vendor_name": offer.get("vendor_name", offer["vendor_id"]),
+                })
+                continue
+
             cases = apply_case_rule(pending_qty, pack_qty)
             if cases <= 0:
                 set_carryover(key, item_key, "wholesale", pending_qty)
@@ -406,4 +424,5 @@ def generate_report(store_id: str, account_id: int | None = None) -> dict:
         "coupang_items": coupang_items,
         "icecream_items": icecream_items,
         "other_items": other_items,
+        "unknown_pack_items": unknown_pack_items,
     }

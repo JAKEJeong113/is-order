@@ -653,24 +653,16 @@ def _handle_account_choice_reply(chat_id: str, state: dict, text: str) -> None:
 
 def _format_report_confirm_prompt(state: dict) -> str:
     """항목 제외/수량 수정 이후 대기 리스트를 다시 보여줄 때 쓰는 재출력
-    (최초 발송 메시지는 main.py의 _format_store_report_message가 만든다)."""
+    (최초 발송 메시지는 main.py의 _format_wholesale_report_message가 만든다).
+    쿠팡/아이스크림은 별도 메시지로 발송되고 확인/스킵/수정 대상이 아니므로
+    여기서는 도매처 담기 대상만 다룬다."""
     lines = []
-    idx = 1
     wholesale = state["wholesale_items"]
-    coupang = state["coupang_items"]
 
     if wholesale:
         lines.append("[도매처 담기 대상]")
-        for it in wholesale:
+        for idx, it in enumerate(wholesale, start=1):
             lines.append(f"{idx}. {it['name']} {it['cases']}타 ({it['vendor_name']}, {it['sold_qty']}개 판매)")
-            idx += 1
-        lines.append("")
-
-    if coupang:
-        lines.append("[쿠팡 구매 링크 - 위 메시지 참고]")
-        for it in coupang:
-            lines.append(f"{idx}. {it['name']}")
-            idx += 1
         lines.append("")
 
     lines.append("전체 담기: '확인' / 이번엔 넘어가기: '스킵'")
@@ -684,8 +676,7 @@ def _handle_report_confirm_reply(chat_id: str, state: dict, text: str) -> None:
     store_id = state["store_id"]
     carryover_key = state.get("report_key", store_id)
     wholesale = state["wholesale_items"]
-    coupang = state["coupang_items"]
-    total_count = len(wholesale) + len(coupang)
+    total_count = len(wholesale)
 
     if stripped.lower() in CANCEL_WORDS or stripped in ("스킵", "skip"):
         telegram_store.set_disambig_state(chat_id, None)
@@ -697,7 +688,7 @@ def _handle_report_confirm_reply(chat_id: str, state: dict, text: str) -> None:
     if stripped in CONFIRM_WORDS:
         telegram_store.set_disambig_state(chat_id, None)
         if not wholesale:
-            send_message(chat_id, "담을 도매처 품목이 없습니다(쿠팡 링크는 위 메시지를 참고해주세요).")
+            send_message(chat_id, "담을 도매처 품목이 없습니다.")
             return
 
         for it in wholesale:
@@ -736,11 +727,8 @@ def _handle_report_confirm_reply(chat_id: str, state: dict, text: str) -> None:
         if idx < 0 or idx >= total_count:
             send_message(chat_id, f"1~{total_count} 사이 번호로 알려주세요.\n(취소하려면 '취소')")
             return
-        if idx < len(wholesale):
-            removed = wholesale.pop(idx)
-            store_reports.resolve_carryover_after_reply(carryover_key, removed, "skipped")
-        else:
-            coupang.pop(idx - len(wholesale))
+        removed = wholesale.pop(idx)
+        store_reports.resolve_carryover_after_reply(carryover_key, removed, "skipped")
         telegram_store.set_disambig_state(chat_id, state)
         send_message(chat_id, f"{num}번 항목을 뺐습니다.\n\n" + _format_report_confirm_prompt(state))
         return

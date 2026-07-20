@@ -236,44 +236,61 @@ def _resolve_chat_id_for_store(store_id: str) -> str | None:
     return matches[0]["chat_id"]
 
 
-def _format_store_report_message(report: dict) -> str:
-    wholesale = report["wholesale_items"]
-    coupang = report["coupang_items"]
-    icecream = report["icecream_items"]
+def _report_branch_label(report: dict) -> str:
+    return f" [{report['account_nickname']}]" if report.get("account_nickname") else ""
 
-    branch_label = f" [{report['account_nickname']}]" if report.get("account_nickname") else ""
-    lines = [f"📦{branch_label} 자동 발주 리포트 ({report['period_from']} ~ {report['period_to']} 집계)\n"]
-    idx = 1
+
+def _format_wholesale_report_message(report: dict) -> str | None:
+    wholesale = report["wholesale_items"]
+    unknown = report.get("unknown_pack_items") or []
+    if not wholesale and not unknown:
+        return None
+
+    lines = [f"📦{_report_branch_label(report)} 도매처 자동 발주 리포트 ({report['period_from']} ~ {report['period_to']} 집계)\n"]
 
     if wholesale:
         lines.append("[도매처 담기 대상]")
-        for it in wholesale:
+        for idx, it in enumerate(wholesale, start=1):
             lines.append(f"{idx}. {it['name']} {it['cases']}타 ({it['vendor_name']}, {it['sold_qty']}개 판매)")
-            idx += 1
         lines.append("")
 
-    if coupang:
-        lines.append("*본 링크를 통하여 구매를 진행하실 경우 쿠팡 파트너스 활동의 일환으로 그에 따른 일정액의 수수료를 제공받습니다.")
-        lines.append("[쿠팡 구매 링크]")
-        for it in coupang:
-            price_text = f" ({it['price']:,}원)" if it.get("price") else ""
-            link = it.get("partners_link") or ""
-            lines.append(f"{idx}. {it['name']}{price_text} ({it['sold_qty']}개 판매)\n{link}")
-            idx += 1
+    if unknown:
+        lines.append("[1타 수량 미확인 - 참고용, 담기 대상 아님]")
+        for it in unknown:
+            lines.append(f"- {it['name']} ({it['vendor_name']}, {it['sold_qty']}개 판매)")
         lines.append("")
 
-    if icecream:
-        lines.append("[참고: 아이스크림]")
-        for it in icecream:
-            lines.append(f"- {it['name']} {it['cases']}박스 (판매기준)")
-        lines.append("")
-
-    if wholesale or coupang:
+    if wholesale:
         lines.append("전체 담기: '확인' / 이번엔 넘어가기: '스킵'")
         lines.append("특정 항목 빼기: '3 빼줘' / 수량 수정: '1 4타로'")
         lines.append("(취소하려면 '취소')")
-    elif not icecream:
-        lines.append("이번 집계에서는 발주 대상 상품이 없습니다.")
+
+    return "\n".join(lines)
+
+
+def _format_coupang_report_message(report: dict) -> str | None:
+    coupang = report["coupang_items"]
+    if not coupang:
+        return None
+
+    lines = [f"🛒{_report_branch_label(report)} 쿠팡 구매 링크 ({report['period_from']} ~ {report['period_to']} 집계)\n"]
+    lines.append("*본 링크를 통하여 구매를 진행하실 경우 쿠팡 파트너스 활동의 일환으로 그에 따른 일정액의 수수료를 제공받습니다.\n")
+    for idx, it in enumerate(coupang, start=1):
+        price_text = f" ({it['price']:,}원)" if it.get("price") else ""
+        link = it.get("partners_link") or ""
+        lines.append(f"{idx}. {it['name']}{price_text} ({it['sold_qty']}개 판매)\n{link}")
+
+    return "\n".join(lines)
+
+
+def _format_icecream_report_message(report: dict) -> str | None:
+    icecream = report["icecream_items"]
+    if not icecream:
+        return None
+
+    lines = [f"🍦{_report_branch_label(report)} 아이스크림 참고 판매량 ({report['period_from']} ~ {report['period_to']} 집계)\n"]
+    for it in icecream:
+        lines.append(f"- {it['name']} {it['cases']}박스 (판매기준)")
 
     return "\n".join(lines)
 
@@ -296,17 +313,29 @@ def _run_store_report_tick() -> None:
                 telegram_bot.send_message(chat_id, f"자동 발주 리포트 생성에 실패했습니다.\n\n{report.get('reason')}")
                 continue
 
-            message = _format_store_report_message(report)
-            telegram_bot.send_message(chat_id, message)
+            # 도매처/쿠팡/아이스크림을 3개 메시지로 나눠 보낸다 - 확인/스킵/수정
+            # 안내는 실제로 담기 대상인 도매처 메시지에만 붙는다.
+            sent_any = False
+            for builder in (_format_wholesale_report_message, _format_coupang_report_message, _format_icecream_report_message):
+                msg = builder(report)
+                if msg:
+                    telegram_bot.send_message(chat_id, msg)
+                    sent_any = True
 
-            if report["wholesale_items"] or report["coupang_items"]:
+            if not sent_any:
+                telegram_bot.send_message(
+                    chat_id,
+                    f"📦{_report_branch_label(report)} 자동 발주 리포트 ({report['period_from']} ~ {report['period_to']} 집계)\n\n"
+                    "이번 집계에서는 발주 대상 상품이 없습니다.",
+                )
+
+            if report["wholesale_items"]:
                 telegram_store.set_disambig_state(chat_id, {
                     "mode": "report_confirm",
                     "current": True,
                     "store_id": store_id,
                     "report_key": report["report_key"],
                     "wholesale_items": report["wholesale_items"],
-                    "coupang_items": report["coupang_items"],
                 })
         except Exception as e:
             telegram_bot.alert_admin(f"자동 발주 리포트 처리 실패 (store_id={store_id}): {e}")
