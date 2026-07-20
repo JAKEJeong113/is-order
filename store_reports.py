@@ -298,6 +298,142 @@ def resolve_carryover_after_reply(key: str, item: dict, outcome: str, final_qty:
 
 # --- 리포트 생성 ---
 
+def _classify_report_items(
+    store_id: str, key: str, top_items: list[dict], catalog: dict,
+    disabled_vendors: set, preferred_vendor: str | None,
+    compute_wholesale_pending_qty, write_carryover_on_reject: bool, log_popularity: bool,
+) -> dict:
+    """오더퀸 판매 데이터(top_items)를 카테고리별로 분류하는 공용 로직 - 예약
+    자동 리포트(generate_report)와 수동 발송(build_manual_wholesale_report)이
+    똑같이 쓴다. 둘의 유일한 차이는 도매몰 품목의 pending_qty(이월+판매량)를
+    어떻게 계산하는지뿐이라 compute_wholesale_pending_qty 콜백으로 분리했다:
+    - 자동: 이월값 + 이번 집계 판매량을 새로 더한다.
+    - 수동 발송: apply_manual_pull_carryover()가 이미 이번 판매량을 이월에
+      합산해둔 뒤라(같은 /import/orderqueen 호출 안에서 먼저 실행됨), 현재
+      이월값을 그대로 쓴다 - 안 그러면 판매량이 중복 집계된다."""
+    wholesale_items = []
+    coupang_items = []
+    icecream_items = []
+    other_items = []
+    unknown_pack_items = []
+
+    for row in top_items:
+        barcode = str(row.get("바코드번호", "") or "").strip().replace(".0", "")
+        name = str(row.get("메뉴명", "") or "").strip()
+        sold_qty = int(row.get("판매수량", 0) or 0)
+        if sold_qty <= 0 or not name:
+            continue
+
+        cat = catalog.get(barcode) if barcode else None
+        is_coupang = int(cat.is_coupang) if cat else 99
+        item_key = barcode or name
+
+        if log_popularity:
+            pop_category = POPULARITY_CATEGORY_BY_IS_COUPANG.get(is_coupang)
+            if pop_category:
+                popularity.log_event(store_id, pop_category, item_key, name, sold_qty)
+
+        if is_coupang == 0:
+            box_qty = int(getattr(cat, "icecream_box_qty", 0) or 0) if cat else 0
+            cases = apply_case_rule(sold_qty, box_qty)
+            if cases > 0:
+                icecream_items.append({
+                    "item_key": item_key, "name": name, "sold_qty": sold_qty,
+                    "box_qty": box_qty, "cases": cases,
+                })
+        elif is_coupang == 1:
+            keyword = (cat.search_keyword or cat.menu_name or name) if cat else name
+            results = product_ranking.search_products(keyword, limit=1)
+            if results:
+                r = results[0]
+                coupang_items.append({
+                    "item_key": item_key, "name": name, "sold_qty": sold_qty,
+                    "price": r.get("price"), "partners_link": r.get("partners_link"),
+                })
+        elif is_coupang == 2:
+            pending_qty = compute_wholesale_pending_qty(item_key, sold_qty)
+            if pending_qty <= 0:
+                continue
+            keyword = (cat.search_keyword or cat.menu_name or name) if cat else name
+
+            compare_result = price_compare.compare(keyword)
+            groups = price_compare.filter_groups_for_store(compare_result.get("groups", []), disabled_vendors)
+            offer = None
+            for group in groups:
+                offer = _pick_best_offer(group.get("offers", []), preferred_vendor)
+                if offer:
+                    break
+
+            if not offer:
+                if write_carryover_on_reject:
+                    set_carryover(key, item_key, "wholesale", pending_qty)
+                continue
+
+            pack_qty = int(offer.get("unit_qty") or 0)
+            if pack_qty <= 0:
+                # 1타 개수를 크롤러가 아직 못 읽어온 상품 - 여기서 1개입으로
+                # 잘못 가정하면 "판매수량 = 타수"로 엉뚱한 발주 추천이 나간다.
+                # 케이스 수를 추정하지 않고 참고용으로만 보여주고, 판매량은
+                # 이월에 그대로 남겨서 나중에 1타 개수가 확인되면 정상 반영되게 한다.
+                if write_carryover_on_reject:
+                    set_carryover(key, item_key, "wholesale", pending_qty)
+                unknown_pack_items.append({
+                    "item_key": item_key, "name": name, "sold_qty": sold_qty,
+                    "vendor_name": offer.get("vendor_name", offer["vendor_id"]),
+                })
+                continue
+
+            cases = apply_case_rule(pending_qty, pack_qty)
+            if cases <= 0:
+                if write_carryover_on_reject:
+                    set_carryover(key, item_key, "wholesale", pending_qty)
+                continue
+
+            wholesale_items.append({
+                "item_key": item_key, "name": name, "sold_qty": sold_qty,
+                "pending_qty": pending_qty, "pack_qty": pack_qty, "cases": cases,
+                "vendor_id": offer["vendor_id"], "vendor_name": offer.get("vendor_name", offer["vendor_id"]),
+                "product_url": offer.get("product_url"), "category": "wholesale",
+            })
+            # 이월값은 여기서 갱신하지 않는다 - 텔레그램 확인/스킵 결과가 나온 뒤
+            # resolve_carryover_after_reply()가 확정한다.
+        else:
+            other_items.append({"item_key": item_key, "name": name, "sold_qty": sold_qty})
+
+    return {
+        "wholesale_items": wholesale_items,
+        "coupang_items": coupang_items,
+        "icecream_items": icecream_items,
+        "other_items": other_items,
+        "unknown_pack_items": unknown_pack_items,
+    }
+
+
+def build_manual_wholesale_report(store_id: str, account_id: int | None, top_items: list[dict]) -> dict:
+    """웹에서 수동으로 불러온 오더퀸 판매 데이터(top_items)를 텔레그램
+    확인/스킵/수정 가능한 리포트로 재구성한다. apply_manual_pull_carryover()가
+    이미 이번 판매량을 이월에 합산해둔 뒤라(같은 /import/orderqueen 호출에서
+    먼저 실행됨), 현재 이월값을 그대로 pending_qty로 쓰고 별도로 더하지 않는다."""
+    key = report_key(store_id, account_id)
+    catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
+    disabled_vendors, preferred_vendor = vendors.get_store_vendor_prefs(store_id)
+    account = vendors.resolve_store_vendor_account(store_id, "orderqueen", account_id)
+
+    classified = _classify_report_items(
+        store_id, key, top_items, catalog, disabled_vendors, preferred_vendor,
+        compute_wholesale_pending_qty=lambda item_key, sold_qty: get_carryover(key, item_key),
+        write_carryover_on_reject=False,
+        log_popularity=False,
+    )
+    return {
+        "ok": True,
+        "account_id": account_id,
+        "account_nickname": account["nickname"] if account else None,
+        "report_key": key,
+        **classified,
+    }
+
+
 def generate_report(store_id: str, account_id: int | None = None) -> dict:
     creds = vendors.get_store_vendor_credentials(store_id, "orderqueen", account_id)
     if not creds:
@@ -327,89 +463,12 @@ def generate_report(store_id: str, account_id: int | None = None) -> dict:
     catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
     disabled_vendors, preferred_vendor = vendors.get_store_vendor_prefs(store_id)
 
-    wholesale_items = []
-    coupang_items = []
-    icecream_items = []
-    other_items = []
-    unknown_pack_items = []
-
-    for row in top_items:
-        barcode = str(row.get("바코드번호", "") or "").strip().replace(".0", "")
-        name = str(row.get("메뉴명", "") or "").strip()
-        sold_qty = int(row.get("판매수량", 0) or 0)
-        if sold_qty <= 0 or not name:
-            continue
-
-        cat = catalog.get(barcode) if barcode else None
-        is_coupang = int(cat.is_coupang) if cat else 99
-        item_key = barcode or name
-
-        pop_category = POPULARITY_CATEGORY_BY_IS_COUPANG.get(is_coupang)
-        if pop_category:
-            popularity.log_event(store_id, pop_category, item_key, name, sold_qty)
-
-        if is_coupang == 0:
-            box_qty = int(getattr(cat, "icecream_box_qty", 0) or 0) if cat else 0
-            cases = apply_case_rule(sold_qty, box_qty)
-            if cases > 0:
-                icecream_items.append({
-                    "item_key": item_key, "name": name, "sold_qty": sold_qty,
-                    "box_qty": box_qty, "cases": cases,
-                })
-        elif is_coupang == 1:
-            keyword = (cat.search_keyword or cat.menu_name or name) if cat else name
-            results = product_ranking.search_products(keyword, limit=1)
-            if results:
-                r = results[0]
-                coupang_items.append({
-                    "item_key": item_key, "name": name, "sold_qty": sold_qty,
-                    "price": r.get("price"), "partners_link": r.get("partners_link"),
-                })
-        elif is_coupang == 2:
-            carried = get_carryover(key, item_key)
-            pending_qty = carried + sold_qty
-            keyword = (cat.search_keyword or cat.menu_name or name) if cat else name
-
-            compare_result = price_compare.compare(keyword)
-            groups = price_compare.filter_groups_for_store(compare_result.get("groups", []), disabled_vendors)
-            offer = None
-            for group in groups:
-                offer = _pick_best_offer(group.get("offers", []), preferred_vendor)
-                if offer:
-                    break
-
-            if not offer:
-                set_carryover(key, item_key, "wholesale", pending_qty)
-                continue
-
-            pack_qty = int(offer.get("unit_qty") or 0)
-            if pack_qty <= 0:
-                # 1타 개수를 크롤러가 아직 못 읽어온 상품 - 여기서 1개입으로
-                # 잘못 가정하면 "판매수량 = 타수"로 엉뚱한 발주 추천이 나간다.
-                # 케이스 수를 추정하지 않고 참고용으로만 보여주고, 판매량은
-                # 이월에 그대로 남겨서 나중에 1타 개수가 확인되면 정상 반영되게 한다.
-                set_carryover(key, item_key, "wholesale", pending_qty)
-                unknown_pack_items.append({
-                    "item_key": item_key, "name": name, "sold_qty": sold_qty,
-                    "vendor_name": offer.get("vendor_name", offer["vendor_id"]),
-                })
-                continue
-
-            cases = apply_case_rule(pending_qty, pack_qty)
-            if cases <= 0:
-                set_carryover(key, item_key, "wholesale", pending_qty)
-                continue
-
-            wholesale_items.append({
-                "item_key": item_key, "name": name, "sold_qty": sold_qty,
-                "pending_qty": pending_qty, "pack_qty": pack_qty, "cases": cases,
-                "vendor_id": offer["vendor_id"], "vendor_name": offer.get("vendor_name", offer["vendor_id"]),
-                "product_url": offer.get("product_url"), "category": "wholesale",
-            })
-            # 이월값은 여기서 갱신하지 않는다 - 텔레그램 확인/스킵 결과가 나온 뒤
-            # resolve_carryover_after_reply()가 확정한다.
-        else:
-            other_items.append({"item_key": item_key, "name": name, "sold_qty": sold_qty})
+    classified = _classify_report_items(
+        store_id, key, top_items, catalog, disabled_vendors, preferred_vendor,
+        compute_wholesale_pending_qty=lambda item_key, sold_qty: get_carryover(key, item_key) + sold_qty,
+        write_carryover_on_reject=True,
+        log_popularity=True,
+    )
 
     set_last_aggregated_until(key, period_to)
 
@@ -420,9 +479,5 @@ def generate_report(store_id: str, account_id: int | None = None) -> dict:
         "account_id": account_id,
         "account_nickname": account_nickname,
         "report_key": key,
-        "wholesale_items": wholesale_items,
-        "coupang_items": coupang_items,
-        "icecream_items": icecream_items,
-        "other_items": other_items,
-        "unknown_pack_items": unknown_pack_items,
+        **classified,
     }

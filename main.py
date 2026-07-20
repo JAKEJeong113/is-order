@@ -1418,6 +1418,59 @@ def api_store_report_schedules_toggle(
     return {"ok": ok}
 
 
+class SendManualReportRequest(BaseModel):
+    period_from: date
+    period_to: date
+    top_items: list[dict]
+
+
+@app.post("/api/store-reports/send-manual")
+def api_store_reports_send_manual(req: SendManualReportRequest, user: dict = Depends(require_web_user)):
+    """/order에서 수동으로 불러온 발주 추천을 텔레그램으로 보내 확인/스킵/수정
+    으로 바로 도매처 담기까지 이어갈 수 있게 한다 - 예약 주기를 기다리지 않고
+    지금 바로 자동 리포트와 같은 방식으로 처리하는 것."""
+    store_id = f"web:{user['email']}"
+    chat_id = _resolve_chat_id_for_store(store_id)
+    if not chat_id:
+        return {"ok": False, "message": "이 계정에 연결된 텔레그램 지점이 없습니다. 관리자에게 지점 연결을 요청해주세요."}
+
+    classified = store_reports.build_manual_wholesale_report(store_id, None, req.top_items)
+    report = {
+        "period_from": req.period_from.isoformat(),
+        "period_to": req.period_to.isoformat(),
+        **classified,
+    }
+
+    sent_any = False
+    for builder in (_format_wholesale_report_message, _format_coupang_report_message, _format_icecream_report_message):
+        msg = builder(report)
+        if msg:
+            telegram_bot.send_message(chat_id, msg)
+            sent_any = True
+
+    if not sent_any:
+        telegram_bot.send_message(
+            chat_id,
+            f"📦 수동 발주 리포트 ({report['period_from']} ~ {report['period_to']} 집계)\n\n"
+            "이번 조회에서는 발주 대상 상품이 없습니다.",
+        )
+
+    if report["wholesale_items"]:
+        telegram_store.set_disambig_state(chat_id, {
+            "mode": "report_confirm",
+            "current": True,
+            "store_id": store_id,
+            "report_key": report["report_key"],
+            "wholesale_items": report["wholesale_items"],
+        })
+
+    return {
+        "ok": True,
+        "message": "텔레그램으로 발송했습니다.",
+        "wholesale_count": len(report["wholesale_items"]),
+    }
+
+
 @app.get("/popular", response_class=HTMLResponse)
 def popular_page(request: Request):
     if not get_current_web_user(request):

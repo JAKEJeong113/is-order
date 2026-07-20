@@ -777,7 +777,7 @@
       </div>
       <div style="display:flex; flex-direction:column; justify-content:end; gap:8px;">
         <button class="btn-primary" style="width:100%;" onclick="generateOrder()">발주 추천 수동 생성</button>
-        <button class="btn-light" id="excelDownloadBtn" disabled style="width:100%;">엑셀 다운로드</button>
+        <button class="btn-dark" id="sendTelegramBtn" disabled style="width:100%;" onclick="sendManualReportToTelegram()">텔레그램 발송하기</button>
       </div>
     </div>
   </div>
@@ -1193,18 +1193,46 @@
       renderSummary(data);
       renderTable();
 
-      const excelBtn = document.getElementById("excelDownloadBtn");
-      if (data.job_id) {
-        excelBtn.disabled = false;
-        excelBtn.onclick = () => window.open(`/export/${data.job_id}`, "_blank");
-      } else {
-        excelBtn.disabled = true;
-      }
+      document.getElementById("sendTelegramBtn").disabled = false;
 
     } catch (e) {
       alert("요청 중 오류가 발생했어.\n\n" + e);
     } finally {
       hideLoadingModal();
+    }
+  }
+
+  async function sendManualReportToTelegram() {
+    if (!currentData || !currentData.top_items) {
+      alert("먼저 발주 추천을 생성해줘.");
+      return;
+    }
+
+    const btn = document.getElementById("sendTelegramBtn");
+    btn.disabled = true;
+    btn.innerText = "발송 중...";
+
+    try {
+      const res = await fetch("/api/store-reports/send-manual", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          period_from: document.getElementById("periodFrom").value,
+          period_to: document.getElementById("periodTo").value,
+          top_items: currentData.top_items,
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.message || "텔레그램 발송에 실패했습니다.");
+        return;
+      }
+      alert(data.message || "텔레그램으로 발송했습니다.");
+    } catch (e) {
+      alert("텔레그램 발송 중 오류가 발생했습니다.\n\n" + e);
+    } finally {
+      btn.disabled = false;
+      btn.innerText = "텔레그램 발송하기";
     }
   }
 
