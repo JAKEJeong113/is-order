@@ -13,12 +13,22 @@
 (오히려 이미 변환된 링크를 딥링크 API에 다시 넣으면 "url convert failed"로
 실패한다는 걸 실측으로 확인함).
 
-이 API는 시간당 호출 한도가 엄격하고(실측 시간당 약 90여회) 초과하면 최대
-24시간 잠기며 3회 누적되면 계정 자체가 제한된다. 그래서 "아직 기준 URL이 없는
-상품"에 대해서만 하루 한 번 백필하듯 돌린다 — 카탈로그가 안 바뀌면 둘째 날부터는
-처리할 게 없어서 사실상 호출이 0에 수렴한다. 파트너스 링크는 만료되지 않는
-고정 링크라 한 번 채워지면 다시 검색하지 않는다(재검색은 이미 맞는 매칭을
-엉뚱한 상품으로 잘못 덮어쓸 위험만 있다).
+이 API(검색 API)는 쿠팡 파트너스 공식 한도가 시간당 단 10회로 매우
+엄격하다(2026-07-21 쿠팡 파트너스 공지 확인, 이전에 코드에 있던 "실측 약
+90여회"는 잘못된 추정치였음 - 이 추정치로 스케줄을 짜서 계속 한도를 넘겼고
+결국 계정 자체가 이용제한을 먹었다). 초과하면 최대 24시간 잠기며 3회
+누적되면 계정 자체가 제한된다. 그래서 "아직 기준 URL이 없는 상품"에 대해서만
+하루 한 번 백필하듯 돌린다 — 카탈로그가 안 바뀌면 둘째 날부터는 처리할 게
+없어서 사실상 호출이 0에 수렴한다. 파트너스 링크는 만료되지 않는 고정
+링크라 한 번 채워지면 다시 검색하지 않는다(재검색은 이미 맞는 매칭을 엉뚱한
+상품으로 잘못 덮어쓸 위험만 있다).
+
+실제 한도(10회/시간)를 절대 넘기지 않도록, search_coupang_product() 호출
+전에 DB에 기록된 "최근 1시간 이내 호출 수"를 먼저 확인하고 여유가 없으면
+아예 API를 부르지 않고 CoupangRateLimitError를 낸다 - 이렇게 하면
+refresh_products/snapshot_prices/관리자 수동 새로고침 등 이 함수를 부르는
+모든 경로가 각자 따로 조절할 필요 없이 한 곳에서 공통으로 안전하게
+제한된다.
 
 검색어가 상품명 그대로라 가끔 엉뚱한 상품이 매칭되는 경우, 사람이 직접 확인한
 링크를 set_manual_link()로 반영하면 이후 자동 검색에서 영구 제외된다.
@@ -29,7 +39,7 @@ import hmac
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -47,9 +57,47 @@ CP_DOMAIN = "https://api-gateway.coupang.com"
 CP_SEARCH_PATH = "/v2/providers/affiliate_open_api/apis/openapi/products/search"
 SEARCH_DELAY_SECONDS = 0.3
 
+# 쿠팡 파트너스 검색 API 공식 한도는 시간당 10회 - 여유를 두고 8회까지만
+# 스스로 쓰도록 제한한다(안전마진 2회).
+SEARCH_API_SAFE_LIMIT_PER_HOUR = 8
+
 
 class CoupangRateLimitError(RuntimeError):
     pass
+
+
+def init_search_api_rate_limit_table() -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS coupang_search_api_calls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        called_at TEXT NOT NULL
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def _reserve_search_api_slot() -> bool:
+    """검색 API를 실제로 부르기 전에 먼저 호출한다. 최근 1시간 이내 호출
+    기록이 안전 한도 미만이면 이번 호출을 기록하고 True, 아니면 API를
+    아예 부르지 않고 False를 돌려준다."""
+    now = datetime.now(timezone.utc)
+    window_start_iso = (now - timedelta(hours=1)).isoformat()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM coupang_search_api_calls WHERE called_at < ?", (window_start_iso,))
+    cur.execute("SELECT COUNT(*) FROM coupang_search_api_calls")
+    count = cur.fetchone()[0]
+    if count >= SEARCH_API_SAFE_LIMIT_PER_HOUR:
+        conn.commit()
+        conn.close()
+        return False
+    cur.execute("INSERT INTO coupang_search_api_calls (called_at) VALUES (?)", (now.isoformat(),))
+    conn.commit()
+    conn.close()
+    return True
 
 
 class ProductType:
@@ -223,6 +271,12 @@ def search_coupang_product(keyword: str) -> dict | None:
     """검색어로 쿠팡 상품을 검색해서 1순위 상품의 이미지/가격/상품 URL을 가져온다."""
     if not CP_ACCESS_KEY or not CP_SECRET_KEY:
         raise RuntimeError("CP_ACCESS_KEY / CP_SECRET_KEY 환경변수가 설정되지 않았습니다.")
+
+    if not _reserve_search_api_slot():
+        raise CoupangRateLimitError(
+            f"검색 API 자체 안전 한도(시간당 {SEARCH_API_SAFE_LIMIT_PER_HOUR}회) 도달 - "
+            "실제 쿠팡 한도(시간당 10회) 초과를 막기 위해 이번 호출은 건너뜁니다."
+        )
 
     query = urlencode({"keyword": keyword, "limit": "1"})
     authorization = _make_authorization("GET", CP_SEARCH_PATH, query, CP_ACCESS_KEY, CP_SECRET_KEY)
