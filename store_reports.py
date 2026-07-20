@@ -19,7 +19,6 @@ from parser import parse_menu_sales_xlsx
 
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
-COUPANG_CATALOG_XLSX_PATH = BASE_DIR / "coupang_catalog_sample_2.xlsx"
 
 CASE_ORDER_THRESHOLD = 0.6
 DAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]
@@ -415,7 +414,7 @@ def build_manual_wholesale_report(store_id: str, account_id: int | None, top_ite
     이미 이번 판매량을 이월에 합산해둔 뒤라(같은 /import/orderqueen 호출에서
     먼저 실행됨), 현재 이월값을 그대로 pending_qty로 쓰고 별도로 더하지 않는다."""
     key = report_key(store_id, account_id)
-    catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
+    catalog = mapping.load_catalog()
     disabled_vendors, preferred_vendor = vendors.get_store_vendor_prefs(store_id)
     account = vendors.resolve_store_vendor_account(store_id, "orderqueen", account_id)
 
@@ -460,7 +459,7 @@ def generate_report(store_id: str, account_id: int | None = None) -> dict:
     except Exception as e:
         return {"ok": False, "reason": f"오더퀸 판매 데이터 조회 실패: {e}"}
 
-    catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
+    catalog = mapping.load_catalog()
     disabled_vendors, preferred_vendor = vendors.get_store_vendor_prefs(store_id)
 
     classified = _classify_report_items(

@@ -32,7 +32,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 import secrets
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -42,7 +42,8 @@ from pydantic import BaseModel, Field
 
 from orderqueen_bot import download_orderqueen_xlsx
 from parser import parse_menu_sales_xlsx
-from mapping import load_coupang_catalog_xlsx, select_representative_item
+import mapping
+from mapping import select_representative_item
 from db import init_db, get_inventory, upsert_inventory, change_stock
 
 from yamimall_bot import add_yamimall_cart
@@ -73,7 +74,6 @@ EXPORT_DIR = BASE_DIR / "exports"
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
-COUPANG_CATALOG_XLSX_PATH = BASE_DIR / "coupang_catalog_sample_2.xlsx"
 
 # 쿠팡 파트너스 API 환경변수
 CP_ACCESS_KEY = os.getenv("CP_ACCESS_KEY", "")
@@ -126,7 +126,7 @@ product_ranking.init_table(product_ranking.SNACK)
 product_ranking.init_price_tracking_tables()
 biz_tools.init_table()
 consumables.init_table()
-product_ranking.init_custom_catalog_table()
+mapping.init_catalog_table()
 patch_notes.init_patch_notes_table()
 web_cart.init_web_cart_table()
 cart_jobs.init_cart_jobs_table()
@@ -1010,7 +1010,7 @@ def register_product_routes(pt: product_ranking.ProductType, *, slug: str, page_
         """진단용(읽기 전용): 쿠팡 API를 전혀 호출하지 않고, 카탈로그의 해당 상품군
         항목 대비 현재 DB에 이미지/파트너스링크가 얼마나 채워졌는지만 확인한다."""
         try:
-            catalog = load_coupang_catalog_xlsx(str(product_ranking.COUPANG_CATALOG_XLSX_PATH))
+            catalog = mapping.load_catalog()
         except Exception as e:
             return {"ok": False, "error": f"카탈로그 로드 실패: {e}"}
 
@@ -1058,7 +1058,7 @@ def register_product_routes(pt: product_ranking.ProductType, *, slug: str, page_
         없고 DB에만 있는 것) 전체를, 각각의 현재 DB 상태(이미지/가격/링크/수동고정
         여부)와 합쳐서 반환한다. 관리 페이지의 목록 렌더링용."""
         try:
-            catalog = load_coupang_catalog_xlsx(str(product_ranking.COUPANG_CATALOG_XLSX_PATH))
+            catalog = mapping.load_catalog()
         except Exception as e:
             return {"ok": False, "error": f"카탈로그 로드 실패: {e}"}
 
@@ -1252,35 +1252,84 @@ def admin_barcode_catalog_page(request: Request, _: bool = Depends(require_admin
 
 @app.get("/admin/api/barcode-catalog")
 def admin_api_barcode_catalog_list(_: bool = Depends(require_admin)):
-    return {"ok": True, "items": product_ranking.list_custom_catalog_items()}
+    """전체 카탈로그(현재 1000개 이상)를 다 내려주면 목록이 무거워지므로,
+    기본으로는 최근 수정된 20개만 준다 - 특정 상품을 찾으려면 검색을 쓴다."""
+    return {"ok": True, "items": mapping.list_catalog_items(limit=20), "total_count": mapping.catalog_item_count()}
 
 
 @app.get("/admin/api/barcode-catalog/search")
 def admin_api_barcode_catalog_search(q: str = Query(..., min_length=1), _: bool = Depends(require_admin)):
-    """엑셀 카탈로그에 이미 있는 상품을 바코드 또는 제품명으로 찾아 수정 폼에
-    불러올 때 쓴다(현재 값을 미리 채워 넣기 위함) - search_catalog()와 동일
-    로직(이미 덮어쓴 값이 있으면 그걸, 없으면 엑셀 원본을 준다)이지만 관리자가
-    여러 개를 한 번에 훑어볼 수 있게 더 넉넉히 돌려준다."""
-    items = product_ranking.search_catalog(q, limit=20)
+    """바코드 또는 제품명으로 찾아 수정 폼에 불러올 때 쓴다(구분/1타 개수 등
+    현재 값을 미리 채워 넣기 위함) - 여러 개가 검색되면 전부 돌려줘서 나눠서
+    고칠 수 있게 한다."""
+    items = mapping.search_catalog_full(q, limit=20)
     return {"ok": True, "items": items}
 
 
 class BarcodeCatalogRequest(BaseModel):
     barcode: str = Field(..., min_length=1)
     menu_name: str = Field(..., min_length=1)
+    is_coupang: int = Field(99, ge=0, le=99, description="0=아이스크림,1=쿠팡,2=도매몰,3=문구완구,99=미분류")
+    pack_qty: int = Field(1, ge=1, description="도매몰 1타 개수")
+    icecream_box_qty: int = Field(0, ge=0, description="아이스크림 박스당 개수")
+    search_keyword: str = ""
     recommended_price: int | None = None
 
 
 @app.post("/admin/api/barcode-catalog")
 def admin_api_barcode_catalog_create(req: BarcodeCatalogRequest, _: bool = Depends(require_admin)):
-    product_ranking.add_custom_catalog_item(req.barcode, req.menu_name, req.recommended_price)
+    existing = mapping.load_catalog().get(req.barcode)
+    item = mapping.CoupangCatalogItem(
+        barcode=req.barcode,
+        menu_name=req.menu_name,
+        search_keyword=req.search_keyword,
+        fixed_url=existing.fixed_url if existing else "",
+        pack_qty=req.pack_qty,
+        min_order=existing.min_order if existing else 1,
+        notes=existing.notes if existing else "",
+        is_coupang=req.is_coupang,
+        icecream_box_qty=req.icecream_box_qty,
+        category=existing.category if existing else "",
+        menu_code=existing.menu_code if existing else "",
+        recommended_price=req.recommended_price or 0,
+    )
+    mapping.upsert_catalog_item(item)
     return {"ok": True}
 
 
 @app.delete("/admin/api/barcode-catalog/{barcode}")
 def admin_api_barcode_catalog_delete(barcode: str, _: bool = Depends(require_admin)):
-    ok = product_ranking.delete_custom_catalog_item(barcode)
+    ok = mapping.delete_catalog_item(barcode)
     return {"ok": ok}
+
+
+@app.get("/admin/api/catalog/download")
+def admin_api_catalog_download(_: bool = Depends(require_admin)):
+    """현재 DB 카탈로그 전체를 엑셀로 받는다 - 로컬에서 수정한 뒤 업로드로
+    다시 반영하는 왕복 작업용."""
+    content = mapping.export_catalog_to_xlsx_bytes()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="catalog_{ts}.xlsx"'},
+    )
+
+
+@app.post("/admin/api/catalog/upload")
+async def admin_api_catalog_upload(file: UploadFile = File(...), _: bool = Depends(require_admin)):
+    """업로드된 엑셀로 카탈로그 전체를 통째로 교체한다. 형식이 잘못됐거나
+    유효한 행이 너무 적으면(사고성 업로드 의심) 반영하지 않고 거부한다."""
+    content = await file.read()
+    try:
+        items = mapping.parse_catalog_xlsx_bytes(content)
+    except ValueError as e:
+        return {"ok": False, "message": str(e)}
+    except Exception as e:
+        return {"ok": False, "message": f"엑셀 파일을 읽지 못했습니다: {e}"}
+
+    count = mapping.replace_catalog_from_items(items)
+    return {"ok": True, "message": f"{count}개 상품으로 카탈로그를 교체했습니다.", "count": count}
 
 
 @app.get("/my-vendors", response_class=HTMLResponse)
@@ -1659,18 +1708,25 @@ def make_sales_qty_map(items: list[dict]) -> dict:
     return result
 
 def load_coupang_catalog_for_search() -> pd.DataFrame:
-    if not COUPANG_CATALOG_XLSX_PATH.exists():
-        raise FileNotFoundError(f"Catalog file not found: {COUPANG_CATALOG_XLSX_PATH}")
+    catalog = mapping.load_catalog()
+    df = pd.DataFrame([
+        {
+            "version": "", "updated_at": "", "priority": "",
+            "barcode": c.barcode, "menu_code": c.menu_code, "menu_name": c.menu_name,
+            "is_coupang": c.is_coupang, "recommended_price": c.recommended_price,
+            "search_keyword": c.search_keyword, "fixed_url": c.fixed_url,
+            "pack_qty": c.pack_qty, "min_order": c.min_order,
+            "notes": c.notes, "category": c.category,
+        }
+        for c in catalog.values()
+    ])
 
-    df = pd.read_excel(COUPANG_CATALOG_XLSX_PATH)
-
-    # 컬럼 없을 때 대비
+    # 컬럼 없을 때 대비(카탈로그가 텅 비어 DataFrame([])이면 컬럼 자체가 없음)
     expected_columns = [
         "version", "updated_at", "barcode", "menu_code", "menu_name",
         "is_coupang", "recommended_price", "search_keyword", "fixed_url",
         "pack_qty", "min_order", "priority", "notes", "category"
     ]
-
     for col in expected_columns:
         if col not in df.columns:
             df[col] = ""
@@ -1759,9 +1815,9 @@ def search_products(q: str = Query(..., min_length=1)):
 
 @app.get("/api/barcode-search")
 def api_barcode_search(q: str = Query(..., min_length=1), user: dict = Depends(require_web_user)):
-    """텔레그램 "바코드" 명령과 동일한 검색(product_ranking.search_catalog) -
-    바코드추가/바코드수정으로 저장된 custom_catalog_items 덮어쓰기 값도
-    반영된다(main.py의 /api/products/search는 엑셀 원본만 보는 별개 구현)."""
+    """텔레그램 "바코드" 명령과 동일한 검색(product_ranking.search_catalog,
+    mapping.load_catalog() DB 카탈로그 기반) - 관리자 웹/텔레그램 바코드추가로
+    저장한 값도 바로 반영된다."""
     return {"ok": True, "items": product_ranking.search_catalog(q, limit=10)}
 
 
@@ -1883,7 +1939,7 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
         item["추천발주량"] = max(0, seven + safety)
 
     # 4) 쿠팡 카탈로그 로드
-    catalog = load_coupang_catalog_xlsx(COUPANG_CATALOG_XLSX_PATH)
+    catalog = mapping.load_catalog()
 
     for item in top_items:
         barcode = str(item.get("바코드번호", "") or "").strip().replace(".0", "")
@@ -2052,7 +2108,7 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
     summary = dict(summary)
     summary["safety_stock"] = safety
     summary["recommend_rule"] = "추천발주량 = 7일예상수량 + safety_stock"
-    summary["catalog_path"] = str(COUPANG_CATALOG_XLSX_PATH)
+    summary["catalog_path"] = "DB (catalog_items)"
 
     summary["아이스크림품목수"] = int(sum(1 for x in top_items if x.get("is_coupang") == 0))
     summary["쿠팡품목수"] = int(sum(1 for x in top_items if x.get("is_coupang") == 1))

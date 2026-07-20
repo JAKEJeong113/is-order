@@ -16,11 +16,18 @@
       padding: 24px 16px 80px;
     }
     h1 { font-size: 20px; margin: 0 0 6px; }
+    h2 { font-size: 15px; margin: 24px 0 8px; }
     .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
-    .top-row { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; }
+    .top-row { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
     .add-btn {
       padding: 10px 16px; border: none; border-radius: 8px; font-size: 13px;
       font-weight: 700; cursor: pointer; background: var(--mint); color: white; flex-shrink: 0;
+    }
+    .add-btn.secondary { background: #111827; }
+    .add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .upload-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 14px 16px; margin-bottom: 20px;
     }
     .bev-row {
       background: var(--card); border: 1px solid var(--line); border-radius: 12px;
@@ -39,9 +46,10 @@
       margin-bottom: 8px;
     }
     .field-grid label { font-size: 11px; color: var(--muted); }
-    .field-grid input {
+    .field-grid input, .field-grid select {
       padding: 7px 9px; border: 1px solid var(--line);
-      border-radius: 6px; font-size: 12px; width: 100%;
+      border-radius: 6px; font-size: 12px; width: 100%; background: white;
+      font-family: inherit;
     }
     .row-actions { display: flex; gap: 8px; align-items: center; }
     .save-btn {
@@ -58,13 +66,32 @@
   </style>
 </head>
 <body>
-  <h1>바코드 카탈로그 관리 (엑셀 미등록 신상품)</h1>
+  <h1>바코드 카탈로그 관리</h1>
+  <div class="hint-text" id="totalCountText"></div>
+
+  <h2>엑셀 업로드/다운로드 (대량 수정)</h2>
+  <div class="upload-card">
+    <div class="hint-text" style="margin-bottom:10px;">
+      "다운로드"로 현재 카탈로그 전체를 엑셀로 받아 로컬에서 자유롭게 수정한
+      뒤(정렬/필터/일괄수정 등), "업로드"로 다시 올리면 카탈로그 전체가
+      즉시 교체됩니다(배포 불필요). 형식이 잘못됐거나 유효한 상품이
+      너무 적으면 안전하게 거부되고 기존 카탈로그는 그대로 유지됩니다.
+    </div>
+    <div class="top-row" style="margin-bottom:0;">
+      <a class="add-btn secondary" href="/admin/api/catalog/download" style="text-decoration:none;">현재 카탈로그 다운로드</a>
+      <input type="file" id="uploadInput" accept=".xlsx" style="flex:1; min-width:180px;" />
+      <button class="add-btn" id="uploadBtn">업로드해서 전체 교체</button>
+    </div>
+    <div id="uploadStatus" class="status-text" style="margin-top:8px;"></div>
+  </div>
+
+  <h2>한 상품만 추가/수정</h2>
   <div class="hint-text">
-    새 상품은 "+ 새 바코드 추가"로 등록하세요. 엑셀 원본 카탈로그에 이미 있는
-    상품을 고치려면 아래에서 제품명이나 바코드로 검색한 뒤 값을 수정해
-    저장하세요(저장한 값이 이후 항상 엑셀보다 우선 적용됩니다). 한 번에 여러
-    개가 검색되면 전부 불러와서 나눠서 고칠 수 있습니다. 텔레그램
-    "바코드추가"(관리자 전용)로도 등록할 수 있습니다.
+    새 상품은 "+ 새 바코드 추가"로 등록하세요. 이미 있는 상품을 고치려면
+    아래에서 제품명이나 바코드로 검색한 뒤 값을 수정해 저장하세요. 한 번에
+    여러 개가 검색되면 전부 불러와서 나눠서 고칠 수 있습니다. 텔레그램
+    "바코드추가"(관리자 전용)로 등록한 상품은 구분이 미분류로 들어가므로
+    여기서 구분을 지정해줘야 발주 리포트 분류에 반영됩니다.
   </div>
   <div class="top-row">
     <button class="add-btn" id="addNewBtn">+ 새 바코드 추가</button>
@@ -79,6 +106,14 @@
   <script>
     let allItems = [];
     let newItems = [];
+
+    const IS_COUPANG_OPTIONS = [
+      { value: 0, label: "아이스크림" },
+      { value: 1, label: "쿠팡" },
+      { value: 2, label: "도매몰" },
+      { value: 3, label: "문구완구" },
+      { value: 99, label: "미분류" },
+    ];
 
     function escapeHtml(str) {
       return String(str ?? "")
@@ -95,7 +130,15 @@
       }
       allItems = data.items;
       newItems = [];
+      document.getElementById("totalCountText").textContent =
+        `전체 카탈로그 ${data.total_count}개 중 최근 수정된 20개를 표시합니다. 특정 상품은 아래 검색으로 찾으세요.`;
       render();
+    }
+
+    function isCoupangOptionsHtml(selected) {
+      return IS_COUPANG_OPTIONS.map(
+        (o) => `<option value="${o.value}" ${Number(selected) === o.value ? "selected" : ""}>${o.label}</option>`
+      ).join("");
     }
 
     function renderRow(it) {
@@ -103,6 +146,7 @@
       const badge = isNew
         ? '<span class="badge">신규</span>'
         : '<span class="badge locked">저장됨</span>';
+      const isCoupangValue = it.is_coupang ?? 99;
 
       return `
         <div class="bev-row ${isNew ? "" : "locked"}" data-barcode="${escapeHtml(it.barcode ?? "")}" data-temp-key="${it._tempKey ?? ""}" data-is-preview="${it._isPreview ? "1" : ""}">
@@ -115,6 +159,14 @@
               <input type="text" class="barcode-input" placeholder="바코드" value="${escapeHtml(it.barcode || "")}" ${isNew ? "" : "readonly"} />
               <label>제품명</label>
               <input type="text" class="name-input" placeholder="제품명" value="${escapeHtml(it.menu_name || "")}" />
+              <label>구분</label>
+              <select class="is-coupang-input">${isCoupangOptionsHtml(isCoupangValue)}</select>
+              <label>도매몰 1타개수</label>
+              <input type="number" class="pack-qty-input" placeholder="예: 20" min="1" value="${it.pack_qty ?? ""}" />
+              <label>아이스크림 박스개수</label>
+              <input type="number" class="box-qty-input" placeholder="예: 24" min="0" value="${it.icecream_box_qty ?? ""}" />
+              <label>쿠팡 검색어</label>
+              <input type="text" class="keyword-input" placeholder="가격비교/쿠팡 검색에 쓸 키워드" value="${escapeHtml(it.search_keyword || "")}" />
               <label>추천판매가</label>
               <input type="number" class="price-input" placeholder="추천판매가" value="${it.recommended_price ?? ""}" />
             </div>
@@ -137,7 +189,10 @@
 
     document.getElementById("addNewBtn").addEventListener("click", () => {
       const tempKey = "new_" + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random());
-      newItems.unshift({ barcode: null, _tempKey: tempKey, menu_name: "", recommended_price: null });
+      newItems.unshift({
+        barcode: null, _tempKey: tempKey, menu_name: "", recommended_price: null,
+        is_coupang: 99, pack_qty: null, icecream_box_qty: null, search_keyword: "",
+      });
       render();
     });
 
@@ -168,6 +223,42 @@
       } catch (err) {
         statusEl.textContent = "검색 중 오류 발생";
         statusEl.classList.add("error");
+      }
+    });
+
+    document.getElementById("uploadBtn").addEventListener("click", async () => {
+      const fileInput = document.getElementById("uploadInput");
+      const statusEl = document.getElementById("uploadStatus");
+      statusEl.classList.remove("error");
+      const file = fileInput.files[0];
+      if (!file) {
+        statusEl.textContent = "업로드할 엑셀 파일을 선택해주세요.";
+        statusEl.classList.add("error");
+        return;
+      }
+      if (!confirm("현재 카탈로그 전체를 이 파일 내용으로 교체합니다. 계속할까요?")) return;
+
+      const uploadBtn = document.getElementById("uploadBtn");
+      uploadBtn.disabled = true;
+      statusEl.textContent = "업로드 중...";
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch("/admin/api/catalog/upload", { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.ok) {
+          statusEl.textContent = data.message || "업로드 완료";
+          fileInput.value = "";
+          await loadItems();
+        } else {
+          statusEl.textContent = data.message || "업로드 실패";
+          statusEl.classList.add("error");
+        }
+      } catch (err) {
+        statusEl.textContent = "업로드 중 오류 발생";
+        statusEl.classList.add("error");
+      } finally {
+        uploadBtn.disabled = false;
       }
     });
 
@@ -212,6 +303,10 @@
       const barcodeInput = row.querySelector(".barcode-input").value.trim();
       const itemName = row.querySelector(".name-input").value.trim();
       const priceInput = row.querySelector(".price-input").value.trim();
+      const isCoupangInput = row.querySelector(".is-coupang-input").value;
+      const packQtyInput = row.querySelector(".pack-qty-input").value.trim();
+      const boxQtyInput = row.querySelector(".box-qty-input").value.trim();
+      const keywordInput = row.querySelector(".keyword-input").value.trim();
 
       if (!barcodeInput) {
         statusEl.textContent = "바코드를 입력해주세요.";
@@ -231,6 +326,10 @@
         const body = JSON.stringify({
           barcode: barcodeInput,
           menu_name: itemName,
+          is_coupang: parseInt(isCoupangInput, 10),
+          pack_qty: packQtyInput ? parseInt(packQtyInput, 10) : 1,
+          icecream_box_qty: boxQtyInput ? parseInt(boxQtyInput, 10) : 0,
+          search_keyword: keywordInput,
           recommended_price: priceInput ? parseInt(priceInput, 10) : null,
         });
         const res = await fetch("/admin/api/barcode-catalog", {

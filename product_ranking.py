@@ -40,7 +40,6 @@ import mapping
 import product_match
 
 BASE_DIR = Path(__file__).resolve().parent
-COUPANG_CATALOG_XLSX_PATH = BASE_DIR / "coupang_catalog_sample_2.xlsx"
 
 CP_ACCESS_KEY = os.getenv("CP_ACCESS_KEY", "")
 CP_SECRET_KEY = os.getenv("CP_SECRET_KEY", "")
@@ -155,56 +154,28 @@ def init_price_tracking_tables() -> None:
     conn.close()
 
 
-def init_custom_catalog_table() -> None:
-    """카탈로그 원본 엑셀에 아직 없는 신상품을 텔레그램("바코드추가", 관리자
-    전용)/관리자 페이지에서 직접 등록해두는 보충 테이블. search_catalog()가
-    엑셀 카탈로그와 함께 조회한다."""
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS custom_catalog_items (
-        barcode TEXT PRIMARY KEY,
-        menu_name TEXT NOT NULL,
-        recommended_price INTEGER,
-        created_at TEXT
-    )
-    """)
-    conn.commit()
-    conn.close()
-
-
 def add_custom_catalog_item(barcode: str, menu_name: str, recommended_price: int | None) -> None:
-    now = datetime.now().isoformat(timespec="seconds")
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-    INSERT INTO custom_catalog_items (barcode, menu_name, recommended_price, created_at)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(barcode) DO UPDATE SET
-        menu_name = excluded.menu_name,
-        recommended_price = excluded.recommended_price
-    """, (barcode, menu_name, recommended_price, now))
-    conn.commit()
-    conn.close()
-
-
-def list_custom_catalog_items() -> list[dict]:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT barcode, menu_name, recommended_price FROM custom_catalog_items ORDER BY created_at DESC")
-    rows = cur.fetchall()
-    conn.close()
-    return [{"barcode": r[0], "menu_name": r[1], "recommended_price": r[2]} for r in rows]
-
-
-def delete_custom_catalog_item(barcode: str) -> bool:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM custom_catalog_items WHERE barcode = ?", (barcode,))
-    deleted = cur.rowcount > 0
-    conn.commit()
-    conn.close()
-    return deleted
+    """텔레그램 "바코드추가"(관리자 전용, 구분 없이 이름/가격만 받음)용 -
+    mapping.catalog_items에 직접 쓴다. 이미 있는 바코드면 구분(is_coupang)
+    등 나머지 값은 그대로 두고 이름/가격만 갱신하고, 새 바코드면 미분류(99)로
+    저장한다 - 발주 분류에 반영하려면 관리자 웹(/admin/barcode-catalog)에서
+    구분을 지정해야 한다."""
+    existing = mapping.load_catalog().get(barcode)
+    item = mapping.CoupangCatalogItem(
+        barcode=barcode,
+        menu_name=menu_name,
+        search_keyword=existing.search_keyword if existing else "",
+        fixed_url=existing.fixed_url if existing else "",
+        pack_qty=existing.pack_qty if existing else 1,
+        min_order=existing.min_order if existing else 1,
+        notes=existing.notes if existing else "",
+        is_coupang=existing.is_coupang if existing else 99,
+        icecream_box_qty=existing.icecream_box_qty if existing else 0,
+        category=existing.category if existing else "",
+        menu_code=existing.menu_code if existing else "",
+        recommended_price=recommended_price if recommended_price is not None else (existing.recommended_price if existing else 0),
+    )
+    mapping.upsert_catalog_item(item)
 
 
 def set_manual_link(
@@ -293,7 +264,7 @@ def refresh_products(pt: ProductType, limit: int | None = None) -> dict:
     미처리 항목이 시간당 한도에 가까울 때, 관리자가 안전한 만큼만 수동으로
     나눠서 돌려볼 수 있게 하기 위함(나머지는 다음 예약 실행 때 이어서 처리됨)."""
     try:
-        catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
+        catalog = mapping.load_catalog()
     except Exception as e:
         print(f"[PRODUCT_RANKING:{pt.key}] 카탈로그 로드 실패:", e)
         return {"ok": False, "error": str(e)}
@@ -422,26 +393,20 @@ def search_products(keyword: str, limit: int = 5) -> list[dict]:
 
 
 def search_catalog(query: str, limit: int = 5) -> list[dict]:
-    """전체 상품 카탈로그(원본 엑셀 + custom_catalog_items)에서 바코드 또는
-    상품명으로 찾는다. 텔레그램 "바코드" 명령에서 쓴다 - 도매처 발주용
-    가격비교(price_compare)나 고객용 추천 카드(음료/과자 캐시 테이블)와는
-    완전히 별개로, 카탈로그 자체의 바코드/추천판매가를 그대로 조회한다.
-
-    custom_catalog_items는 두 가지 역할을 겸한다: (1) 엑셀에 아직 없는
-    신상품, (2) 엑셀에 이미 있지만 관리자가 값을 고친 항목(덮어쓰기) - 같은
-    바코드면 항상 이쪽이 우선이다(엑셀은 배포에 묶여 있어 즉시 수정이 안 되므로,
-    가격 인상 등 개별 수정은 여기로 반영한다)."""
+    """카탈로그(mapping.load_catalog(), DB 기반)에서 바코드 또는 상품명으로
+    찾는다. 텔레그램 "바코드" 명령에서 쓴다 - 도매처 발주용 가격비교
+    (price_compare)나 고객용 추천 카드(음료/과자 캐시 테이블)와는 완전히
+    별개로, 카탈로그 자체의 바코드/추천판매가를 그대로 조회한다."""
     query = query.strip()
     if not query:
         return []
 
     try:
-        catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
+        catalog = mapping.load_catalog()
     except Exception as e:
         print("[PRODUCT_RANKING] 카탈로그 로드 실패:", e)
         catalog = {}
 
-    overrides = {item["barcode"]: item for item in list_custom_catalog_items()}
     query_lower = query.lower()
 
     matched = []
@@ -452,16 +417,7 @@ def search_catalog(query: str, limit: int = 5) -> list[dict]:
             or query_lower in (e.search_keyword or "").lower()
         ):
             continue
-        override = overrides.get(e.barcode)
-        matched.append(override if override else
-                       {"barcode": e.barcode, "menu_name": e.menu_name, "recommended_price": e.recommended_price})
-
-    # 엑셀에 아예 없는 순수 신상품도 찾는다.
-    for barcode, item in overrides.items():
-        if barcode in catalog:
-            continue
-        if query in barcode or query_lower in (item["menu_name"] or "").lower():
-            matched.append(item)
+        matched.append({"barcode": e.barcode, "menu_name": e.menu_name, "recommended_price": e.recommended_price})
 
     # 바코드가 정확히 일치하는 게 있으면 그것만(가장 명확한 케이스, 다른 상품과 안 섞이게)
     exact = [e for e in matched if e["barcode"] == query]
@@ -526,7 +482,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     반환하는 new_lows: 이번 배치에서 역대 최저가를 갱신한 상품 목록
     (pending_price_alerts에도 같이 기록됨)."""
     try:
-        catalog = mapping.load_coupang_catalog_xlsx(str(COUPANG_CATALOG_XLSX_PATH))
+        catalog = mapping.load_catalog()
     except Exception as e:
         print(f"[PRODUCT_RANKING:{pt.key}] 카탈로그 로드 실패:", e)
         return {"ok": False, "error": str(e)}
