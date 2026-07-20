@@ -240,11 +240,12 @@ def _report_branch_label(report: dict) -> str:
     return f" [{report['account_nickname']}]" if report.get("account_nickname") else ""
 
 
-def _format_wholesale_report_message(report: dict) -> str | None:
+def _format_wholesale_report_message(report: dict) -> str:
+    """도매처 메시지는 담을 게 없어도 항상 보낸다 - 여기서 안 보내면 쿠팡/
+    아이스크림만 오고 도매처만 조용히 빠져서, 정상적으로 60% 미달이라 아무것도
+    없는 건지 뭔가 고장난 건지 사용자가 구분할 수 없다."""
     wholesale = report["wholesale_items"]
     unknown = report.get("unknown_pack_items") or []
-    if not wholesale and not unknown:
-        return None
 
     lines = [f"📦{_report_branch_label(report)} 도매처 자동 발주 리포트 ({report['period_from']} ~ {report['period_to']} 집계)\n"]
 
@@ -264,6 +265,9 @@ def _format_wholesale_report_message(report: dict) -> str | None:
         lines.append("전체 담기: '확인' / 이번엔 넘어가기: '스킵'")
         lines.append("특정 항목 빼기: '3 빼줘' / 수량 수정: '1 4타로'")
         lines.append("(취소하려면 '취소')")
+    else:
+        lines.append("이번 집계에서는 1타(구매 단위) 대비 60% 이상 팔린 도매처 품목이 없습니다.")
+        lines.append("판매량은 이월되어 다음 집계에 이어서 반영됩니다.")
 
     return "\n".join(lines)
 
@@ -2063,7 +2067,7 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
         qty = int(item.get("판매수량", 0) or 0)
         if qty <= 0:
             continue
-        barcode = str(item.get("바코드번호", "") or "").strip()
+        barcode = str(item.get("바코드번호", "") or "").strip().replace(".0", "")
         name = str(item.get("메뉴명", "") or "")
         item_key = barcode or name
         if item.get("is_coupang") == 0:
