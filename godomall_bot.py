@@ -78,8 +78,21 @@ def _match_score(keyword: str, product_text: str) -> int:
 
 
 def _extract_unit_qty(text: str) -> int | None:
-    match = re.search(r"[xX×]\s*(\d+)\s*개", text or "")
-    return int(match.group(1)) if match else None
+    """1타(구매 단위) 개수를 상품명에서 뽑는다. 야미몰 스타일("×8개")뿐 아니라
+    과자생각/삼봉몰이 실제로 쓰는 "(1타 24개입)", "(1묶음 12개입)", "(1박 20개입)",
+    현동몰의 "(36입)" 표기도 순서대로 시도한다(우선순위: 더 구체적인 패턴 먼저)."""
+    if not text:
+        return None
+    match = re.search(r"[xX×]\s*(\d+)\s*개", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"1(?:타|묶음|박)\s*(\d+)\s*개입", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"\((\d+)\s*입\)", text)
+    if match:
+        return int(match.group(1))
+    return None
 
 
 def search_candidates(page: Page, base_url: str, keyword: str, top_n: int = 3) -> list[dict]:

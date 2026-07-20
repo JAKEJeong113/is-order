@@ -75,10 +75,15 @@ def _parse_price(text: str) -> int | None:
 
 
 def _extract_unit_qty(text: str) -> int | None:
-    match = re.search(r"[xX×*]\s*(\d+)\s*개|(\d+)\s*개입", text or "")
-    if not match:
+    if not text:
         return None
-    return int(match.group(1) or match.group(2))
+    match = re.search(r"[xX×*]\s*(\d+)\s*개|(\d+)\s*개입", text)
+    if match:
+        return int(match.group(1) or match.group(2))
+    match = re.search(r"\((\d+)\s*입\)", text)
+    if match:
+        return int(match.group(1))
+    return None
 
 
 def _extract_list_page_items(page: Page, base_url: str) -> list[dict]:
