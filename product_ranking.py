@@ -70,7 +70,11 @@ SEARCH_DELAY_SECONDS = 0.3
 
 # 쿠팡 파트너스 검색 API 공식 한도는 분당 50회(2026-07-21 공식 메일 확인) -
 # 여유를 두고 분당 35회까지만 스스로 쓰도록 제한한다(안전마진 15회, 약 30%).
+# 딥링크 생성(파트너스 웹 링크생성 기능)도 별도로 분당 50회 한도가 있어
+# 같은 방식(다른 버킷)으로 보호한다 - main.py의 대표상품 링크 생성이 이
+# 버킷을 쓴다.
 SEARCH_API_SAFE_LIMIT_PER_MINUTE = 35
+DEEPLINK_API_SAFE_LIMIT_PER_MINUTE = 35
 
 
 class CoupangRateLimitError(RuntimeError):
@@ -83,33 +87,42 @@ def init_search_api_rate_limit_table() -> None:
     cur.execute("""
     CREATE TABLE IF NOT EXISTS coupang_search_api_calls (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bucket TEXT NOT NULL DEFAULT 'search',
         called_at TEXT NOT NULL
     )
     """)
+    existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(coupang_search_api_calls)").fetchall()}
+    if "bucket" not in existing_cols:
+        cur.execute("ALTER TABLE coupang_search_api_calls ADD COLUMN bucket TEXT NOT NULL DEFAULT 'search'")
     conn.commit()
     conn.close()
 
 
-def _reserve_search_api_slot() -> bool:
-    """검색 API를 실제로 부르기 전에 먼저 호출한다. 최근 1분 이내 호출
-    기록이 안전 한도 미만이면 이번 호출을 기록하고 True, 아니면 API를
-    아예 부르지 않고 False를 돌려준다. 쿠팡 공식 한도가 분당 단위라 여기도
-    1시간이 아닌 1분 슬라이딩 윈도우로 맞춘다."""
+def reserve_coupang_api_slot(bucket: str, limit_per_minute: int) -> bool:
+    """쿠팡 파트너스 API(검색/딥링크 등)를 실제로 호출하기 전에 먼저
+    부른다. bucket별로 따로 집계해서(검색 API와 딥링크 API는 쿠팡이
+    공지한 한도가 서로 별개라 예산을 나눠 쓸 필요가 없다) 최근 1분 이내
+    호출 기록이 안전 한도 미만이면 이번 호출을 기록하고 True, 아니면
+    API를 아예 부르지 않고 False를 돌려준다."""
     now = datetime.now(timezone.utc)
     window_start_iso = (now - timedelta(minutes=1)).isoformat()
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("DELETE FROM coupang_search_api_calls WHERE called_at < ?", (window_start_iso,))
-    cur.execute("SELECT COUNT(*) FROM coupang_search_api_calls")
+    cur.execute("SELECT COUNT(*) FROM coupang_search_api_calls WHERE bucket = ?", (bucket,))
     count = cur.fetchone()[0]
-    if count >= SEARCH_API_SAFE_LIMIT_PER_MINUTE:
+    if count >= limit_per_minute:
         conn.commit()
         conn.close()
         return False
-    cur.execute("INSERT INTO coupang_search_api_calls (called_at) VALUES (?)", (now.isoformat(),))
+    cur.execute("INSERT INTO coupang_search_api_calls (bucket, called_at) VALUES (?, ?)", (bucket, now.isoformat()))
     conn.commit()
     conn.close()
     return True
+
+
+def _reserve_search_api_slot() -> bool:
+    return reserve_coupang_api_slot("search", SEARCH_API_SAFE_LIMIT_PER_MINUTE)
 
 
 class ProductType:

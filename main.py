@@ -420,6 +420,12 @@ def create_partners_link_from_search_keyword(keyword: str) -> str:
     if not CP_ACCESS_KEY or not CP_SECRET_KEY:
         raise RuntimeError("CP_ACCESS_KEY / CP_SECRET_KEY 환경변수가 설정되지 않았습니다.")
 
+    if not product_ranking.reserve_coupang_api_slot("deeplink", product_ranking.DEEPLINK_API_SAFE_LIMIT_PER_MINUTE):
+        raise product_ranking.CoupangRateLimitError(
+            f"딥링크 API 자체 안전 한도(분당 {product_ranking.DEEPLINK_API_SAFE_LIMIT_PER_MINUTE}회) 도달 - "
+            "실제 쿠팡 한도(분당 50회) 초과를 막기 위해 이번 호출은 건너뜁니다."
+        )
+
     source_url = build_coupang_search_url(keyword)
     authorization = make_coupang_authorization(
         method=CP_METHOD,
