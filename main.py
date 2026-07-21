@@ -56,6 +56,7 @@ import catalog_cache
 import catalog_crawler
 import consumables
 import godomall_bot
+import board
 import patch_notes
 import popularity
 import product_ranking
@@ -130,6 +131,8 @@ consumables.init_table()
 mapping.init_catalog_table()
 mapping.init_unclassified_queue_table()
 patch_notes.init_patch_notes_table()
+board.init_announcements_table()
+board.init_suggestions_table()
 web_cart.init_web_cart_table()
 cart_jobs.init_cart_jobs_table()
 store_reports.init_store_report_tables()
@@ -1188,6 +1191,50 @@ def admin_api_patch_notes_delete(note_id: int, _: bool = Depends(require_admin))
     return {"ok": True}
 
 
+@app.get("/admin/announcements", response_class=HTMLResponse)
+def admin_announcements_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("announcements_admin.html", {"request": request})
+
+
+class AnnouncementCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1)
+    content: str = Field(..., min_length=1)
+
+
+@app.post("/admin/api/announcements")
+def admin_api_announcements_create(req: AnnouncementCreateRequest, _: bool = Depends(require_admin)):
+    announcement_id = board.add_announcement(req.title, req.content)
+    return {"ok": True, "id": announcement_id}
+
+
+@app.delete("/admin/api/announcements/{announcement_id}")
+def admin_api_announcements_delete(announcement_id: int, _: bool = Depends(require_admin)):
+    board.delete_announcement(announcement_id)
+    return {"ok": True}
+
+
+@app.get("/admin/suggestions", response_class=HTMLResponse)
+def admin_suggestions_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("suggestions_admin.html", {"request": request})
+
+
+@app.get("/admin/api/suggestions")
+def admin_api_suggestions_list(_: bool = Depends(require_admin)):
+    return {"items": board.list_suggestions()}
+
+
+@app.post("/admin/api/suggestions/{suggestion_id}/read")
+def admin_api_suggestions_mark_read(suggestion_id: int, _: bool = Depends(require_admin)):
+    board.mark_suggestion_read(suggestion_id)
+    return {"ok": True}
+
+
+@app.delete("/admin/api/suggestions/{suggestion_id}")
+def admin_api_suggestions_delete(suggestion_id: int, _: bool = Depends(require_admin)):
+    board.delete_suggestion(suggestion_id)
+    return {"ok": True}
+
+
 register_product_routes(product_ranking.BEVERAGE, slug="beverage", page_template="beverages.html", admin_template="beverage_admin.html")
 register_product_routes(product_ranking.SNACK, slug="snack", page_template="snacks.html", admin_template="snack_admin.html")
 
@@ -1589,6 +1636,29 @@ def patch_notes_page(request: Request):
 @app.get("/api/patch-notes")
 def api_patch_notes(_: dict = Depends(require_web_user)):
     return {"items": patch_notes.list_patch_notes()}
+
+
+@app.get("/api/announcements")
+def api_announcements(_: dict = Depends(require_web_user)):
+    return {"items": board.list_announcements()}
+
+
+class SuggestionCreateRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=2000)
+
+
+@app.post("/api/suggestions")
+def api_suggestions_create(req: SuggestionCreateRequest, user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    display_name = user.get("display_name") or user["email"]
+    suggestion_id = board.add_suggestion(store_id, display_name, req.content)
+    return {"ok": True, "id": suggestion_id}
+
+
+@app.get("/api/suggestions/mine")
+def api_suggestions_mine(user: dict = Depends(require_web_user)):
+    store_id = f"web:{user['email']}"
+    return {"items": board.list_my_suggestions(store_id)}
 
 
 @app.post("/telegram/webhook")
