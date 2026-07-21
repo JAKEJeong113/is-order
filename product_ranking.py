@@ -13,18 +13,29 @@
 (오히려 이미 변환된 링크를 딥링크 API에 다시 넣으면 "url convert failed"로
 실패한다는 걸 실측으로 확인함).
 
-이 API(검색 API)는 쿠팡 파트너스 공식 한도가 시간당 단 10회로 매우
-엄격하다(2026-07-21 쿠팡 파트너스 공지 확인, 이전에 코드에 있던 "실측 약
-90여회"는 잘못된 추정치였음 - 이 추정치로 스케줄을 짜서 계속 한도를 넘겼고
-결국 계정 자체가 이용제한을 먹었다). 초과하면 최대 24시간 잠기며 3회
-누적되면 계정 자체가 제한된다. 그래서 "아직 기준 URL이 없는 상품"에 대해서만
-하루 한 번 백필하듯 돌린다 — 카탈로그가 안 바뀌면 둘째 날부터는 처리할 게
-없어서 사실상 호출이 0에 수렴한다. 파트너스 링크는 만료되지 않는 고정
-링크라 한 번 채워지면 다시 검색하지 않는다(재검색은 이미 맞는 매칭을 엉뚱한
-상품으로 잘못 덮어쓸 위험만 있다).
+이 API(검색 API)의 공식 한도는 쿠팡 파트너스 고객센터 회신(2026-07-21)
+기준 분당 50회다. 그 이전에 코드에 있던 "시간당 10회"는 다른 화면에서
+잘못 읽은 수치였고("시간당 90여회" 추정치도 이전에 틀렸었음), 실제로는
+분당 기준이라는 걸 공식 메일로 확인했다. 아래 4가지가 쿠팡이 공지한
+전체 한도다:
+- 검색 API: 분당 50회
+- 리포트 API: 시간당 500회 (이 프로젝트는 사용하지 않음)
+- 모든 API 합산: 분당 100회
+- 파트너스 웹 링크생성 기능: 분당 50회
+경고 메시지가 3회 누적되면 계정 자체가 이용제한되고, 경고 후에는 24시간
+동안 재사용이 잠긴다. refresh_products의 호출 간격이 0.3초로 매우 짧고
+배치 크기 제한이 없어서, 미매칭 상품이 많이 쌓인 날은 분당 50회를 몇 배
+초과하는 버스트가 발생했고 이게 실제로 계정 제한을 유발했다(2026-07-20
+확인).
 
-실제 한도(10회/시간)를 절대 넘기지 않도록, search_coupang_product() 호출
-전에 DB에 기록된 "최근 1시간 이내 호출 수"를 먼저 확인하고 여유가 없으면
+그래서 "아직 기준 URL이 없는 상품"에 대해서만 하루 한 번 백필하듯 돌린다
+— 카탈로그가 안 바뀌면 둘째 날부터는 처리할 게 없어서 사실상 호출이
+0에 수렴한다. 파트너스 링크는 만료되지 않는 고정 링크라 한 번 채워지면
+다시 검색하지 않는다(재검색은 이미 맞는 매칭을 엉뚱한 상품으로 잘못
+덮어쓸 위험만 있다).
+
+실제 한도(분당 50회)를 절대 넘기지 않도록, search_coupang_product() 호출
+전에 DB에 기록된 "최근 1분 이내 호출 수"를 먼저 확인하고 여유가 없으면
 아예 API를 부르지 않고 CoupangRateLimitError를 낸다 - 이렇게 하면
 refresh_products/snapshot_prices/관리자 수동 새로고침 등 이 함수를 부르는
 모든 경로가 각자 따로 조절할 필요 없이 한 곳에서 공통으로 안전하게
@@ -57,9 +68,9 @@ CP_DOMAIN = "https://api-gateway.coupang.com"
 CP_SEARCH_PATH = "/v2/providers/affiliate_open_api/apis/openapi/products/search"
 SEARCH_DELAY_SECONDS = 0.3
 
-# 쿠팡 파트너스 검색 API 공식 한도는 시간당 10회 - 여유를 두고 8회까지만
-# 스스로 쓰도록 제한한다(안전마진 2회).
-SEARCH_API_SAFE_LIMIT_PER_HOUR = 8
+# 쿠팡 파트너스 검색 API 공식 한도는 분당 50회(2026-07-21 공식 메일 확인) -
+# 여유를 두고 분당 35회까지만 스스로 쓰도록 제한한다(안전마진 15회, 약 30%).
+SEARCH_API_SAFE_LIMIT_PER_MINUTE = 35
 
 
 class CoupangRateLimitError(RuntimeError):
@@ -80,17 +91,18 @@ def init_search_api_rate_limit_table() -> None:
 
 
 def _reserve_search_api_slot() -> bool:
-    """검색 API를 실제로 부르기 전에 먼저 호출한다. 최근 1시간 이내 호출
+    """검색 API를 실제로 부르기 전에 먼저 호출한다. 최근 1분 이내 호출
     기록이 안전 한도 미만이면 이번 호출을 기록하고 True, 아니면 API를
-    아예 부르지 않고 False를 돌려준다."""
+    아예 부르지 않고 False를 돌려준다. 쿠팡 공식 한도가 분당 단위라 여기도
+    1시간이 아닌 1분 슬라이딩 윈도우로 맞춘다."""
     now = datetime.now(timezone.utc)
-    window_start_iso = (now - timedelta(hours=1)).isoformat()
+    window_start_iso = (now - timedelta(minutes=1)).isoformat()
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("DELETE FROM coupang_search_api_calls WHERE called_at < ?", (window_start_iso,))
     cur.execute("SELECT COUNT(*) FROM coupang_search_api_calls")
     count = cur.fetchone()[0]
-    if count >= SEARCH_API_SAFE_LIMIT_PER_HOUR:
+    if count >= SEARCH_API_SAFE_LIMIT_PER_MINUTE:
         conn.commit()
         conn.close()
         return False
@@ -274,8 +286,8 @@ def search_coupang_product(keyword: str) -> dict | None:
 
     if not _reserve_search_api_slot():
         raise CoupangRateLimitError(
-            f"검색 API 자체 안전 한도(시간당 {SEARCH_API_SAFE_LIMIT_PER_HOUR}회) 도달 - "
-            "실제 쿠팡 한도(시간당 10회) 초과를 막기 위해 이번 호출은 건너뜁니다."
+            f"검색 API 자체 안전 한도(분당 {SEARCH_API_SAFE_LIMIT_PER_MINUTE}회) 도달 - "
+            "실제 쿠팡 한도(분당 50회) 초과를 막기 위해 이번 호출은 건너뜁니다."
         )
 
     query = urlencode({"keyword": keyword, "limit": "1"})
