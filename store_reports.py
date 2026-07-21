@@ -318,10 +318,15 @@ def set_carryover(store_id: str, item_key: str, category: str, carried_qty: int)
 
 
 def apply_manual_pull_carryover(
-    store_id: str, account_id: int | None, period_from: date, period_to: date, wholesale_items: list[dict],
+    store_id: str, account_id: int | None, period_from: date, period_to: date, items: list[dict],
 ) -> None:
     """예약 주기를 기다리지 않고 사용자가 /order에서 수동으로 판매 데이터를
-    불러왔을 때도 도매몰 판매량이 자동 리포트의 이월에서 누락되지 않게 반영한다.
+    불러왔을 때도 도매몰/아이스크림 판매량이 자동 리포트의 이월에서 누락되지
+    않게 반영한다. items는 {"item_key", "qty", "category"}(category는
+    "wholesale" 또는 "icecream") - 두 카테고리를 한 번에 넘겨야 한다, 커서
+    전진(set_last_aggregated_until)이 호출당 한 번뿐이라 카테고리별로 따로
+    부르면 두 번째 호출이 "이미 반영된 구간"으로 오판해 조용히 건너뛴다.
+
     account_id로 report_key를 계산해써야 generate_report()가 쓰는 것과 같은
     이월/커서 버킷을 공유한다 - 안 그러면 다점포 점주가 지점을 바꿔가며 수동
     조회할 때 서로 다른 지점의 판매량이 한 버킷에 섞여버린다.
@@ -333,13 +338,14 @@ def apply_manual_pull_carryover(
     cursor = get_last_aggregated_until(key)
     if period_from > cursor + timedelta(days=1) or period_to <= cursor:
         return
-    for item in wholesale_items:
+    for item in items:
         item_key = item.get("item_key")
         qty = int(item.get("qty", 0) or 0)
+        category = item.get("category", "wholesale")
         if not item_key or qty <= 0:
             continue
         carried = get_carryover(key, item_key)
-        set_carryover(key, item_key, "wholesale", carried + qty)
+        set_carryover(key, item_key, category, carried + qty)
     set_last_aggregated_until(key, period_to)
 
 
@@ -366,16 +372,22 @@ def resolve_carryover_after_reply(key: str, item: dict, outcome: str, final_qty:
 def _classify_report_items(
     store_id: str, key: str, top_items: list[dict], catalog: dict,
     disabled_vendors: set, preferred_vendor: str | None,
-    compute_wholesale_pending_qty, write_carryover_on_reject: bool, log_popularity: bool,
+    compute_wholesale_pending_qty, compute_icecream_pending_qty,
+    write_carryover_on_reject: bool, log_popularity: bool,
 ) -> dict:
     """오더퀸 판매 데이터(top_items)를 카테고리별로 분류하는 공용 로직 - 예약
     자동 리포트(generate_report)와 수동 발송(build_manual_wholesale_report)이
-    똑같이 쓴다. 둘의 유일한 차이는 도매몰 품목의 pending_qty(이월+판매량)를
-    어떻게 계산하는지뿐이라 compute_wholesale_pending_qty 콜백으로 분리했다:
+    똑같이 쓴다. 도매몰/아이스크림 둘 다 pending_qty(이월+판매량)를 콜백으로
+    계산한다:
     - 자동: 이월값 + 이번 집계 판매량을 새로 더한다.
     - 수동 발송: apply_manual_pull_carryover()가 이미 이번 판매량을 이월에
       합산해둔 뒤라(같은 /import/orderqueen 호출 안에서 먼저 실행됨), 현재
-      이월값을 그대로 쓴다 - 안 그러면 판매량이 중복 집계된다."""
+      이월값을 그대로 쓴다 - 안 그러면 판매량이 중복 집계된다.
+
+    아이스크림은 도매몰과 달리 텔레그램 확인/스킵 절차가 없는 정보성 리포트라
+    - 리스트에 뜨는 순간(60% 이상) 사용자가 그 즉시 전부 발주했다고 간주하고
+    이월을 바로 0으로 소진한다(도매몰처럼 별도 확인 응답을 기다리지 않음).
+    60% 미달이면 도매몰과 동일하게 pending_qty를 그대로 이월한다."""
     wholesale_items = []
     coupang_items = []
     icecream_items = []
@@ -400,12 +412,18 @@ def _classify_report_items(
 
         if is_coupang == 0:
             box_qty = int(getattr(cat, "icecream_box_qty", 0) or 0) if cat else 0
-            cases = apply_case_rule(sold_qty, box_qty)
+            pending_qty = compute_icecream_pending_qty(item_key, sold_qty)
+            cases = apply_case_rule(pending_qty, box_qty)
             if cases > 0:
                 icecream_items.append({
                     "item_key": item_key, "name": name, "sold_qty": sold_qty,
-                    "box_qty": box_qty, "cases": cases,
+                    "pending_qty": pending_qty, "box_qty": box_qty, "cases": cases,
                 })
+                # 확인/스킵 절차가 없으므로 리스트에 뜨면 즉시 전부 발주된 것으로
+                # 간주하고 이월을 소진한다.
+                set_carryover(key, item_key, "icecream", 0)
+            elif write_carryover_on_reject:
+                set_carryover(key, item_key, "icecream", pending_qty)
         elif is_coupang == 1:
             keyword = (cat.search_keyword or cat.menu_name or name) if cat else name
             results = product_ranking.search_products(keyword, limit=1)
@@ -489,6 +507,7 @@ def build_manual_wholesale_report(store_id: str, account_id: int | None, top_ite
     classified = _classify_report_items(
         store_id, key, top_items, catalog, disabled_vendors, preferred_vendor,
         compute_wholesale_pending_qty=lambda item_key, sold_qty: get_carryover(key, item_key),
+        compute_icecream_pending_qty=lambda item_key, sold_qty: get_carryover(key, item_key),
         write_carryover_on_reject=False,
         log_popularity=False,
     )
@@ -533,6 +552,7 @@ def generate_report(store_id: str, account_id: int | None = None) -> dict:
     classified = _classify_report_items(
         store_id, key, top_items, catalog, disabled_vendors, preferred_vendor,
         compute_wholesale_pending_qty=lambda item_key, sold_qty: get_carryover(key, item_key) + sold_qty,
+        compute_icecream_pending_qty=lambda item_key, sold_qty: get_carryover(key, item_key) + sold_qty,
         write_carryover_on_reject=True,
         log_popularity=True,
     )

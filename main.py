@@ -300,7 +300,7 @@ def _format_icecream_report_message(report: dict) -> str | None:
 
     lines = [f"🍦{_report_branch_label(report)} 아이스크림 참고 판매량 ({report['period_from']} ~ {report['period_to']} 집계)\n"]
     for it in icecream:
-        lines.append(f"- {it['name']} {it['cases']}박스 (판매기준)")
+        lines.append(f"- {it['name']} {it['cases']}박스 ({it['sold_qty']}개 판매)")
 
     return "\n".join(lines)
 
@@ -2196,7 +2196,7 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
     # 인기상품 집계용 이력 기록 (전 가맹점 합산 TOP30 계산에 사용) - store_id는
     # 오더퀸 로그인ID가 아니라 실제 지점 식별자를 써야 지점별 집계(store_count)가
     # 정확해진다.
-    manual_wholesale_items = []
+    manual_carryover_items = []
     for item in top_items:
         qty = int(item.get("판매수량", 0) or 0)
         if qty <= 0:
@@ -2206,16 +2206,17 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
         item_key = barcode or name
         if item.get("is_coupang") == 0:
             popularity.log_event(store_id, "icecream", item_key, name, qty)
+            manual_carryover_items.append({"item_key": item_key, "qty": qty, "category": "icecream"})
         elif item.get("is_coupang") == 1:
             popularity.log_event(store_id, "coupang", item_key, name, qty)
         elif item.get("is_coupang") == 2:
             popularity.log_event(store_id, "wholesale", item_key, name, qty)
-            manual_wholesale_items.append({"item_key": item_key, "qty": qty})
+            manual_carryover_items.append({"item_key": item_key, "qty": qty, "category": "wholesale"})
 
-    # 예약 주기가 도래하지 않아도 수동으로 불러온 도매몰 판매량이 자동 리포트의
-    # 이월(carryover)에서 누락되지 않도록 반영한다 (갭이 있으면 store_reports가
-    # 알아서 커서를 건드리지 않고 건너뜀).
-    store_reports.apply_manual_pull_carryover(store_id, req.account_id, req.period_from, req.period_to, manual_wholesale_items)
+    # 예약 주기가 도래하지 않아도 수동으로 불러온 도매몰/아이스크림 판매량이
+    # 자동 리포트의 이월(carryover)에서 누락되지 않도록 반영한다 (갭이 있으면
+    # store_reports가 알아서 커서를 건드리지 않고 건너뜀).
+    store_reports.apply_manual_pull_carryover(store_id, req.account_id, req.period_from, req.period_to, manual_carryover_items)
 
     # 7) 엑셀 생성
     export_path = None
