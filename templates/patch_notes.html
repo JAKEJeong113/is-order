@@ -18,21 +18,50 @@
     h1 { font-size: 20px; margin: 0 0 6px; }
     .sub-note { font-size: 12px; color: var(--muted); margin: 0 0 20px; }
     .note-list { position: relative; }
+    h2.section-title { font-size: 16px; margin: 40px 0 6px; }
+    h2.section-title:first-of-type { margin-top: 0; }
+    .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
+
+    /* 카드(details) - 접었을 땐 한 줄, 펼치면 전체 내용 */
     .note-card {
       background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-      padding: 16px 18px; margin-bottom: 12px;
+      margin-bottom: 10px; overflow: hidden;
     }
-    .note-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .note-card > summary {
+      list-style: none; cursor: pointer; padding: 12px 16px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .note-card > summary::-webkit-details-marker { display: none; }
+    .note-card > summary .chevron {
+      flex-shrink: 0; width: 14px; height: 14px; color: var(--muted);
+      transition: transform .15s;
+    }
+    .note-card[open] > summary .chevron { transform: rotate(90deg); }
+    /* 일부 브라우저(임베디드 웹뷰 등)는 details 기본 UA 스타일시트가
+       내용을 자동으로 숨기지 않는 경우가 있어, 명시적으로 접힘/펼침을
+       강제한다 - 네이티브 동작에만 기대면 조용히 항상 펼쳐진 채로
+       보일 위험이 있다. */
+    .note-card:not([open]) > .note-full { display: none; }
+    .note-card[open] > .note-full { display: block; }
     .note-version {
-      font-size: 13px; font-weight: 800; color: var(--mint-text);
+      flex-shrink: 0; font-size: 12px; font-weight: 800; color: var(--mint-text);
       background: var(--mint-soft); padding: 3px 10px; border-radius: 999px;
     }
-    .note-date { font-size: 12px; color: var(--muted); }
-    .note-summary { font-size: 14px; line-height: 1.6; white-space: pre-line; }
-    .empty-text { color: var(--muted); font-size: 14px; padding: 20px 4px; }
-    h2.section-title { font-size: 16px; margin: 40px 0 6px; }
-    .announcement-title { font-size: 14px; font-weight: 800; margin-bottom: 6px; }
-    .announcement-content { font-size: 14px; line-height: 1.6; white-space: pre-line; }
+    .note-date { flex-shrink: 0; font-size: 12px; color: var(--muted); }
+    .note-oneline {
+      font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; min-width: 0; flex: 1;
+    }
+    .note-badge {
+      flex-shrink: 0; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px;
+      background: #f3f4f6; color: var(--muted);
+    }
+    .note-badge.read { background: var(--mint-soft); color: var(--mint-text); }
+    .note-full {
+      padding: 0 16px 16px; font-size: 14px; line-height: 1.6; white-space: pre-line;
+      border-top: 1px solid var(--line); padding-top: 12px; margin: 0 16px 16px;
+    }
+
     .suggestion-form {
       background: var(--card); border: 1px solid var(--line); border-radius: 12px;
       padding: 16px 18px; margin-bottom: 16px;
@@ -47,29 +76,18 @@
     }
     .suggestion-status-text { font-size: 12px; color: var(--muted); margin-top: 8px; }
     .suggestion-status-text.error { color: #b91c1c; }
-    .my-suggestion-card {
-      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-      padding: 12px 16px; margin-bottom: 8px;
-    }
-    .my-suggestion-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-    .my-suggestion-date { font-size: 11px; color: var(--muted); flex: 1; }
-    .my-suggestion-badge {
-      font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px;
-      background: #f3f4f6; color: var(--muted);
-    }
-    .my-suggestion-badge.read { background: var(--mint-soft); color: var(--mint-text); }
-    .my-suggestion-content { font-size: 13px; line-height: 1.6; white-space: pre-line; }
   </style>
 </head>
 <body>
   {% include "_sidebar.html" %}
-  <h1>패치노트</h1>
-  <div class="sub-note">기능 업데이트 내역을 최신순으로 보여줍니다.</div>
-  <div id="list" class="note-list"></div>
 
   <h2 class="section-title">공지사항</h2>
   <div class="sub-note">대표님이 전체 가맹점에 안내하는 공지입니다.</div>
   <div id="announcementList" class="note-list"></div>
+
+  <h2 class="section-title">패치노트</h2>
+  <div class="sub-note">기능 업데이트 내역을 최신순으로 보여줍니다.</div>
+  <div id="list" class="note-list"></div>
 
   <h2 class="section-title">제안하기</h2>
   <div class="sub-note">건의사항이나 불편한 점을 자유롭게 남겨주세요. 대표님만 볼 수 있습니다.</div>
@@ -81,18 +99,26 @@
     </div>
   </div>
   <div class="sub-note" style="margin-bottom:8px;">내가 제출한 제안</div>
-  <div id="mySuggestionList"></div>
+  <div id="mySuggestionList" class="note-list"></div>
 
       </div>
     </div>
 
   <script>
+    const CHEVRON_SVG = '<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>';
+
     function escapeHtml(str) {
       return String(str ?? "")
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
+    }
+
+    function oneLine(text, maxLen) {
+      const firstLine = String(text ?? "").split("\n")[0].trim();
+      if (!firstLine) return "";
+      return firstLine.length > maxLen ? firstLine.slice(0, maxLen) + "…" : firstLine;
     }
 
     async function load() {
@@ -107,13 +133,15 @@
       }
 
       listEl.innerHTML = items.map((item) => `
-        <div class="note-card">
-          <div class="note-head">
+        <details class="note-card">
+          <summary>
+            ${CHEVRON_SVG}
             <span class="note-version">${escapeHtml(item.version)}</span>
             <span class="note-date">${escapeHtml(item.created_at)}</span>
-          </div>
-          <div class="note-summary">${escapeHtml(item.summary)}</div>
-        </div>
+            <span class="note-oneline">${escapeHtml(oneLine(item.summary, 40))}</span>
+          </summary>
+          <div class="note-full">${escapeHtml(item.summary)}</div>
+        </details>
       `).join("");
     }
 
@@ -129,13 +157,14 @@
       }
 
       listEl.innerHTML = items.map((item) => `
-        <div class="note-card">
-          <div class="note-head">
-            <span class="announcement-title">${escapeHtml(item.title)}</span>
+        <details class="note-card">
+          <summary>
+            ${CHEVRON_SVG}
             <span class="note-date">${escapeHtml(item.created_at)}</span>
-          </div>
-          <div class="announcement-content">${escapeHtml(item.content)}</div>
-        </div>
+            <span class="note-oneline"><b>${escapeHtml(item.title)}</b> - ${escapeHtml(oneLine(item.content, 30))}</span>
+          </summary>
+          <div class="note-full">${escapeHtml(item.content)}</div>
+        </details>
       `).join("");
     }
 
@@ -151,13 +180,15 @@
       }
 
       listEl.innerHTML = items.map((item) => `
-        <div class="my-suggestion-card">
-          <div class="my-suggestion-head">
-            <span class="my-suggestion-badge ${item.status === 'read' ? 'read' : ''}">${item.status === 'read' ? '확인함' : '확인 전'}</span>
-            <span class="my-suggestion-date">${escapeHtml(item.created_at)}</span>
-          </div>
-          <div class="my-suggestion-content">${escapeHtml(item.content)}</div>
-        </div>
+        <details class="note-card">
+          <summary>
+            ${CHEVRON_SVG}
+            <span class="note-date">${escapeHtml(item.created_at)}</span>
+            <span class="note-oneline">${escapeHtml(oneLine(item.content, 40))}</span>
+            <span class="note-badge ${item.status === 'read' ? 'read' : ''}">${item.status === 'read' ? '확인함' : '확인 전'}</span>
+          </summary>
+          <div class="note-full">${escapeHtml(item.content)}</div>
+        </details>
       `).join("");
     }
 
