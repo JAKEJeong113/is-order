@@ -365,8 +365,9 @@
       color:var(--mint-dark);
       font-size:24px;
     }
+    .strength-icon svg{width:24px;height:24px}
     .strength-item b{display:block}
-    .strength-item span{font-size:13px;color:var(--muted)}
+    .strength-item span{font-size:13px;color:var(--muted);word-break:keep-all;line-height:1.4}
 
     .tools{padding-top:20px}
     .tool-card{
@@ -837,12 +838,12 @@
           <div>
             <div class="kicker">스마트한 발주시스템</div>
             <h2>i'S <span>ORDER</span></h2>
-            <p>재고관리부터 발주, 4주 보정까지 사장님의 고민을 덜어드립니다.</p>
+            <p>판매 데이터 분석부터 발주 추천, 가격비교까지 사장님의 고민을 덜어드립니다.</p>
             <ul class="check">
-              <li>실시간 재고 파악</li>
-              <li>자동 발주 추천</li>
-              <li>4주 보정 시스템</li>
-              <li>발주 이력 관리</li>
+              <li>판매 데이터 자동 분석</li>
+              <li>도매처 최저가 자동 비교</li>
+              <li>텔레그램 발주 리포트 예약 발송</li>
+              <li>다점포 통합 관리</li>
             </ul>
             <div class="hero-actions">
               <a class="btn btn-primary" href="/order">i'S ORDER 바로가기 〉</a>
@@ -855,20 +856,28 @@
           <h2>i'S CREAM의 강점</h2>
           <div class="strength-grid">
             <div class="strength-item">
-              <div class="strength-icon">✅</div>
+              <div class="strength-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+              </div>
               <div><b>검증된 브랜드</b><span>높은 고객 만족도와 신뢰도</span></div>
             </div>
             <div class="strength-item">
-              <div class="strength-icon">🍦</div>
-              <div><b>다양한 제품</b><span>트렌디한 아이스크림과 간식</span></div>
+              <div class="strength-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a4 4 0 0 1 4 4c0 1.5-1 2.5-2 3H10c-1-.5-2-1.5-2-3a4 4 0 0 1 4-4z"/><path d="M9 10l3 11 3-11"/></svg>
+              </div>
+              <div><b>다양한 제품</b><span>트렌디한 아이스크림 메뉴</span></div>
             </div>
             <div class="strength-item">
-              <div class="strength-icon">📈</div>
-              <div><b>높은 수익성</b><span>효율적인 운영으로 안정적인 수익</span></div>
+              <div class="strength-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 6"/><polyline points="14 6 21 6 21 13"/></svg>
+              </div>
+              <div><b>높은 수익성</b><span>효율적 운영, 안정적 수익</span></div>
             </div>
             <div class="strength-item">
-              <div class="strength-icon">🛠️</div>
-              <div><b>체계적인 지원</b><span>창업부터 운영까지 전문 지원</span></div>
+              <div class="strength-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></svg>
+              </div>
+              <div><b>체계적인 지원</b><span>창업부터 운영까지 지원</span></div>
             </div>
           </div>
         </div>
