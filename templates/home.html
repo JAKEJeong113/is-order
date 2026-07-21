@@ -43,7 +43,28 @@
     }
     .stat-label { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
     .stat-value { font-size: 22px; font-weight: 700; margin: 0; }
-    .empty-text { color: var(--muted); font-size: 13px; }
+    .empty-text { color: var(--muted); font-size: 13px; padding: 20px 4px; }
+    h2.section-title { font-size: 16px; margin: 0 0 12px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .tab {
+      flex: 1; padding: 10px; text-align: center; border-radius: 10px;
+      border: 1px solid var(--line); background: var(--card); cursor: pointer;
+      font-weight: 700; font-size: 14px; color: var(--muted);
+    }
+    .tab.active { background: var(--mint); color: white; border-color: var(--mint); }
+    .item-row {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+      padding: 12px 14px; margin-bottom: 8px;
+    }
+    .rank {
+      width: 28px; height: 28px; border-radius: 50%; background: var(--mint-soft);
+      color: var(--mint-text); font-weight: 800; font-size: 13px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .rank.top3 { background: var(--mint); color: white; }
+    .item-name { font-weight: 600; font-size: 14px; flex: 1; }
+    .item-sub { font-size: 12px; color: var(--muted); text-align: right; }
   </style>
 </head>
 <body>
@@ -74,6 +95,14 @@
       <p class="stat-value" id="popularWholesaleStat" style="font-size:15px;">-</p>
     </div>
   </div>
+
+  <h2 class="section-title">인기상품 TOP30 (전 가맹점 합산)</h2>
+  <div class="tabs">
+    <div class="tab active" data-category="icecream" onclick="selectPopularTab('icecream')">아이스크림</div>
+    <div class="tab" data-category="coupang" onclick="selectPopularTab('coupang')">쿠팡</div>
+    <div class="tab" data-category="wholesale" onclick="selectPopularTab('wholesale')">도매처</div>
+  </div>
+  <div id="popularList"></div>
 
       </div>
     </div>
@@ -142,8 +171,34 @@
         if (e.key === "Enter") runQuickSearch();
       });
 
+      async function selectPopularTab(category) {
+        document.querySelectorAll(".tab").forEach((t) => {
+          t.classList.toggle("active", t.dataset.category === category);
+        });
+
+        const listEl = document.getElementById("popularList");
+        listEl.innerHTML = '<div class="empty-text">불러오는 중...</div>';
+
+        const res = await fetch(`/api/popular?category=${category}`);
+        const data = await res.json();
+
+        if (!data.items || data.items.length === 0) {
+          listEl.innerHTML = '<div class="empty-text">아직 집계된 데이터가 없습니다.</div>';
+          return;
+        }
+
+        listEl.innerHTML = data.items.map((item, i) => `
+          <div class="item-row">
+            <div class="rank ${i < 3 ? "top3" : ""}">${i + 1}</div>
+            <div class="item-name">${item.item_name || item.item_key}</div>
+            <div class="item-sub">누적 ${item.total_qty.toLocaleString()}개<br>${item.store_count}개 지점</div>
+          </div>
+        `).join("");
+      }
+
       loadUser();
       loadStats();
+      selectPopularTab("icecream");
     </script>
 </body>
 </html>

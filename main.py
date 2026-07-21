@@ -1600,9 +1600,9 @@ def api_store_reports_send_manual(req: SendManualReportRequest, user: dict = Dep
 
 @app.get("/popular", response_class=HTMLResponse)
 def popular_page(request: Request):
-    if not get_current_web_user(request):
-        return RedirectResponse(url="/login")
-    return templates.TemplateResponse("popular.html", {"request": request, "active_page": "popular"})
+    """인기상품 TOP30이 홈 화면 하단으로 합쳐졌다 - 예전 링크/북마크가
+    죽지 않도록 홈으로 리다이렉트만 해준다."""
+    return RedirectResponse(url="/home")
 
 
 @app.get("/home", response_class=HTMLResponse)
