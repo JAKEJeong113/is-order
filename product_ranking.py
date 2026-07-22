@@ -750,3 +750,39 @@ def resolve_pending_alerts(status: str) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def resolve_pending_alerts_by_ids(ids: list[int], status: str) -> list[dict]:
+    """대표님이 "15 발송"/"15 생략"처럼 특정 알림 번호만 골라 응답했을 때,
+    그 번호에 해당하는(status='notified') 건들만 확정 상태로 바꾸고 그
+    목록을 돌려준다. 지정하지 않은 나머지 notified 건들은 그대로 남아
+    다음 응답을 기다린다 - resolve_pending_alerts()와 달리 전부가 아니라
+    골라낸 것만 처리한다."""
+    if not ids:
+        return []
+    conn = get_conn()
+    cur = conn.cursor()
+    placeholders = ",".join("?" * len(ids))
+    cur.execute(f"""
+    SELECT a.id, a.product_type, a.item_key, a.item_name, a.old_low, a.new_price,
+           COALESCE(b.partners_link, s.partners_link) AS partners_link
+    FROM pending_price_alerts a
+    LEFT JOIN beverage_catalog b ON a.product_type = 'beverage' AND a.item_key = b.item_key
+    LEFT JOIN snack_catalog s ON a.product_type = 'snack' AND a.item_key = s.item_key
+    WHERE a.status = 'notified' AND a.id IN ({placeholders})
+    ORDER BY a.id ASC
+    """, ids)
+    rows = cur.fetchall()
+    if rows:
+        found_ids = [r[0] for r in rows]
+        fp = ",".join("?" * len(found_ids))
+        cur.execute(f"UPDATE pending_price_alerts SET status = ? WHERE id IN ({fp})", [status, *found_ids])
+        conn.commit()
+    conn.close()
+    return [
+        {
+            "id": r[0], "product_type": r[1], "item_key": r[2], "item_name": r[3],
+            "old_low": r[4], "new_price": r[5], "partners_link": r[6],
+        }
+        for r in rows
+    ]

@@ -197,8 +197,12 @@ def _notify_price_alerts() -> None:
     lines = ["🎉 신규 최저가 감지!\n"]
     for a in alerts:
         old_low_text = f"{a['old_low']:,}원 → " if a["old_low"] else ""
-        lines.append(f"• {a['item_name']} {old_low_text}{a['new_price']:,}원")
-    lines.append("\n전체 매장에 보내려면 '전체발송', 넘어가려면 '생략'이라고 답장해주세요.")
+        lines.append(f"• [{a['id']}] {a['item_name']} {old_low_text}{a['new_price']:,}원")
+    lines.append(
+        "\n전체 매장에 보내려면 '전체발송', 전체 넘어가려면 '생략'이라고 답장해주세요.\n"
+        "특정 항목만 보내려면 번호로 답장해주세요(예: '15 발송', 여러 개는 '15,17 발송').\n"
+        "특정 항목만 넘어가려면 번호로 답장해주세요(예: '15 생략')."
+    )
     telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
     product_ranking.mark_alerts_notified([a["id"] for a in alerts])
 

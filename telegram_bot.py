@@ -958,22 +958,41 @@ def _handle_vendor_toggle_command(chat_id: str, text: str) -> None:
     send_message(chat_id, f"{vendors.VENDORS[vendor_id]['name']}를 {action}했습니다.")
 
 
-def _handle_admin_price_alert_reply(chat_id: str, text: str) -> bool:
-    """대표님 개인 chat_id(ADMIN_CHAT_ID)에서 "전체발송"/"생략" 응답이 오면
-    처리한다. 대기 중인(status='notified', 오늘 다이제스트로 이미 알려드린)
-    최저가 알림이 없으면 아무 것도 안 하고 False를 돌려줘서 평소 로직(발주 등)
-    으로 그대로 넘어가게 한다 - 일반 문구에서 우연히 같은 단어를 썼을 때
-    오작동을 막기 위함."""
-    if text not in ("전체발송", "생략", "스킵"):
-        return False
+_SELECTIVE_ALERT_REPLY_RE = re.compile(r"^([\d,\s]+?)\s*번?\s*(발송|생략|스킵)$")
 
-    status = "broadcast" if text == "전체발송" else "skipped"
-    alerts = product_ranking.resolve_pending_alerts(status)
+
+def _handle_admin_price_alert_reply(chat_id: str, text: str) -> bool:
+    """대표님 개인 chat_id(ADMIN_CHAT_ID)에서 최저가 알림에 대한 응답이 오면
+    처리한다. "전체발송"/"생략"은 대기 중인 알림 전체에, "15 발송"/"15,17 생략"
+    처럼 번호를 지정하면 그 알림들에만 적용된다(번호는 각 알림 메시지에
+    "[15]" 형태로 같이 보내진 것). 대기 중인(status='notified', 오늘 이미
+    알려드린) 최저가 알림이 없으면 아무 것도 안 하고 False를 돌려줘서 평소
+    로직(발주 등)으로 그대로 넘어가게 한다 - 일반 문구에서 우연히 같은
+    단어를 썼을 때 오작동을 막기 위함."""
+    if text in ("전체발송", "생략", "스킵"):
+        status = "broadcast" if text == "전체발송" else "skipped"
+        alerts = product_ranking.resolve_pending_alerts(status)
+        return _finish_price_alert_reply(chat_id, status, alerts)
+
+    match = _SELECTIVE_ALERT_REPLY_RE.match(text)
+    if match:
+        ids = [int(n) for n in re.findall(r"\d+", match.group(1))]
+        status = "broadcast" if match.group(2) == "발송" else "skipped"
+        alerts = product_ranking.resolve_pending_alerts_by_ids(ids, status)
+        if not alerts:
+            send_message(chat_id, "해당 번호의 대기 중인 최저가 알림을 찾을 수 없습니다.")
+            return True
+        return _finish_price_alert_reply(chat_id, status, alerts)
+
+    return False
+
+
+def _finish_price_alert_reply(chat_id: str, status: str, alerts: list[dict]) -> bool:
     if not alerts:
         return False
 
     if status == "skipped":
-        send_message(chat_id, "최저가 알림을 넘어갔습니다.")
+        send_message(chat_id, f"{len(alerts)}건의 최저가 알림을 넘어갔습니다.")
         return True
 
     lines = [
