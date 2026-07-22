@@ -1850,7 +1850,7 @@ def logo_page(request: Request):
     return templates.TemplateResponse("logo.html", {"request": request})
 
 
-SITE_DOMAIN = "https://is-cream.co.kr"
+SITE_DOMAIN = "https://www.is-cream.co.kr"
 
 
 @app.get("/sitemap.xml")
