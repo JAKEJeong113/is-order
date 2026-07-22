@@ -1714,12 +1714,23 @@ def api_suggestions_mine(user: dict = Depends(require_web_user)):
     return {"items": board.list_my_suggestions(store_id)}
 
 
-@app.post("/telegram/webhook")
-def telegram_webhook(update: dict):
+def _handle_telegram_update_safe(update: dict) -> None:
     try:
         telegram_bot.handle_update(update)
     except Exception as e:
         print("[TELEGRAM] webhook 처리 실패:", e)
+
+
+@app.post("/telegram/webhook")
+def telegram_webhook(update: dict):
+    # 텔레그램은 이 응답을 제때 못 받으면(특히 발주 배치처럼 처리가 오래 걸릴
+    # 때) 같은 업데이트를 다시 보낸다 - handle_update를 여기서 바로 실행해
+    # 응답을 늦추면 같은 메시지가 두 번 처리되어(질문이 중복 발송되거나
+    # disambig_state가 서로 덮어써지는 등) 꼬인다. FastAPI BackgroundTasks로
+    # 넘기면 Playwright 호출 도중 조용히 멈추는 문제가 있어(catalog refresh와
+    # 동일한 이유로 피함, 위 주석 참고), 이미 안정적으로 동작 중인
+    # APScheduler 스레드로 즉시 실행 작업을 넘긴다.
+    scheduler.add_job(_handle_telegram_update_safe, args=[update])
     return {"ok": True}
 
 
