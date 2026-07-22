@@ -137,12 +137,20 @@ def add_item_with_batch_fallback(
     return result, used_item, remaining_alts
 
 
-def process_batch(store_id: str, items: list[dict], resolved_accounts: dict | None = None) -> tuple[list[str], list[dict]]:
+def process_batch(
+    store_id: str, items: list[dict], resolved_accounts: dict | None = None,
+    on_progress=None,
+) -> tuple[list[str], list[dict]]:
     """텔레그램 "확인" 한 번에 담을 상품 목록 전체를 순서대로 처리한다(원래
     telegram_bot._execute_cart_adds 안에 있던 루프 - worker.py가 재사용할 수
     있도록 텔레그램 전용 모듈에서 분리했다). 도매처마다 실제 브라우저를 띄우는
     작업이라 한 상품이 응답 없이 멈추면 전체가 영원히 멈출 수 있어, 상품당
     시간 제한을 걸어 하나가 멈춰도 나머지는 계속 진행한다.
+
+    on_progress(done, total)이 주어지면 상품 하나를 처리할 때마다 호출한다 -
+    배치가 커서(같은 도매처 세션을 공유해 병렬화가 안 되는 상품들이라 순서대로
+    처리해야 함) 몇 분씩 걸릴 수 있는데, 그동안 아무 응답이 없으면 멈춘 것처럼
+    보이는 문제를 호출부(worker.py)가 중간 진행 메시지로 완화할 수 있게 한다.
 
     반환: (결과 메시지 줄 목록, 품절로 후속 확인이 필요한 항목 목록
     [{item_name, qty, alt_offers}])."""
@@ -150,8 +158,9 @@ def process_batch(store_id: str, items: list[dict], resolved_accounts: dict | No
     results = []
     needs_followup = []
     batch_vendors = {it["vendor_id"] for it in items}
+    total = len(items)
 
-    for item in items:
+    for done, item in enumerate(items, start=1):
         pool = ThreadPoolExecutor(max_workers=1)
         try:
             future = pool.submit(add_item_with_batch_fallback, store_id, item, batch_vendors, resolved_accounts)
@@ -180,5 +189,8 @@ def process_batch(store_id: str, items: list[dict], resolved_accounts: dict | No
             needs_followup.append({"item_name": used_item["item_name"], "qty": used_item["qty"], "alt_offers": remaining_alts})
         else:
             results.append(f"✗ {used_item['item_name']} - {used_item['vendor_name']} 실패{switched_note}: {result.get('reason', '')}")
+
+        if on_progress:
+            on_progress(done, total)
 
     return results, needs_followup

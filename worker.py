@@ -50,8 +50,16 @@ def process_telegram_batch(job: dict) -> None:
     items = job["payload"]["items"]
     resolved_accounts = job["payload"]["resolved_accounts"]
 
+    def on_progress(done: int, total: int) -> None:
+        # 배치가 크면(같은 도매처 세션을 공유하는 상품은 순서대로만 처리 가능해
+        # 그만큼 시간이 걸림) 몇 분씩 아무 응답이 없어 멈춘 것처럼 보일 수 있어,
+        # 5개 처리할 때마다 중간 진행 상황을 알려준다(마지막 항목은 바로 이어서
+        # "담기 결과" 요약이 나가므로 따로 안 보냄).
+        if total > 5 and done < total and done % 5 == 0:
+            telegram_bot.send_message(chat_id, f"{done}/{total}개 처리 중...")
+
     try:
-        results, needs_followup = cart_add_logic.process_batch(store_id, items, resolved_accounts)
+        results, needs_followup = cart_add_logic.process_batch(store_id, items, resolved_accounts, on_progress=on_progress)
     except Exception as e:
         results, needs_followup = [f"(처리 중 예상치 못한 오류로 중단됨: {e})"], []
 
