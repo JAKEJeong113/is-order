@@ -34,9 +34,10 @@
   .app-toggle-row { display: flex; justify-content: flex-end; padding: 0 2px 6px; }
   .app-sidebar.collapsed .app-toggle-row { justify-content: center; }
   .app-toggle-btn {
-    width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line);
+    width: 24px; height: 24px; padding: 0; border-radius: 6px; border: 1px solid var(--line);
     background: var(--bg); color: var(--muted); cursor: pointer;
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    box-sizing: border-box;
   }
   .app-toggle-btn:hover { background: var(--mint-soft); border-color: var(--mint); color: var(--mint-text); }
   .app-toggle-btn svg { transition: transform .15s; }
