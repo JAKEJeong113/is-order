@@ -19,6 +19,8 @@
       width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 8px;
       font-size: 14px; margin-bottom: 14px;
     }
+    input[type="file"] { padding: 8px; background: white; }
+    .file-hint { font-size: 11px; color: var(--muted); margin: -10px 0 14px; }
     button {
       width: 100%; padding: 12px; border: none; border-radius: 8px;
       background: var(--mint); color: white; font-weight: 700; font-size: 15px; cursor: pointer;
@@ -51,6 +53,10 @@
     <label for="phone">연락처</label>
     <input id="phone" type="text" placeholder="010-0000-0000" inputmode="tel">
 
+    <label for="bizRegImage">사업자등록증 사진</label>
+    <input id="bizRegImage" type="file" accept="image/jpeg,image/png,image/webp">
+    <div class="file-hint">JPG, PNG, WEBP만 가능 · 최대 8MB</div>
+
     <button id="signupBtn">가입하기</button>
     <div class="switch-link">이미 계정이 있으신가요? <a href="/login">로그인</a></div>
   </div>
@@ -63,6 +69,8 @@
       const email = document.getElementById("email").value.trim();
       const password = document.getElementById("password").value;
       const phone = document.getElementById("phone").value.trim();
+      const imageInput = document.getElementById("bizRegImage");
+      const imageFile = imageInput.files[0];
       const errorEl = document.getElementById("error");
       errorEl.textContent = "";
 
@@ -70,14 +78,23 @@
         errorEl.textContent = "모든 항목을 입력해주세요.";
         return;
       }
+      if (!imageFile) {
+        errorEl.textContent = "사업자등록증 사진을 첨부해주세요.";
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("email", email);
+      formData.append("password", password);
+      formData.append("display_name", business_name);
+      formData.append("business_reg_number", business_reg_number);
+      formData.append("address", address);
+      formData.append("phone", phone);
+      formData.append("business_reg_image", imageFile);
 
       const res = await fetch("/api/auth/signup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email, password, display_name: business_name,
-          business_reg_number, address, phone,
-        }),
+        body: formData,
       });
       const data = await res.json();
 

@@ -54,6 +54,10 @@ def init_web_auth_tables():
     for col in ("business_reg_number", "address", "phone"):
         if col not in existing_cols:
             cur.execute(f"ALTER TABLE web_users ADD COLUMN {col} TEXT")
+    if "business_reg_image" not in existing_cols:
+        cur.execute("ALTER TABLE web_users ADD COLUMN business_reg_image BYTEA")
+    if "business_reg_image_mimetype" not in existing_cols:
+        cur.execute("ALTER TABLE web_users ADD COLUMN business_reg_image_mimetype TEXT")
     conn.commit()
     conn.close()
 
@@ -62,9 +66,14 @@ def _hash_password(password: str, salt: bytes) -> str:
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS).hex()
 
 
+ALLOWED_BUSINESS_REG_IMAGE_MIMETYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_BUSINESS_REG_IMAGE_BYTES = 8 * 1024 * 1024
+
+
 def signup(
     email: str, password: str, display_name: str,
     business_reg_number: str = "", address: str = "", phone: str = "",
+    business_reg_image_bytes: bytes | None = None, business_reg_image_mimetype: str | None = None,
 ) -> tuple[bool, str]:
     email = email.strip().lower()
     display_name = display_name.strip()
@@ -86,6 +95,12 @@ def signup(
         return False, "비밀번호는 6자 이상이어야 합니다."
     if not phone:
         return False, "연락처를 입력해주세요."
+    if not business_reg_image_bytes:
+        return False, "사업자등록증 이미지를 첨부해주세요."
+    if business_reg_image_mimetype not in ALLOWED_BUSINESS_REG_IMAGE_MIMETYPES:
+        return False, "사업자등록증은 JPG, PNG, WEBP 이미지만 가능합니다."
+    if len(business_reg_image_bytes) > MAX_BUSINESS_REG_IMAGE_BYTES:
+        return False, "사업자등록증 이미지 용량은 8MB 이하여야 합니다."
 
     salt = os.urandom(16)
     password_hash = _hash_password(password, salt)
@@ -96,9 +111,13 @@ def signup(
     try:
         cur.execute("""
         INSERT INTO web_users
-            (email, password_hash, password_salt, display_name, business_reg_number, address, phone, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (email, password_hash, salt.hex(), display_name, business_reg_number, address, phone, now))
+            (email, password_hash, password_salt, display_name, business_reg_number, address, phone,
+             business_reg_image, business_reg_image_mimetype, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            email, password_hash, salt.hex(), display_name, business_reg_number, address, phone,
+            psycopg2.Binary(business_reg_image_bytes), business_reg_image_mimetype, now,
+        ))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback()
@@ -106,6 +125,20 @@ def signup(
         return False, "이미 가입된 이메일입니다."
     conn.close()
     return True, "가입 완료"
+
+
+def get_business_reg_image(user_id: int) -> tuple[bytes, str] | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT business_reg_image, business_reg_image_mimetype FROM web_users WHERE id = ?
+    """, (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row or not row[0]:
+        return None
+    image_bytes = bytes(row[0])
+    return image_bytes, row[1] or "image/jpeg"
 
 
 def verify_login(email: str, password: str) -> int | None:

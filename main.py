@@ -32,7 +32,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 import secrets
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -568,15 +568,6 @@ def api_toggle_vendor(vendor_id: str, req: VendorEnabledRequest):
     return {"ok": True}
 
 
-class SignupRequest(BaseModel):
-    email: str
-    password: str
-    display_name: str
-    business_reg_number: str = ""
-    address: str = ""
-    phone: str = ""
-
-
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -597,15 +588,26 @@ def signup_page(request: Request):
 
 
 @app.post("/api/auth/signup")
-def api_signup(req: SignupRequest, response: Response):
+async def api_signup(
+    response: Response,
+    email: str = Form(...),
+    password: str = Form(...),
+    display_name: str = Form(...),
+    business_reg_number: str = Form(""),
+    address: str = Form(""),
+    phone: str = Form(""),
+    business_reg_image: UploadFile = File(...),
+):
+    image_bytes = await business_reg_image.read()
     ok, message = web_auth.signup(
-        req.email, req.password, req.display_name,
-        business_reg_number=req.business_reg_number, address=req.address, phone=req.phone,
+        email, password, display_name,
+        business_reg_number=business_reg_number, address=address, phone=phone,
+        business_reg_image_bytes=image_bytes, business_reg_image_mimetype=business_reg_image.content_type,
     )
     if not ok:
         return {"ok": False, "message": message}
 
-    user_id = web_auth.verify_login(req.email, req.password)
+    user_id = web_auth.verify_login(email, password)
     token = web_auth.create_session(user_id)
     response.set_cookie(
         web_auth.SESSION_COOKIE_NAME, token,
@@ -1812,6 +1814,15 @@ class LinkStoreRequest(BaseModel):
 def api_admin_link_store(user_id: int, req: LinkStoreRequest, _: bool = Depends(require_admin)):
     web_auth.link_store(user_id, req.store_name)
     return {"ok": True}
+
+
+@app.get("/admin/api/web-users/{user_id}/business-reg-image")
+def api_admin_business_reg_image(user_id: int, _: bool = Depends(require_admin)):
+    result = web_auth.get_business_reg_image(user_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="등록된 사업자등록증이 없습니다.")
+    image_bytes, mimetype = result
+    return Response(content=image_bytes, media_type=mimetype)
 
 
 class InventoryUpdateRequest(BaseModel):
