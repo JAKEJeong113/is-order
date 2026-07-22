@@ -1850,6 +1850,58 @@ def logo_page(request: Request):
     return templates.TemplateResponse("logo.html", {"request": request})
 
 
+SITE_DOMAIN = "https://is-cream.co.kr"
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    urls = [
+        (f"{SITE_DOMAIN}/", "weekly", "1.0"),
+        (f"{SITE_DOMAIN}/brand.html", "monthly", "0.6"),
+        (f"{SITE_DOMAIN}/logo.html", "monthly", "0.3"),
+    ]
+    entries = "\n".join(
+        f"  <url>\n    <loc>{loc}</loc>\n    <changefreq>{freq}</changefreq>\n    <priority>{priority}</priority>\n  </url>"
+        for loc, freq, priority in urls
+    )
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"{entries}\n"
+        "</urlset>"
+    )
+    return Response(content=xml, media_type="application/xml")
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    lines = [
+        "User-agent: *",
+        "Allow: /",
+        "Allow: /brand.html",
+        "Allow: /logo.html",
+        "Disallow: /admin",
+        "Disallow: /api/",
+        "Disallow: /home",
+        "Disallow: /order",
+        "Disallow: /cart",
+        "Disallow: /compare",
+        "Disallow: /beverages",
+        "Disallow: /snacks",
+        "Disallow: /my-vendors",
+        "Disallow: /patch-notes",
+        "Disallow: /barcode-search",
+        "Disallow: /vendors",
+        "Disallow: /login",
+        "Disallow: /signup",
+        "Disallow: /telegram/",
+        "Disallow: /export/",
+        "",
+        f"Sitemap: {SITE_DOMAIN}/sitemap.xml",
+    ]
+    return Response(content="\n".join(lines), media_type="text/plain")
+
+
 @app.get("/order", response_class=HTMLResponse)
 def order_page(request: Request):
     if not get_current_web_user(request):
