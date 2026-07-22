@@ -40,6 +40,9 @@
       border: 1px solid var(--line); background: white; color: var(--text);
       text-decoration: none; font-weight: 600;
     }
+    .btn-danger {
+      background: #dc2626;
+    }
   </style>
 </head>
 <body>
@@ -76,6 +79,7 @@
             <select id="store-${u.id}">${options}</select>
             <button onclick="linkStore(${u.id})">저장</button>
             <a class="doc-link" href="/admin/api/web-users/${u.id}/business-reg-image" target="_blank" rel="noopener">사업자등록증 보기</a>
+            <button class="btn-danger" onclick="deleteUser(${u.id}, '${u.email}')">삭제</button>
           </div>
         </div>
       `).join("");
@@ -94,6 +98,30 @@
         body: JSON.stringify({ store_name: sel.value || null }),
       });
       loadUsers();
+    }
+
+    async function deleteUser(userId, email) {
+      const reason = prompt(`${email} 계정을 삭제합니다. 삭제 사유를 입력하세요 (사유는 회원 이메일로 발송됩니다):`);
+      if (reason === null) return;
+      if (!reason.trim()) {
+        alert("삭제 사유를 입력해야 합니다.");
+        return;
+      }
+      if (!confirm(`정말 삭제하시겠습니까?\n\n사유: ${reason}`)) return;
+
+      const res = await fetch(`/api/admin/web-users/${userId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        alert(data.mail_sent ? "삭제되었고, 사유가 이메일로 발송되었습니다." : "삭제되었지만 이메일 발송에 실패했습니다: " + data.mail_message);
+        loadUsers();
+      } else {
+        alert(data.message || "삭제에 실패했습니다.");
+      }
     }
 
     loadUsers();

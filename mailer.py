@@ -1,6 +1,7 @@
 # mailer.py
 """Resend(https://resend.com) API로 트랜잭션 이메일(비밀번호 재설정 등)을 보낸다.
 RESEND_API_KEY, RESEND_FROM_EMAIL 환경변수가 필요하다."""
+import html
 import os
 
 import requests
@@ -40,3 +41,15 @@ def send_password_reset_email(to_email: str, reset_url: str) -> tuple[bool, str]
     </div>
     """
     return send_email(to_email, "[i's ORDER] 비밀번호 재설정", html)
+
+
+def send_account_deleted_email(to_email: str, display_name: str, reason: str) -> tuple[bool, str]:
+    body = f"""
+    <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+      <h2 style="color:#dc2626;">계정 삭제 안내</h2>
+      <p>{html.escape(display_name)}님, i's ORDER 계정이 관리자에 의해 삭제되었습니다.</p>
+      <p style="background:#f3f4f6; padding:12px 16px; border-radius:8px; white-space:pre-wrap;">{html.escape(reason)}</p>
+      <p style="color:#6b7280; font-size:13px;">문의사항이 있으시면 관리자에게 연락해주세요.</p>
+    </div>
+    """
+    return send_email(to_email, "[i's ORDER] 계정이 삭제되었습니다", body)

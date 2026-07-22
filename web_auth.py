@@ -286,6 +286,29 @@ def list_users() -> list[dict]:
     ]
 
 
+def get_user_by_id(user_id: int) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT id, email, display_name FROM web_users WHERE id = ?
+    """, (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {"id": row[0], "email": row[1], "display_name": row[2]}
+
+
+def delete_user(user_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM password_reset_tokens WHERE user_id = ?", (user_id,))
+    cur.execute("DELETE FROM web_sessions WHERE user_id = ?", (user_id,))
+    cur.execute("DELETE FROM web_users WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
 def link_store(user_id: int, store_name: str | None) -> None:
     conn = get_conn()
     cur = conn.cursor()

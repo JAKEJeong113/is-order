@@ -1825,6 +1825,25 @@ def api_admin_business_reg_image(user_id: int, _: bool = Depends(require_admin))
     return Response(content=image_bytes, media_type=mimetype)
 
 
+class DeleteWebUserRequest(BaseModel):
+    reason: str
+
+
+@app.delete("/api/admin/web-users/{user_id}")
+def api_admin_delete_web_user(user_id: int, req: DeleteWebUserRequest, _: bool = Depends(require_admin)):
+    reason = req.reason.strip()
+    if not reason:
+        return {"ok": False, "message": "삭제 사유를 입력해주세요."}
+
+    user = web_auth.get_user_by_id(user_id)
+    if not user:
+        return {"ok": False, "message": "존재하지 않는 회원입니다."}
+
+    mail_ok, mail_message = mailer.send_account_deleted_email(user["email"], user["display_name"], reason)
+    web_auth.delete_user(user_id)
+    return {"ok": True, "mail_sent": mail_ok, "mail_message": mail_message}
+
+
 class InventoryUpdateRequest(BaseModel):
     barcode: str
     menu_name: str
