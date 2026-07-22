@@ -582,9 +582,14 @@ class ResetPasswordRequest(BaseModel):
     password: str
 
 
+TELEGRAM_BOT_USERNAME = "iscream_order_bot"
+
+
 @app.get("/signup", response_class=HTMLResponse)
 def signup_page(request: Request):
-    return templates.TemplateResponse("signup.html", {"request": request})
+    return templates.TemplateResponse(
+        "signup.html", {"request": request, "telegram_bot_url": f"https://t.me/{TELEGRAM_BOT_USERNAME}"},
+    )
 
 
 @app.post("/api/auth/signup")

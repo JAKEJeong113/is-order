@@ -21,44 +21,65 @@
     }
     input[type="file"] { padding: 8px; background: white; }
     .file-hint { font-size: 11px; color: var(--muted); margin: -10px 0 14px; }
-    button {
-      width: 100%; padding: 12px; border: none; border-radius: 8px;
+    button, .btn-link {
+      display: block; width: 100%; padding: 12px; border: none; border-radius: 8px;
       background: var(--mint); color: white; font-weight: 700; font-size: 15px; cursor: pointer;
+      text-align: center; text-decoration: none; box-sizing: border-box;
+    }
+    .btn-secondary {
+      background: white; color: var(--text); border: 1px solid var(--line); margin-top: 10px;
     }
     .error-text { color: #b91c1c; font-size: 13px; margin-bottom: 10px; min-height: 16px; }
     .switch-link { text-align: center; margin-top: 16px; font-size: 13px; color: var(--muted); }
     .switch-link a { color: var(--mint); text-decoration: none; font-weight: 600; }
+    .success-icon { font-size: 40px; text-align: center; margin-bottom: 6px; }
+    .success-desc { font-size: 13px; color: var(--muted); text-align: center; margin: 0 0 20px; line-height: 1.6; }
+    #successPanel { display: none; }
   </style>
 </head>
 <body>
   <div class="box">
-    <h1>무료 회원가입</h1>
-    <div class="error-text" id="error"></div>
+    <div id="signupForm">
+      <h1>무료 회원가입</h1>
+      <div class="error-text" id="error"></div>
 
-    <label for="businessName">상호명</label>
-    <input id="businessName" type="text" placeholder="예: 아이즈크림 강남점">
+      <label for="businessName">상호명</label>
+      <input id="businessName" type="text" placeholder="예: 아이즈크림 강남점">
 
-    <label for="bizRegNumber">사업자등록번호</label>
-    <input id="bizRegNumber" type="text" placeholder="숫자만 10자리 (예: 1234567890)" inputmode="numeric" maxlength="12">
+      <label for="bizRegNumber">사업자등록번호</label>
+      <input id="bizRegNumber" type="text" placeholder="숫자만 10자리 (예: 1234567890)" inputmode="numeric" maxlength="12">
 
-    <label for="address">주소</label>
-    <input id="address" type="text" placeholder="사업장 주소">
+      <label for="address">주소</label>
+      <input id="address" type="text" placeholder="사업장 주소">
 
-    <label for="email">이메일</label>
-    <input id="email" type="email" placeholder="이메일" autocomplete="username">
+      <label for="email">이메일</label>
+      <input id="email" type="email" placeholder="이메일" autocomplete="username">
 
-    <label for="password">비밀번호</label>
-    <input id="password" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="new-password">
+      <label for="password">비밀번호</label>
+      <input id="password" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="new-password">
 
-    <label for="phone">연락처</label>
-    <input id="phone" type="text" placeholder="010-0000-0000" inputmode="tel">
+      <label for="phone">연락처</label>
+      <input id="phone" type="text" placeholder="010-0000-0000" inputmode="tel">
 
-    <label for="bizRegImage">사업자등록증 사진</label>
-    <input id="bizRegImage" type="file" accept="image/jpeg,image/png,image/webp">
-    <div class="file-hint">JPG, PNG, WEBP만 가능 · 최대 8MB</div>
+      <label for="bizRegImage">사업자등록증 사진</label>
+      <input id="bizRegImage" type="file" accept="image/jpeg,image/png,image/webp">
+      <div class="file-hint">JPG, PNG, WEBP만 가능 · 최대 8MB</div>
 
-    <button id="signupBtn">가입하기</button>
-    <div class="switch-link">이미 계정이 있으신가요? <a href="/login">로그인</a></div>
+      <button id="signupBtn">가입하기</button>
+      <div class="switch-link">이미 계정이 있으신가요? <a href="/login">로그인</a></div>
+    </div>
+
+    <div id="successPanel">
+      <div class="success-icon">🎉</div>
+      <h1>가입이 완료되었습니다</h1>
+      <p class="success-desc">
+        발주 자동화, 텔레그램 리포트 발송 등 전체 기능을 쓰려면<br>
+        <b>텔레그램 봇 등록</b>도 함께 해주세요.<br>
+        봇에게 메시지를 보내면 자동으로 지점 등록이 시작됩니다.
+      </p>
+      <a class="btn-link" href="{{ telegram_bot_url }}" target="_blank" rel="noopener">텔레그램 봇으로 이동</a>
+      <a class="btn-link btn-secondary" href="/home">나중에 하고 홈으로 이동</a>
+    </div>
   </div>
 
   <script>
@@ -99,7 +120,8 @@
       const data = await res.json();
 
       if (data.ok) {
-        window.location.href = "/home";
+        document.getElementById("signupForm").style.display = "none";
+        document.getElementById("successPanel").style.display = "block";
       } else {
         errorEl.textContent = data.message || "가입에 실패했습니다.";
       }
