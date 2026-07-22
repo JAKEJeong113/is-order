@@ -41,6 +41,19 @@ def init_web_auth_tables():
         expires_at TEXT
     )
     """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        token TEXT PRIMARY KEY,
+        user_id INTEGER,
+        created_at TEXT,
+        expires_at TEXT,
+        used INTEGER NOT NULL DEFAULT 0
+    )
+    """)
+    existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(web_users)").fetchall()}
+    for col in ("business_reg_number", "address", "phone"):
+        if col not in existing_cols:
+            cur.execute(f"ALTER TABLE web_users ADD COLUMN {col} TEXT")
     conn.commit()
     conn.close()
 
@@ -49,12 +62,30 @@ def _hash_password(password: str, salt: bytes) -> str:
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS).hex()
 
 
-def signup(email: str, password: str, display_name: str) -> tuple[bool, str]:
+def signup(
+    email: str, password: str, display_name: str,
+    business_reg_number: str = "", address: str = "", phone: str = "",
+) -> tuple[bool, str]:
     email = email.strip().lower()
+    display_name = display_name.strip()
+    business_reg_number = business_reg_number.strip().replace("-", "")
+    address = address.strip()
+    phone = phone.strip()
+
+    if not display_name:
+        return False, "상호명을 입력해주세요."
+    if not business_reg_number:
+        return False, "사업자등록번호를 입력해주세요."
+    if not business_reg_number.isdigit() or len(business_reg_number) != 10:
+        return False, "사업자등록번호는 숫자 10자리여야 합니다."
+    if not address:
+        return False, "주소를 입력해주세요."
     if not email or "@" not in email:
         return False, "올바른 이메일을 입력해주세요."
     if len(password) < 6:
         return False, "비밀번호는 6자 이상이어야 합니다."
+    if not phone:
+        return False, "연락처를 입력해주세요."
 
     salt = os.urandom(16)
     password_hash = _hash_password(password, salt)
@@ -64,9 +95,10 @@ def signup(email: str, password: str, display_name: str) -> tuple[bool, str]:
     cur = conn.cursor()
     try:
         cur.execute("""
-        INSERT INTO web_users (email, password_hash, password_salt, display_name, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        """, (email, password_hash, salt.hex(), display_name.strip(), now))
+        INSERT INTO web_users
+            (email, password_hash, password_salt, display_name, business_reg_number, address, phone, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (email, password_hash, salt.hex(), display_name, business_reg_number, address, phone, now))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback()
@@ -137,6 +169,73 @@ def destroy_session(token: str) -> None:
     cur.execute("DELETE FROM web_sessions WHERE token = ?", (token,))
     conn.commit()
     conn.close()
+
+
+RESET_TOKEN_TTL_MINUTES = 30
+
+
+def create_reset_token(email: str) -> str | None:
+    """존재하는 이메일이면 토큰을 만들어 돌려주고, 없으면 None.
+    이메일 존재 여부를 API 응답으로 노출하지 않기 위해 호출부에서
+    None이어도 사용자에게는 항상 같은 성공 메시지를 보여준다."""
+    email = email.strip().lower()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM web_users WHERE email = ?", (email,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return None
+
+    token = secrets.token_urlsafe(32)
+    now = datetime.now()
+    expires = now + timedelta(minutes=RESET_TOKEN_TTL_MINUTES)
+    cur.execute("""
+    INSERT INTO password_reset_tokens (token, user_id, created_at, expires_at, used)
+    VALUES (?, ?, ?, ?, 0)
+    """, (token, row[0], now.isoformat(timespec="seconds"), expires.isoformat(timespec="seconds")))
+    conn.commit()
+    conn.close()
+    return token
+
+
+def verify_reset_token(token: str) -> int | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT user_id, expires_at, used FROM password_reset_tokens WHERE token = ?
+    """, (token,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    user_id, expires_at, used = row
+    if used or datetime.fromisoformat(expires_at) < datetime.now():
+        return None
+    return user_id
+
+
+def reset_password(token: str, new_password: str) -> tuple[bool, str]:
+    if len(new_password) < 6:
+        return False, "비밀번호는 6자 이상이어야 합니다."
+
+    user_id = verify_reset_token(token)
+    if not user_id:
+        return False, "유효하지 않거나 만료된 링크입니다."
+
+    salt = os.urandom(16)
+    password_hash = _hash_password(new_password, salt)
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    UPDATE web_users SET password_hash = ?, password_salt = ? WHERE id = ?
+    """, (password_hash, salt.hex(), user_id))
+    cur.execute("UPDATE password_reset_tokens SET used = 1 WHERE token = ?", (token,))
+    cur.execute("DELETE FROM web_sessions WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    return True, "비밀번호가 변경되었습니다."
 
 
 def list_users() -> list[dict]:

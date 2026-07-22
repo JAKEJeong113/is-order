@@ -57,6 +57,7 @@ import catalog_crawler
 import consumables
 import godomall_bot
 import board
+import mailer
 import patch_notes
 import popularity
 import product_ranking
@@ -571,10 +572,22 @@ class SignupRequest(BaseModel):
     email: str
     password: str
     display_name: str
+    business_reg_number: str = ""
+    address: str = ""
+    phone: str = ""
 
 
 class LoginRequest(BaseModel):
     email: str
+    password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
     password: str
 
 
@@ -585,7 +598,10 @@ def signup_page(request: Request):
 
 @app.post("/api/auth/signup")
 def api_signup(req: SignupRequest, response: Response):
-    ok, message = web_auth.signup(req.email, req.password, req.display_name)
+    ok, message = web_auth.signup(
+        req.email, req.password, req.display_name,
+        business_reg_number=req.business_reg_number, address=req.address, phone=req.phone,
+    )
     if not ok:
         return {"ok": False, "message": message}
 
@@ -596,6 +612,32 @@ def api_signup(req: SignupRequest, response: Response):
         max_age=web_auth.SESSION_TTL_DAYS * 86400, httponly=True, samesite="lax",
     )
     return {"ok": True}
+
+
+@app.get("/forgot-password", response_class=HTMLResponse)
+def forgot_password_page(request: Request):
+    return templates.TemplateResponse("forgot_password.html", {"request": request})
+
+
+@app.post("/api/auth/forgot-password")
+def api_forgot_password(req: ForgotPasswordRequest):
+    token = web_auth.create_reset_token(req.email)
+    if token:
+        reset_url = f"{SITE_DOMAIN}/reset-password?token={token}"
+        mailer.send_password_reset_email(req.email.strip().lower(), reset_url)
+    # 이메일 존재 여부를 노출하지 않기 위해 항상 같은 성공 응답을 준다.
+    return {"ok": True, "message": "입력하신 이메일로 재설정 링크를 보냈습니다. (가입된 이메일인 경우)"}
+
+
+@app.get("/reset-password", response_class=HTMLResponse)
+def reset_password_page(request: Request, token: str = ""):
+    return templates.TemplateResponse("reset_password.html", {"request": request, "token": token})
+
+
+@app.post("/api/auth/reset-password")
+def api_reset_password(req: ResetPasswordRequest):
+    ok, message = web_auth.reset_password(req.token, req.password)
+    return {"ok": ok, "message": message}
 
 
 @app.get("/login", response_class=HTMLResponse)
