@@ -40,7 +40,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from orderqueen_bot import download_orderqueen_xlsx
+from orderqueen_bot import download_orderqueen_xlsx_with_retry as download_orderqueen_xlsx
 from parser import parse_menu_sales_xlsx
 import mapping
 from mapping import select_representative_item

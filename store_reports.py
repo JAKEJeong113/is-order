@@ -15,7 +15,7 @@ import popularity
 import price_compare
 import product_ranking
 import vendors
-from orderqueen_bot import download_orderqueen_xlsx
+from orderqueen_bot import download_orderqueen_xlsx_with_retry as download_orderqueen_xlsx
 from parser import parse_menu_sales_xlsx
 
 BASE_DIR = Path(__file__).resolve().parent
