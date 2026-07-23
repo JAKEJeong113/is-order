@@ -92,7 +92,7 @@
   {% include "_sidebar.html" %}
   <h1>과자 추천</h1>
   <div class="partners-disclosure">*본 링크를 통하여 구매를 진행하실 경우 쿠팡 파트너스 활동의 일환으로 그에 따른 일정액의 수수료를 제공받습니다.</div>
-  <div class="sub-note" id="refreshedNote">선택 많이 받은 순 · 매일 자동 갱신</div>
+  <div class="sub-note" id="refreshedNote">판매량 많은 순 (전 가맹점 발주 집계 기준) · 매일 자동 갱신</div>
   <div class="search-row"><input type="text" id="searchInput" placeholder="과자 이름으로 검색..." /></div>
   <div class="filter-row" id="filterRow"></div>
   <div id="grid" class="bev-grid"></div>
@@ -145,7 +145,7 @@
 
       if (allItems[0].refreshed_at) {
         document.getElementById("refreshedNote").textContent =
-          `선택 많이 받은 순 · 최근 갱신 ${allItems[0].refreshed_at} (매일 자동 갱신됩니다)`;
+          `판매량 많은 순 (전 가맹점 발주 집계 기준) · 최근 갱신 ${allItems[0].refreshed_at} (매일 자동 갱신됩니다)`;
       }
 
       renderFilterRow();

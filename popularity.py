@@ -67,3 +67,20 @@ def get_top_items(category: str, limit: int = 30, days: int = 60) -> list[dict]:
         {"item_key": r[0], "item_name": r[1], "total_qty": r[2], "store_count": r[3]}
         for r in rows
     ]
+
+
+def get_qty_map(category: str, days: int = 60) -> dict[str, int]:
+    """item_key별 누적 판매수량을 전부(한도 없이) 맵으로 돌려준다 - 다른
+    모듈이 자기 카탈로그의 item_key 집합으로 걸러서 정렬 기준으로 쓸 수 있게
+    (예: product_ranking.py의 음료/과자 추천 카드 순위)."""
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT item_key, SUM(qty) FROM order_events
+    WHERE category = ? AND created_at >= ?
+    GROUP BY item_key
+    """, (category, cutoff))
+    rows = cur.fetchall()
+    conn.close()
+    return {r[0]: r[1] for r in rows}

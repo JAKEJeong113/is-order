@@ -58,6 +58,7 @@ import requests
 
 import db_conn
 import mapping
+import popularity
 import product_match
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -414,26 +415,44 @@ def refresh_products(pt: ProductType, limit: int | None = None) -> dict:
     }
 
 
+# 인기 카드 정렬에 쓸 실제 판매량 집계 기간. popularity.get_top_items()가
+# 홈 화면 "인기상품 TOP30"에 쓰는 기본 기간(60일)과 맞춰서, 같은 상품이
+# 화면마다 다른 기준으로 다르게 줄서는 걸 막는다.
+RANKING_POPULARITY_WINDOW_DAYS = 60
+
+
 def get_rankings(pt: ProductType) -> list[dict]:
-    """클릭수 내림차순으로 정렬해서 반환한다(조회 시점마다 다시 정렬되므로 실시간 반영)."""
+    """실제 판매량(전 가맹점 발주 집계 - popularity.order_events) 많은 순으로
+    정렬한다. 예전에는 카드 클릭수(click_count) 기준이었는데, 클릭은 실제
+    구매로 이어지는지 알 수 없는 약한 지표라 실제 발주에 담긴 수량 기준으로
+    바꿨다. 쿠팡으로 판매되는 상품은 음료/과자 구분 없이 전부
+    category='coupang'으로 로그되므로, 이 상품군 카탈로그의 item_key(바코드)
+    집합으로 걸러서 합산한다. 아직 판매 이력이 없는 신상품은 판매량이 0이라
+    맨 뒤로 밀리는데, 그 안에서는 click_count로 대신 정렬해 완전히 무작위로
+    안 보이게 한다."""
+    qty_map = popularity.get_qty_map("coupang", days=RANKING_POPULARITY_WINDOW_DAYS)
+
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(f"""
     SELECT item_key, item_name, image_url, price, partners_link, click_count, link_refreshed_at, category
     FROM {pt.table_name}
     WHERE partners_link IS NOT NULL AND deleted = 0
-    ORDER BY click_count DESC, item_name ASC
     """)
     rows = cur.fetchall()
     conn.close()
-    return [
+
+    items = [
         {
             "item_key": r[0], "item_name": r[1], "image_url": r[2], "price": r[3],
             "partners_link": r[4], "click_count": r[5], "refreshed_at": r[6],
             "category": r[7] or pt.default_package_type,
+            "total_qty": qty_map.get(r[0], 0),
         }
         for r in rows
     ]
+    items.sort(key=lambda it: (-it["total_qty"], -it["click_count"], it["item_name"] or ""))
+    return items
 
 
 def record_click(pt: ProductType, item_key: str) -> bool:
