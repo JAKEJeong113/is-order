@@ -191,8 +191,13 @@ scheduler.add_job(
 # 텔레그램으로 보낸다(전체 가맹점 발송 여부는 대표님이 직접 결정 -
 # telegram_bot.py의 관리자 응답 처리에서 "전체발송"/"생략"으로 확정).
 def _notify_price_alerts() -> None:
-    alerts = product_ranking.list_notifiable_alerts()
-    if not alerts or not telegram_bot.ADMIN_CHAT_ID:
+    # 음료/과자 가격 스캔 작업이 둘 다 30분 간격이라 사실상 동시에 도는데,
+    # 대상 알림을 먼저 원자적으로 'notified'로 바꾸면서 가져와야(claim) 두
+    # 작업이 같은 pending 알림을 동시에 보고 중복 발송하는 걸 막을 수 있다.
+    if not telegram_bot.ADMIN_CHAT_ID:
+        return
+    alerts = product_ranking.claim_notifiable_alerts()
+    if not alerts:
         return
     lines = ["🎉 신규 최저가 감지!\n"]
     for a in alerts:
@@ -204,7 +209,6 @@ def _notify_price_alerts() -> None:
         "특정 항목만 넘어가려면 번호로 답장해주세요(예: '15 생략')."
     )
     telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
-    product_ranking.mark_alerts_notified([a["id"] for a in alerts])
 
 
 def _run_price_snapshot_and_notify(pt: product_ranking.ProductType) -> None:

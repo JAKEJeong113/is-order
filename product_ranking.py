@@ -692,32 +692,31 @@ def get_price_history(pt: ProductType, item_key: str) -> list[dict]:
     return [{"price": r[0], "recorded_at": r[1]} for r in rows]
 
 
-def list_notifiable_alerts() -> list[dict]:
-    """아직 대표님께 알리지 않은(status='pending') 최저가 알림 전체를 가져온다."""
+def claim_notifiable_alerts() -> list[dict]:
+    """아직 대표님께 알리지 않은(status='pending') 최저가 알림을 전부 원자적으로
+    'notified' 상태로 바꾸면서 동시에 가져온다. 음료/과자 가격 스캔 작업이 같은
+    30분 간격이라 사실상 동시에 도는데, 예전에는 "조회 후 별도로 상태 변경"
+    2단계였어서 두 작업이 거의 동시에 조회하면 같은 pending 알림을 둘 다 보고
+    중복으로 발송하는 사고가 있었다(실측 확인). SELECT 따로 안 하고
+    UPDATE...RETURNING 한 번으로 처리하면(cart_jobs.py의 작업 큐 claim과 같은
+    패턴) FOR UPDATE SKIP LOCKED 덕분에 동시에 두 트랜잭션이 돌아도 같은 행을
+    두 번 가져갈 수 없다."""
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT id, product_type, item_key, item_name, old_low, new_price
-    FROM pending_price_alerts WHERE status = 'pending'
-    ORDER BY id ASC
+    UPDATE pending_price_alerts SET status = 'notified'
+    WHERE id IN (
+        SELECT id FROM pending_price_alerts WHERE status = 'pending' ORDER BY id ASC FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id, product_type, item_key, item_name, old_low, new_price
     """)
     rows = cur.fetchall()
+    conn.commit()
     conn.close()
     return [
         {"id": r[0], "product_type": r[1], "item_key": r[2], "item_name": r[3], "old_low": r[4], "new_price": r[5]}
         for r in rows
     ]
-
-
-def mark_alerts_notified(ids: list[int]) -> None:
-    if not ids:
-        return
-    conn = get_conn()
-    cur = conn.cursor()
-    placeholders = ",".join("?" * len(ids))
-    cur.execute(f"UPDATE pending_price_alerts SET status = 'notified' WHERE id IN ({placeholders})", ids)
-    conn.commit()
-    conn.close()
 
 
 def resolve_pending_alerts(status: str) -> list[dict]:
