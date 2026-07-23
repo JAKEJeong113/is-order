@@ -118,6 +118,25 @@ def get_refresh_status() -> list[dict]:
     ]
 
 
+def _dedupe_by_name(items: list[dict]) -> list[dict]:
+    """같은 도매처 사이트 안에 이름/가격이 완전히 똑같은 상품이 서로 다른
+    goods_no로 중복 등록돼 있는 경우가 있다(사이트 자체의 중복 리스팅 - 크롤러의
+    goods_no 기준 중복 제거로는 못 잡음, goods_no 자체가 다르므로). 그대로 두면
+    가격비교/장바구니 담기 선택지에 똑같은 상품이 여러 개인 것처럼 떠서 사용자가
+    아무거나 골라도 되는 건지 헷갈린다. 정규화된 이름 기준으로 하나만 남긴다
+    (가격이 있는 쪽을 우선)."""
+    best: dict[str, dict] = {}
+    order: list[str] = []
+    for item in items:
+        key = product_match._normalize(item.get("name") or "")
+        if key not in best:
+            best[key] = item
+            order.append(key)
+        elif not best[key].get("price") and item.get("price"):
+            best[key] = item
+    return [best[k] for k in order]
+
+
 def search_cached_products(vendor_id: str, keyword: str, limit: int = 30) -> list[dict]:
     """저장된 상품 중 검색어와 이름이 비슷한 것들을 유사도 순으로 뽑아온다.
     정확히 포함되는 상품이 하나라도 있으면 그것만 쓰고, 하나도 없을 때만 오타/
@@ -149,10 +168,10 @@ def search_cached_products(vendor_id: str, keyword: str, limit: int = 30) -> lis
 
     if exact_rows:
         conn.close()
-        return [
+        return _dedupe_by_name([
             {"name": r[0] or "", "price": r[1], "unit_qty": r[2], "product_url": r[3], "goods_no": r[4]}
             for r in exact_rows
-        ]
+        ])
 
     cur.execute(
         "SELECT name, price, unit_qty, product_url, goods_no FROM product_cache WHERE vendor_id = ?",
@@ -171,4 +190,4 @@ def search_cached_products(vendor_id: str, keyword: str, limit: int = 30) -> lis
         fuzzy.append((score, item))
 
     fuzzy.sort(key=lambda x: -x[0])
-    return [item for _, item in fuzzy[:limit]]
+    return _dedupe_by_name([item for _, item in fuzzy])[:limit]
