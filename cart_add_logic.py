@@ -11,12 +11,16 @@ import popularity
 import vendors
 import yamimall_bot
 
-# 배치 안에서 (도매처, 계정)이 같은 상품끼리는 로그인 세션을 공유하므로 순서대로만
-# 처리한다(실측으로 동시 요청 시 세션 충돌 확인됨). 하지만 (도매처, 계정)이 다르면
-# 완전히 별개의 로그인 세션/브라우저라 서로 안전하게 병렬로 처리할 수 있다.
-# 실제 동시 브라우저 개수 상한은 browser_limit.browser_semaphore가 전역으로 한 번 더
-# 막아주므로, 여기서는 그룹 수만큼 스레드를 넉넉히 열어도 무해하다(자리 없으면 대기).
-MAX_PARALLEL_GROUPS = 8
+# 도매처 봇은 매 add_to_cart 호출마다 독립된 Playwright 브라우저를 새로 띄우고
+# (vendors.get_session_state로 캐시해둔 쿠키를 storage_state로 로드) 끝나면 바로
+# 닫는다 - 같은 (도매처, 계정)이라도 프로세스 내에서 세션 객체를 공유하지 않으므로
+# Python 레벨에서는 동시 처리가 안전하다. 실측(야미몰 실계정, 같은 계정으로 4개
+# 동시 담기 2회 반복, 실제 cart.php로 검증)으로도 동시 요청이 서버 쪽에서 서로
+# 충돌 없이 전부 정상 반영됨을 확인했다. 그래서 배치 안 상품은 (도매처, 계정)
+# 그룹 없이 전부 동시에 처리한다. 실제 동시 브라우저 개수 상한은
+# browser_limit.browser_semaphore가 전역으로 한 번 더 막아주므로, 여기서는 상품
+# 수만큼 스레드를 넉넉히 열어도 무해하다(자리 없으면 대기).
+MAX_PARALLEL_ITEMS = 8
 
 # 배치 내 다른 도매처로 자동 재시도할 때는 도매처 봇을 여러 번 호출할 수 있어
 # 한 상품당 예산을 넉넉히 잡는다 (품절 재시도 최대 2~3곳 가정).
@@ -149,7 +153,7 @@ def _process_single_item(
     store_id: str, item: dict, batch_vendors: set, resolved_accounts: dict,
 ) -> tuple[str, dict | None]:
     """상품 하나를 담고 결과 메시지 한 줄(+ 품절 후속확인이 필요하면 그 항목)을
-    만든다. process_batch가 그룹(같은 도매처+계정) 안에서 순서대로 호출한다."""
+    만든다. process_batch가 상품마다(동시에) 호출한다."""
     pool = ThreadPoolExecutor(max_workers=1)
     try:
         future = pool.submit(add_item_with_batch_fallback, store_id, item, batch_vendors, resolved_accounts)
@@ -190,31 +194,26 @@ def process_batch(
 ) -> tuple[list[str], list[dict]]:
     """텔레그램 "확인" 한 번에 담을 상품 목록 전체를 처리한다(원래
     telegram_bot._execute_cart_adds 안에 있던 루프 - worker.py가 재사용할 수
-    있도록 텔레그램 전용 모듈에서 분리했다). (도매처, 계정)이 같은 상품끼리는
-    로그인 세션을 공유해서 순서대로만 처리하고(동시 요청 시 세션 충돌이 실측
-    확인됨), (도매처, 계정)이 다른 상품끼리는 완전히 별개의 세션이라 동시에
-    처리한다 - 실제 동시 브라우저 개수는 browser_limit.browser_semaphore가
+    있도록 텔레그램 전용 모듈에서 분리했다). 상품마다 완전히 독립된 브라우저
+    세션을 쓰므로((도매처, 계정)이 같아도 안전함이 실측으로 확인됨) 전체 상품을
+    동시에 처리한다 - 실제 동시 브라우저 개수는 browser_limit.browser_semaphore가
     전역으로 한 번 더 제한하므로 시스템이 바쁠 때는 자동으로 대기하고 여유
     있을 때만 병렬로 진행된다. 도매처마다 실제 브라우저를 띄우는 작업이라 한
     상품이 응답 없이 멈추면 전체가 영원히 멈출 수 있어, 상품당 시간 제한을
     걸어 하나가 멈춰도 나머지는 계속 진행한다.
 
     on_progress(done, total)이 주어지면 상품을 하나 처리할 때마다 호출한다 -
-    같은 세션을 공유하는 상품이 많으면 그만큼 순서대로 처리해야 해서 몇 분씩
-    걸릴 수 있는데, 그동안 아무 응답이 없으면 멈춘 것처럼 보이는 문제를
-    호출부(worker.py)가 중간 진행 메시지로 완화할 수 있게 한다.
+    동시에 여러 개가 처리되는 중에도 몇 분씩 걸릴 수 있는데, 그동안 아무 응답이
+    없으면 멈춘 것처럼 보이는 문제를 호출부(worker.py)가 중간 진행 메시지로
+    완화할 수 있게 한다.
 
     반환: (결과 메시지 줄 목록 - 원래 items 순서 그대로, 품절로 후속 확인이
     필요한 항목 목록 [{item_name, qty, alt_offers}])."""
     resolved_accounts = resolved_accounts or {}
     batch_vendors = {it["vendor_id"] for it in items}
     total = len(items)
-
-    groups: dict[tuple, list[tuple[int, dict]]] = {}
-    for idx, item in enumerate(items):
-        account_id = item.get("account_id") or resolved_accounts.get(item["vendor_id"])
-        key = (item["vendor_id"], account_id)
-        groups.setdefault(key, []).append((idx, item))
+    if total == 0:
+        return [], []
 
     ordered_lines: list[str | None] = [None] * total
     needs_followup: list[dict] = []
@@ -222,22 +221,21 @@ def process_batch(
     progress_lock = threading.Lock()
     done_count = 0
 
-    def run_group(group_items: list[tuple[int, dict]]) -> None:
+    def run_one(idx: int, item: dict) -> None:
         nonlocal done_count
-        for idx, item in group_items:
-            line, followup = _process_single_item(store_id, item, batch_vendors, resolved_accounts)
-            ordered_lines[idx] = line
-            if followup:
-                with followup_lock:
-                    needs_followup.append(followup)
-            if on_progress:
-                with progress_lock:
-                    done_count += 1
-                    current = done_count
-                on_progress(current, total)
+        line, followup = _process_single_item(store_id, item, batch_vendors, resolved_accounts)
+        ordered_lines[idx] = line
+        if followup:
+            with followup_lock:
+                needs_followup.append(followup)
+        if on_progress:
+            with progress_lock:
+                done_count += 1
+                current = done_count
+            on_progress(current, total)
 
-    with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL_GROUPS, len(groups))) as pool:
-        futures = [pool.submit(run_group, group_items) for group_items in groups.values()]
+    with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL_ITEMS, total)) as pool:
+        futures = [pool.submit(run_one, idx, item) for idx, item in enumerate(items)]
         for f in futures:
             f.result()
 
