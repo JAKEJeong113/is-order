@@ -251,7 +251,30 @@
       filter: drop-shadow(
         0 20px 40px rgba(0,0,0,0.15)
       );
+
+      display:none;
+      opacity:0;
+      transition:opacity .35s ease;
     }
+    .hero-main-logo.fade-in{opacity:1}
+
+    .hero-intro-video{
+      width:620px;
+      max-width:100%;
+      height:auto;
+      border-radius:20px;
+
+      position:relative;
+      z-index:2;
+
+      filter: drop-shadow(
+        0 20px 40px rgba(0,0,0,0.15)
+      );
+
+      opacity:1;
+      transition:opacity .35s ease;
+    }
+    .hero-intro-video.fade-out{opacity:0}
 
     .ice-visual::before{
       content:"";
@@ -659,7 +682,11 @@
         <div class="ice-visual" aria-label="아이스크림 메인 이미지">
           <div class="ice-bowl">
             <div class="cup">
-              <img src="./images/logo-main.png" alt="i's cream mascot" class="hero-main-logo">
+              <video class="hero-intro-video" id="heroIntroVideo" autoplay muted playsinline aria-hidden="true">
+                <source src="./images/hero-intro.mp4" type="video/mp4">
+              </video>
+              <img src="./images/logo-main.png" alt="i's cream mascot" class="hero-main-logo" id="heroMainLogo">
+              <noscript><style>.hero-intro-video{display:none}.hero-main-logo{display:block !important;opacity:1 !important}</style></noscript>
             </div>
           </div>
         </div>
@@ -1014,6 +1041,37 @@
         toggle.setAttribute("aria-expanded", "false");
       });
     });
+  })();
+
+  (function(){
+    var video = document.getElementById("heroIntroVideo");
+    var logo = document.getElementById("heroMainLogo");
+    if(!video || !logo) return;
+
+    function showLogo(){
+      video.classList.add("fade-out");
+      setTimeout(function(){
+        video.style.display = "none";
+        logo.style.display = "block";
+        // display:none -> block으로 바꾼 직후 바로 opacity 클래스를 추가하면
+        // 브라우저가 두 스타일 변경을 한 번에 묶어버려서 트랜지션 없이 바로
+        // 나타나는 경우가 있다(requestAnimationFrame도 탭이 백그라운드거나
+        // 화면에 그려지지 않는 상태면 안 불릴 수 있어 못 믿음 - 실측 확인).
+        // offsetWidth를 읽어서 강제로 리플로우시키면 항상 확실하게 순서가
+        // 보장된다.
+        void logo.offsetWidth;
+        logo.classList.add("fade-in");
+      }, 350);
+    }
+
+    video.addEventListener("ended", showLogo);
+    // 자동재생이 브라우저 정책 등으로 막히면 영상이 영원히 멈춰있는 것처럼
+    // 보일 수 있어, 그 경우 바로 캐릭터 이미지를 보여준다.
+    video.addEventListener("error", showLogo);
+    var playPromise = video.play();
+    if(playPromise && playPromise.catch){
+      playPromise.catch(showLogo);
+    }
   })();
 
   function moveTools(direction){
