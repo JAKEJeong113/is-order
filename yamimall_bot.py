@@ -458,7 +458,7 @@ def _parse_price(text: str) -> int | None:
     return int(digits) if digits else None
 
 
-def _cart_has_item(page, base_url: str, item_code: str) -> bool:
+def _cart_has_item(page, base_url: str, item_code: str, retries: int = 2, retry_delay_ms: int = 1500) -> bool:
     """이 상품 코드가 실제로 장바구니에 들어갔는지 cart.php를 직접 읽어서
     확인한다. 헤더의 실시간 개수 배지(.cart_prod_cnt_class)는 계정 전체의
     집계값이라, 같은 계정으로 여러 담기가 동시에 진행되면 신뢰할 수 없다(실측
@@ -466,12 +466,21 @@ def _cart_has_item(page, base_url: str, item_code: str) -> bool:
     안 다른 도매처로 자동 전환되는데, 원래 도매처에도 이미 담겨 있어서 두
     도매처 모두에 중복 발주된 사고가 있었다). cart.php 안에 이 상품 상세페이지로
     연결되는 링크가 있는지로 판단하면, 다른 동시 요청이 뭘 하든 상관없이 "이
-    상품이 지금 장바구니에 있는가"를 정확히 알 수 있다."""
-    try:
-        page.goto(f"{base_url}:443/shop/cart.php", wait_until="domcontentloaded", timeout=15000)
-        return page.locator(f"a[href*='item.php?code={item_code}']").count() > 0
-    except Exception:
-        return False
+    상품이 지금 장바구니에 있는가"를 정확히 알 수 있다.
+
+    같은 계정으로 여러 건이 한꺼번에 몰리면 담기 자체는 서버에 반영됐는데
+    cart.php에 그 반영이 아주 잠깐(1~2초) 늦게 뜨는 경우가 실측으로 확인돼서,
+    한 번 못 찾았다고 바로 실패로 단정하지 않고 짧게 기다렸다가 다시 확인한다."""
+    for attempt in range(retries + 1):
+        try:
+            page.goto(f"{base_url}:443/shop/cart.php", wait_until="domcontentloaded", timeout=15000)
+            if page.locator(f"a[href*='item.php?code={item_code}']").count() > 0:
+                return True
+        except Exception:
+            pass
+        if attempt < retries:
+            page.wait_for_timeout(retry_delay_ms)
+    return False
 
 
 def add_to_cart(store_id: str, username: str, password: str, product_url: str, qty: int = 1, keyword: str | None = None) -> dict:
