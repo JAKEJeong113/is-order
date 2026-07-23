@@ -164,7 +164,12 @@ def set_vendor_enabled_for_store(chat_id: str, vendor_id: str, enabled: bool) ->
         disabled.discard(vendor_id)
     else:
         disabled.add(vendor_id)
+    set_disabled_vendors(chat_id, disabled)
 
+
+def set_disabled_vendors(chat_id: str, disabled: set) -> None:
+    """비활성화 도매처 전체를 한 번에 지정한다(웹 쪽 설정과 동기화할 때 씀 -
+    vendors.sync_vendor_prefs_to_linked_identity 참고)."""
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(

@@ -1544,9 +1544,11 @@ class MyVendorToggleRequest(BaseModel):
 @app.post("/api/my-vendors/{vendor_id}/toggle")
 def api_my_vendors_toggle(vendor_id: str, req: MyVendorToggleRequest, user: dict = Depends(require_web_user)):
     """가격비교에서 이 도매처를 켜고 끈다(텔레그램의 "도매처 활성화/비활성화"와
-    동일한 개념, 웹 계정용 저장소는 별도)."""
+    같은 개념 - 저장소는 원래 따로였는데, 연결된 텔레그램 지점이 있으면 그쪽에도
+    똑같이 반영한다)."""
     store_id = f"web:{user['email']}"
     vendors.set_vendor_enabled_for_store(store_id, vendor_id, req.enabled)
+    vendors.sync_vendor_prefs_to_linked_identity(store_id)
     return {"ok": True}
 
 
@@ -1559,6 +1561,7 @@ def api_my_vendors_set_preferred(req: MyVendorPreferredRequest, user: dict = Dep
     """가격이 동률일 때 우선으로 볼 주 도매처를 지정한다. vendor_id를 비우면 해제."""
     store_id = f"web:{user['email']}"
     vendors.set_preferred_vendor_for_store(store_id, req.vendor_id)
+    vendors.sync_vendor_prefs_to_linked_identity(store_id)
     return {"ok": True}
 
 

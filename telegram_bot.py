@@ -909,6 +909,7 @@ def _handle_preferred_vendor_command(chat_id: str, text: str) -> None:
 
     if rest in ("해제", "취소"):
         telegram_store.set_preferred_vendor(chat_id, None)
+        vendors.sync_vendor_prefs_to_linked_identity(chat_id)
         send_message(chat_id, "주거래처 설정을 해제했습니다.")
         return
 
@@ -918,6 +919,7 @@ def _handle_preferred_vendor_command(chat_id: str, text: str) -> None:
         return
 
     telegram_store.set_preferred_vendor(chat_id, vendor_id)
+    vendors.sync_vendor_prefs_to_linked_identity(chat_id)
     send_message(
         chat_id,
         f"주거래처를 {vendors.VENDORS[vendor_id]['name']}(으)로 설정했습니다. (가격이 같을 때 우선 담습니다)",
@@ -955,6 +957,7 @@ def _handle_vendor_toggle_command(chat_id: str, text: str) -> None:
 
     enabled = action == "활성화"
     telegram_store.set_vendor_enabled_for_store(chat_id, vendor_id, enabled)
+    vendors.sync_vendor_prefs_to_linked_identity(chat_id)
     send_message(chat_id, f"{vendors.VENDORS[vendor_id]['name']}를 {action}했습니다.")
 
 

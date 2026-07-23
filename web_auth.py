@@ -324,3 +324,14 @@ def get_linked_store_name_by_email(email: str) -> str | None:
     row = cur.fetchone()
     conn.close()
     return row[0] if row else None
+
+
+def get_email_by_linked_store_name(store_name: str) -> str | None:
+    """반대 방향 조회 - 텔레그램 지점(store_name)에 연결된 웹 계정 이메일을
+    찾는다(도매처 활성화/주거래처 설정을 웹↔텔레그램 양쪽에 동기화할 때 씀)."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT email FROM web_users WHERE linked_store_name = ? LIMIT 1", (store_name,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None

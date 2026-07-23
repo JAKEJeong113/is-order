@@ -508,6 +508,44 @@ def set_preferred_vendor_for_store(store_id: str, vendor_id: str | None) -> None
     _save_store_vendor_prefs(store_id, disabled, vendor_id)
 
 
+def sync_vendor_prefs_to_linked_identity(store_id: str) -> None:
+    """웹 계정(store_id="web:이메일")과 그 계정에 연결된 텔레그램 지점은 도매처
+    활성화/주 도매처 설정을 서로 다른 테이블(store_vendor_prefs vs
+    telegram_stores)에 각자 따로 들고 있어서, 한쪽에서 바꿔도 다른 쪽엔 반영이
+    안 되는 문제가 있었다(실사용 확인 - 텔레그램에서는 야미몰만 켜뒀는데 웹은
+    전부 켜진 채로 남아있었음). 지금 store_id 쪽 값을 그대로 연결된 반대쪽에도
+    복사해서 두 화면이 항상 같은 값을 보여주게 한다.
+
+    main.py의 웹 토글/주 도매처 API와 telegram_bot.py의 도매처 활성화·주거래처
+    명령 양쪽에서, 값을 바꾼 직후 호출한다(어느 쪽 store_id를 넘겨도 동작).
+    telegram_store/web_auth를 여기서 임포트하는 이유는 순환 임포트를 피하기
+    위함이다(그 두 모듈은 vendors를 몰라도 되고, vendors도 평소엔 걔들을 몰라도
+    됨 - 이 동기화 기능 하나만 예외적으로 양쪽을 다 알아야 함)."""
+    import telegram_store
+    import web_auth
+
+    if store_id.startswith("web:"):
+        disabled, preferred = get_store_vendor_prefs(store_id)
+        email = store_id[len("web:"):]
+        linked_store_name = web_auth.get_linked_store_name_by_email(email)
+        if not linked_store_name:
+            return
+        for s in telegram_store.list_stores():
+            if s["approved"] and s["store_name"] == linked_store_name:
+                telegram_store.set_disabled_vendors(s["chat_id"], disabled)
+                telegram_store.set_preferred_vendor(s["chat_id"], preferred)
+    else:
+        reg = telegram_store.get_registration(store_id)
+        store_name = reg["store_name"] if reg else None
+        if not store_name:
+            return
+        email = web_auth.get_email_by_linked_store_name(store_name)
+        if not email:
+            return
+        disabled = set(reg["disabled_vendors"])
+        _save_store_vendor_prefs(f"web:{email}", disabled, reg["preferred_vendor"])
+
+
 # --- 담기 속도 개선용: 지점별 로그인 세션(쿠키) 캐시. 매번 새로 로그인하는 대신
 # 저장된 쿠키로 브라우저 컨텍스트를 만들어서 로그인 과정을 건너뛴다. ---
 
