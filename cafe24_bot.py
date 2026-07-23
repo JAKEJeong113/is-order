@@ -169,12 +169,21 @@ def crawl_full_catalog(
             # 있는 진짜 새 상품을 놓칠 수 있어서, 연속으로 여러 번 없을 때만 멈춘다.
             consecutive_empty_pages = 0
             for page_no in range(1, max_pages + 1):
-                page.goto(
-                    f"{base_url}/product/list.html?cate_no={category_code}&page={page_no}",
-                    wait_until="domcontentloaded",
-                    timeout=30000,
-                )
-                page.wait_for_timeout(600)
+                try:
+                    page.goto(
+                        f"{base_url}/product/list.html?cate_no={category_code}&page={page_no}",
+                        wait_until="domcontentloaded",
+                        timeout=30000,
+                    )
+                    page.wait_for_timeout(600)
+                except Exception as e:
+                    # 페이지 하나가 타임아웃나도 여기서 예외가 그대로 올라가면
+                    # crawl_vendor의 try/except에 걸려서 여태 모은 상품이 전부
+                    # 버려지고(replace_vendor_catalog가 아예 안 불림) 오래된 캐시가
+                    # 그대로 남는 사고가 있었다(실측: 무마켓이 8페이지에서 이걸로
+                    # 매번 실패). 여기서 그만 보고, 지금까지 모은 건 그대로 살린다.
+                    print(f"[CAFE24] {base_url} 페이지 {page_no} 로딩 실패:", e)
+                    break
 
                 items = _extract_list_page_items(page, base_url)
                 if not items:

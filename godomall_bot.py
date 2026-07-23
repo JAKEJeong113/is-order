@@ -215,12 +215,22 @@ def crawl_full_catalog(
                 # 끝난 것으로 보는 안전장치도 같이 둔다.
                 consecutive_empty_pages = 0
                 for page_no in range(1, max_pages + 1):
-                    page.goto(
-                        f"{base_url}/goods/goods_list.php?cateCd={category_code}&page={page_no}",
-                        wait_until="domcontentloaded",
-                        timeout=30000,
-                    )
-                    page.wait_for_timeout(600)
+                    try:
+                        page.goto(
+                            f"{base_url}/goods/goods_list.php?cateCd={category_code}&page={page_no}",
+                            wait_until="domcontentloaded",
+                            timeout=30000,
+                        )
+                        page.wait_for_timeout(600)
+                    except Exception as e:
+                        # 페이지 하나가 타임아웃나도 여기서 예외가 그대로 올라가면
+                        # crawl_vendor의 try/except에 걸려서 여태 모은 상품이 전부
+                        # 버려지고(replace_vendor_catalog가 아예 안 불림) 오래된
+                        # 캐시가 그대로 남는 사고가 있었다(실측: 현동몰이 78페이지에서
+                        # 이걸로 매번 실패). 이 카테고리는 여기서 그만 보고, 지금까지
+                        # 모은 건 그대로 살려서 다음 카테고리로 넘어간다.
+                        print(f"[GODOMALL] {base_url} 카테고리 {category_code} 페이지 {page_no} 로딩 실패:", e)
+                        break
 
                     items = _extract_page_items(page, base_url)
                     if not items:
