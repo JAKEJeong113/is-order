@@ -159,19 +159,23 @@ def _pick_best_offer(offers: list[dict], preferred_vendor: str | None) -> dict |
     삼봉몰/무마켓/과자생각)은 아직 크롤러가 1타 개수를 거의 못 읽어와서, 모르는
     채로 고르면 이후 apply_case_rule()에서 1타=1개로 잘못 가정하는 사고가 난다.
     CART_SUPPORTED_VENDORS 중 담을 수 있는 후보만 놓고, 그중 1타 개수를 아는
-    것을 우선 최저가순으로, 동률이면 주거래처 우선."""
+    것을 우선한다.
+
+    주 도매처(preferred_vendor)가 설정돼 있고 그 도매처가 이 상품을 취급하면
+    가격 차이와 무관하게 그 도매처를 그대로 쓴다(원래는 가격이 정확히 동일할
+    때만 주 도매처를 우선했는데, 그러면 몇백원만 더 싸도 자동 리포트가 여러
+    도매처로 흩어져서 배송비/관리 부담이 커진다는 피드백을 받아 바꿨다 -
+    2026-07-24). 주 도매처가 없거나 이 상품을 안 판다면 최저가 순으로 고른다."""
     candidates = [o for o in offers if o["vendor_id"] in vendors.CART_SUPPORTED_VENDORS and o.get("product_url")]
     if not candidates:
         return None
     known_qty_candidates = [o for o in candidates if o.get("unit_qty") and o["unit_qty"] > 0]
     pool = known_qty_candidates or candidates
-    lowest_unit_price = price_compare._unit_price(pool[0])
-    tied = [o for o in pool if price_compare._unit_price(o) == lowest_unit_price]
     if preferred_vendor:
-        for o in tied:
-            if o["vendor_id"] == preferred_vendor:
-                return o
-    return pool[0]
+        preferred_offer = next((o for o in pool if o["vendor_id"] == preferred_vendor), None)
+        if preferred_offer:
+            return preferred_offer
+    return pool[0]  # price_compare.compare가 이미 개당가 오름차순으로 정렬해둠
 
 
 # --- 스케줄 CRUD ---
