@@ -270,7 +270,16 @@ def _format_wholesale_report_message(report: dict) -> str:
     if wholesale:
         lines.append("[도매처 담기 대상]")
         for idx, it in enumerate(wholesale, start=1):
-            lines.append(f"{idx}. {it['name']} {it['cases']}타 ({it['vendor_name']}, {it['sold_qty']}개 판매)")
+            # 60% 판정은 이번 집계 판매량이 아니라 이월분까지 합친 누적
+            # 수량(pending_qty) 기준이라, 이번 판매량만 보면 60%에 안 미친
+            # 것처럼 보일 수 있다 - 이월이 있으면 누적/이번을 같이 보여줘서
+            # 왜 담기 대상이 됐는지 바로 확인할 수 있게 한다.
+            carried = it["pending_qty"] - it["sold_qty"]
+            qty_text = (
+                f"{it['pending_qty']}개 판매(이번 {it['sold_qty']}개+이월 {carried}개)"
+                if carried > 0 else f"{it['sold_qty']}개 판매"
+            )
+            lines.append(f"{idx}. {it['name']} {it['cases']}타 ({it['vendor_name']}, {qty_text})")
         lines.append("")
 
     if unknown:
