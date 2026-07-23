@@ -253,6 +253,24 @@ def save_registration_field(chat_id: str, field: str, value: str, next_step: str
     conn.close()
 
 
+def restart_registration(chat_id: str, display_name: str) -> None:
+    """반려된 신청을 다시 처음부터 시작한다 - start_registration은 INSERT ...
+    ON CONFLICT DO NOTHING이라 chat_id 행이 이미 있으면(반려돼도 행은 남아있음)
+    조용히 무시돼서 재신청이 막혀버린다. 그래서 반려 후에는 이 함수로 기존 행을
+    초기 상태로 되돌려서 등록 절차를 다시 밟게 한다."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    UPDATE telegram_stores SET display_name = ?, store_name = NULL, phone = NULL,
+        business_number = NULL, registration_step = 'store_name', approved = 0,
+        requested_at = ?, rejected_at = NULL, reject_reason = NULL
+    WHERE chat_id = ?
+    """, (display_name, now, chat_id))
+    conn.commit()
+    conn.close()
+
+
 def register_request(chat_id: str, display_name: str) -> None:
     """하위호환용: 등록 절차 없이 바로 대기 상태로만 남기고 싶을 때."""
     start_registration(chat_id, display_name)

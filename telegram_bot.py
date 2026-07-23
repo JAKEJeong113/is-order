@@ -1037,11 +1037,14 @@ def handle_update(update: dict) -> None:
         if reg["registration_step"]:
             _handle_registration(chat_id, reg, text)
         elif reg.get("reject_reason"):
+            display_name = chat.get("first_name") or chat.get("username") or chat_id
+            reject_reason = reg["reject_reason"]
+            telegram_store.restart_registration(chat_id, display_name)
             send_message(
                 chat_id,
-                "가맹점 등록이 반려됐습니다.\n"
-                f"사유: {reg['reject_reason']}\n"
-                "문의사항이 있으면 대표님께 직접 연락해주세요.",
+                "이전 가맹점 등록 신청이 반려됐습니다.\n"
+                f"사유: {reject_reason}\n\n"
+                "다시 신청을 시작할게요.\n지점명을 입력해주세요.\n(취소하려면 '취소')",
             )
         else:
             send_message(
