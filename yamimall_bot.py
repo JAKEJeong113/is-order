@@ -458,6 +458,22 @@ def _parse_price(text: str) -> int | None:
     return int(digits) if digits else None
 
 
+def _cart_has_item(page, base_url: str, item_code: str) -> bool:
+    """이 상품 코드가 실제로 장바구니에 들어갔는지 cart.php를 직접 읽어서
+    확인한다. 헤더의 실시간 개수 배지(.cart_prod_cnt_class)는 계정 전체의
+    집계값이라, 같은 계정으로 여러 담기가 동시에 진행되면 신뢰할 수 없다(실측
+    확인 - 실제로는 성공한 담기가 "장바구니 수량이 늘지 않음"으로 오판돼 배치
+    안 다른 도매처로 자동 전환되는데, 원래 도매처에도 이미 담겨 있어서 두
+    도매처 모두에 중복 발주된 사고가 있었다). cart.php 안에 이 상품 상세페이지로
+    연결되는 링크가 있는지로 판단하면, 다른 동시 요청이 뭘 하든 상관없이 "이
+    상품이 지금 장바구니에 있는가"를 정확히 알 수 있다."""
+    try:
+        page.goto(f"{base_url}:443/shop/cart.php", wait_until="domcontentloaded", timeout=15000)
+        return page.locator(f"a[href*='item.php?code={item_code}']").count() > 0
+    except Exception:
+        return False
+
+
 def add_to_cart(store_id: str, username: str, password: str, product_url: str, qty: int = 1, keyword: str | None = None) -> dict:
     """상품 상세페이지에서 실제로 장바구니에 담는다. product_url은 item.php?code=... 형태.
     지점별 로그인 세션(쿠키)을 캐시해서, 저장된 세션이 있으면 로그인 과정을 건너뛴다.
@@ -497,17 +513,6 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
 
         page.on("dialog", _on_dialog)
 
-        def _read_cart_count() -> int:
-            """헤더의 실시간 장바구니 개수 배지(.cart_prod_cnt_class)를 읽는다.
-            못 읽으면 -1(판단 불가)을 반환해서, 클릭 성공 여부만으로 함부로
-            성공/실패를 단정하지 않게 한다."""
-            try:
-                text = page.locator(".cart_prod_cnt_class").first.inner_text(timeout=2000)
-                digits = re.sub(r"[^\d]", "", text or "")
-                return int(digits) if digits else 0
-            except Exception:
-                return -1
-
         def _try_add() -> str:
             alert_messages.clear()
             page.goto(
@@ -515,8 +520,6 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
                 wait_until="domcontentloaded",
                 timeout=30000,
             )
-
-            before_count = _read_cart_count()
 
             # 수량 1개는 +버튼을 누를 필요가 없다. 수량 조절 UI(.add_qty_class)가
             # 지연된 AJAX로 늦게 뜨거나, 상품에 따라 아예 없는 경우(고정 수량 등)도
@@ -559,19 +562,14 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
 
             # alert/리다이렉트가 없어도 재고부족·최소수량 등 다른 사유로 조용히
             # 실패하는 경우가 있어서, 클릭 성공 여부만으로는 신뢰할 수 없다는 게
-            # 실측으로 확인됐다. 새로고침 후 실제 장바구니 개수 배지로 최종 확인한다.
-            try:
-                page.reload(wait_until="domcontentloaded", timeout=15000)
-            except Exception:
-                pass
-            after_count = _read_cart_count()
+            # 실측으로 확인됐다. cart.php에서 이 상품이 실제로 담겼는지 직접
+            # 확인한다.
+            if _cart_has_item(page, YAMIMALL_URL, item_code):
+                return "ok"
 
-            if before_count >= 0 and after_count >= 0 and after_count <= before_count:
-                if alert_messages:
-                    return f"blocked:{alert_messages[-1]}"
-                return "not_added"
-
-            return "ok"
+            if alert_messages:
+                return f"blocked:{alert_messages[-1]}"
+            return "not_added"
 
         try:
             logged_in_fresh = False
@@ -660,14 +658,6 @@ def add_to_cart_via_list(
 
         page.on("dialog", _on_dialog)
 
-        def _read_cart_count() -> int:
-            try:
-                text = page.locator(".cart_prod_cnt_class").first.inner_text(timeout=2000)
-                digits = re.sub(r"[^\d]", "", text or "")
-                return int(digits) if digits else 0
-            except Exception:
-                return -1
-
         def _find_container():
             run_yamimall_search(page, search_keyword, base_url=base_url)
             # 검색 결과 렌더링이 느릴 수 있어(특히 로그인 직후) 고정 대기시간
@@ -710,8 +700,6 @@ def add_to_cart_via_list(
             container = _find_container()
             if container is None:
                 return "not_found"
-
-            before_count = _read_cart_count()
 
             # 이 목록 카드의 수량 스텝퍼(.qty_plus_class2)는 화면 크기가 0이라
             # Playwright의 일반 클릭/입력으로는 아예 상호작용이 안 된다(실측
@@ -841,14 +829,13 @@ def add_to_cart_via_list(
                     page.wait_for_timeout(500)
 
             # alert/리다이렉트가 없어도 조용히 실패하는 경우가 있어(실측으로 확인),
-            # 헤더의 실시간 장바구니 개수 배지로 최종 확인한다.
-            after_count = _read_cart_count()
-            if before_count >= 0 and after_count >= 0 and after_count <= before_count:
-                if alert_messages:
-                    return f"blocked:{alert_messages[-1]}"
-                return "not_added"
+            # cart.php에서 이 상품이 실제로 담겼는지 직접 확인한다.
+            if _cart_has_item(page, base_url, item_code):
+                return "ok"
 
-            return "ok"
+            if alert_messages:
+                return f"blocked:{alert_messages[-1]}"
+            return "not_added"
 
         try:
             logged_in_fresh = False
