@@ -11,16 +11,24 @@ import popularity
 import vendors
 import yamimall_bot
 
-# 도매처 봇은 매 add_to_cart 호출마다 독립된 Playwright 브라우저를 새로 띄우고
-# (vendors.get_session_state로 캐시해둔 쿠키를 storage_state로 로드) 끝나면 바로
-# 닫는다 - 같은 (도매처, 계정)이라도 프로세스 내에서 세션 객체를 공유하지 않으므로
-# Python 레벨에서는 동시 처리가 안전하다. 실측(야미몰 실계정, 같은 계정으로 4개
-# 동시 담기 2회 반복, 실제 cart.php로 검증)으로도 동시 요청이 서버 쪽에서 서로
-# 충돌 없이 전부 정상 반영됨을 확인했다. 그래서 배치 안 상품은 (도매처, 계정)
-# 그룹 없이 전부 동시에 처리한다. 실제 동시 브라우저 개수 상한은
-# browser_limit.browser_semaphore가 전역으로 한 번 더 막아주므로, 여기서는 상품
+# 배치 안에서 (도매처, 계정)이 같은 상품끼리는 로그인 세션을 공유하므로 순서대로만
+# 처리한다. (도매처, 계정)이 다르면 완전히 별개의 로그인 세션/브라우저라 서로
+# 안전하게 병렬로 처리할 수 있다. 실제 동시 브라우저 개수 상한은
+# browser_limit.browser_semaphore가 전역으로 한 번 더 막아주므로, 여기서는 그룹
 # 수만큼 스레드를 넉넉히 열어도 무해하다(자리 없으면 대기).
-MAX_PARALLEL_ITEMS = 8
+#
+# (※ 2026-07-23 되돌림: 짧은 테스트(4개씩 2회)에서는 동시 담기가 안전해 보여
+# 한때 같은 계정끼리도 완전 병렬로 바꿨었는데, 실제 37개짜리 배치에서 로그인
+# 오류 + 더 심각하게는 "품절로 오판돼 다른 도매처로 자동 전환됐는데 실제로는
+# 원래 도매처에도 이미 담겨서 두 도매처 모두에 중복 발주"가 발생했다. 원인은
+# yamimall_bot.add_to_cart의 성공판정이 헤더의 실시간 장바구니 개수 배지
+# (.cart_prod_cnt_class) 전후 비교인데, 같은 계정으로 여러 담기가 동시에
+# 벌어지면 그 배지가 어느 브라우저 기준으로도 신뢰할 수 없어져서(이미 이
+# 배지 자체가 불안정하다는 건 별도로 확인된 사실) 실제로는 성공한 담기를
+# "장바구니 수량이 늘지 않음"으로 오판 -> is_stock_failure로 분류 -> 배치 안
+# 다른 도매처로 자동 재시도 -> 중복 담기로 이어졌다. 담기 성공판정 로직 자체를
+# 동시성에 안전하게 다시 만들기 전까지는 같은 계정끼리는 순차 처리로 되돌린다.)
+MAX_PARALLEL_GROUPS = 8
 
 # 배치 내 다른 도매처로 자동 재시도할 때는 도매처 봇을 여러 번 호출할 수 있어
 # 한 상품당 예산을 넉넉히 잡는다 (품절 재시도 최대 2~3곳 가정).
@@ -153,7 +161,7 @@ def _process_single_item(
     store_id: str, item: dict, batch_vendors: set, resolved_accounts: dict,
 ) -> tuple[str, dict | None]:
     """상품 하나를 담고 결과 메시지 한 줄(+ 품절 후속확인이 필요하면 그 항목)을
-    만든다. process_batch가 상품마다(동시에) 호출한다."""
+    만든다. process_batch가 그룹(같은 도매처+계정) 안에서 순서대로 호출한다."""
     pool = ThreadPoolExecutor(max_workers=1)
     try:
         future = pool.submit(add_item_with_batch_fallback, store_id, item, batch_vendors, resolved_accounts)
@@ -194,18 +202,18 @@ def process_batch(
 ) -> tuple[list[str], list[dict]]:
     """텔레그램 "확인" 한 번에 담을 상품 목록 전체를 처리한다(원래
     telegram_bot._execute_cart_adds 안에 있던 루프 - worker.py가 재사용할 수
-    있도록 텔레그램 전용 모듈에서 분리했다). 상품마다 완전히 독립된 브라우저
-    세션을 쓰므로((도매처, 계정)이 같아도 안전함이 실측으로 확인됨) 전체 상품을
-    동시에 처리한다 - 실제 동시 브라우저 개수는 browser_limit.browser_semaphore가
-    전역으로 한 번 더 제한하므로 시스템이 바쁠 때는 자동으로 대기하고 여유
-    있을 때만 병렬로 진행된다. 도매처마다 실제 브라우저를 띄우는 작업이라 한
-    상품이 응답 없이 멈추면 전체가 영원히 멈출 수 있어, 상품당 시간 제한을
-    걸어 하나가 멈춰도 나머지는 계속 진행한다.
+    있도록 텔레그램 전용 모듈에서 분리했다). (도매처, 계정)이 같은 상품끼리는
+    로그인 세션을 공유해서 순서대로만 처리하고, (도매처, 계정)이 다른 상품끼리는
+    완전히 별개의 세션이라 동시에 처리한다 - 실제 동시 브라우저 개수는
+    browser_limit.browser_semaphore가 전역으로 한 번 더 제한하므로 시스템이 바쁠
+    때는 자동으로 대기하고 여유 있을 때만 병렬로 진행된다. 도매처마다 실제
+    브라우저를 띄우는 작업이라 한 상품이 응답 없이 멈추면 전체가 영원히 멈출 수
+    있어, 상품당 시간 제한을 걸어 하나가 멈춰도 나머지는 계속 진행한다.
 
     on_progress(done, total)이 주어지면 상품을 하나 처리할 때마다 호출한다 -
-    동시에 여러 개가 처리되는 중에도 몇 분씩 걸릴 수 있는데, 그동안 아무 응답이
-    없으면 멈춘 것처럼 보이는 문제를 호출부(worker.py)가 중간 진행 메시지로
-    완화할 수 있게 한다.
+    같은 세션을 공유하는 상품이 많으면 그만큼 순서대로 처리해야 해서 몇 분씩
+    걸릴 수 있는데, 그동안 아무 응답이 없으면 멈춘 것처럼 보이는 문제를
+    호출부(worker.py)가 중간 진행 메시지로 완화할 수 있게 한다.
 
     반환: (결과 메시지 줄 목록 - 원래 items 순서 그대로, 품절로 후속 확인이
     필요한 항목 목록 [{item_name, qty, alt_offers}])."""
@@ -215,27 +223,34 @@ def process_batch(
     if total == 0:
         return [], []
 
+    groups: dict[tuple, list[tuple[int, dict]]] = {}
+    for idx, item in enumerate(items):
+        account_id = item.get("account_id") or resolved_accounts.get(item["vendor_id"])
+        key = (item["vendor_id"], account_id)
+        groups.setdefault(key, []).append((idx, item))
+
     ordered_lines: list[str | None] = [None] * total
     needs_followup: list[dict] = []
     followup_lock = threading.Lock()
     progress_lock = threading.Lock()
     done_count = 0
 
-    def run_one(idx: int, item: dict) -> None:
+    def run_group(group_items: list[tuple[int, dict]]) -> None:
         nonlocal done_count
-        line, followup = _process_single_item(store_id, item, batch_vendors, resolved_accounts)
-        ordered_lines[idx] = line
-        if followup:
-            with followup_lock:
-                needs_followup.append(followup)
-        if on_progress:
-            with progress_lock:
-                done_count += 1
-                current = done_count
-            on_progress(current, total)
+        for idx, item in group_items:
+            line, followup = _process_single_item(store_id, item, batch_vendors, resolved_accounts)
+            ordered_lines[idx] = line
+            if followup:
+                with followup_lock:
+                    needs_followup.append(followup)
+            if on_progress:
+                with progress_lock:
+                    done_count += 1
+                    current = done_count
+                on_progress(current, total)
 
-    with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL_ITEMS, total)) as pool:
-        futures = [pool.submit(run_one, idx, item) for idx, item in enumerate(items)]
+    with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL_GROUPS, len(groups))) as pool:
+        futures = [pool.submit(run_group, group_items) for group_items in groups.values()]
         for f in futures:
             f.result()
 
