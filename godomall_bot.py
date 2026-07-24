@@ -58,7 +58,17 @@ def login_godomall(page: Page, base_url: str, login_id: str, login_pwd: str) -> 
 
 
 def _parse_price(text: str) -> int | None:
-    digits = re.sub(r"[^\d]", "", text or "")
+    """가격 표시 뒤에 괄호로 개당가/단가가 덧붙는 경우가 있다(예: 현동몰
+    "5,100원 (170원)" - 낱개 단가 170원을 같이 보여줌). 전체 텍스트에서 숫자만
+    무조건 다 이어붙이면 두 가격이 하나로 합쳐져 "5100170원" 같은 말도 안 되는
+    큰 값이 되고, 이게 심하면 DB integer 범위를 넘어 크롤링 저장 자체가 실패한다
+    (실측 확인). "원" 앞의 첫 번째 숫자(=실제 판매가)만 잡는다."""
+    if not text:
+        return None
+    match = re.search(r"([\d,]+)\s*원", text)
+    if not match:
+        return None
+    digits = re.sub(r"[^\d]", "", match.group(1))
     return int(digits) if digits else None
 
 
