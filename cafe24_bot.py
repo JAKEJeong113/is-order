@@ -86,6 +86,40 @@ def _extract_unit_qty(text: str) -> int | None:
     return None
 
 
+def fetch_unit_qty_from_detail_page(base_url: str, login_id: str, login_pwd: str, product_url: str) -> int | None:
+    """목록 페이지 상품명에는 구매 단위가 거의 안 보이는 상품(무마켓 대부분)도,
+    상세페이지에는 "총 상품금액(수량) : 13,800원 (40개)"처럼 실제 구매 단위
+    개수가 그대로 계산돼서 나온다("구매단위 40EA"/"주문단위 100매" 같은
+    라벨은 상품 종류마다 표기가 달라 직접 파싱하기 불안정해서, 항상 같은
+    형식으로 뜨는 이 요약 문구를 쓴다). 카탈로그 전체를 상세페이지까지
+    크롤링하면 상품 수천 개 × 페이지 이동이라 너무 느리고 타임아웃 위험도
+    커서, 실제 발주 리포트에 뜬 상품만 그때그때 이 함수로 보충하고 결과를
+    캐시에 저장해둔다(store_reports.py에서 호출)."""
+    with browser_limit.browser_semaphore, sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"],
+        )
+        try:
+            context = browser.new_context()
+            page = context.new_page()
+            login_cafe24(page, base_url, login_id, login_pwd)
+            page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(500)
+            body_text = page.inner_text("body")
+        except Exception as e:
+            print(f"[CAFE24] {product_url} 상세페이지 조회 실패:", e)
+            return None
+        finally:
+            browser.close()
+
+    match = re.search(r"총\s*상품금액\(수량\)\s*:\s*[\d,]+\s*원\s*\((\d+)\s*개\)", body_text)
+    if not match:
+        return None
+    qty = int(match.group(1))
+    return qty if qty > 0 else None
+
+
 def _extract_list_page_items(page: Page, base_url: str) -> list[dict]:
     """상품이 페이지당 최대 80개까지 있어서, 아이템마다 Playwright 왕복 호출을
     여러 번 하면(수십 페이지 누적 시) 크롤링이 비정상적으로 느려진다. 페이지당

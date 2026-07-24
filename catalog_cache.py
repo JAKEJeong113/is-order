@@ -100,6 +100,21 @@ def record_refresh_error(vendor_id: str, error: str) -> None:
     conn.close()
 
 
+def update_unit_qty(vendor_id: str, product_url: str, unit_qty: int) -> None:
+    """목록 크롤링으로는 1타 개수를 못 읽어온 상품을, 실제 발주 리포트 생성
+    시점에 상세페이지에서 보충 조회한 뒤(godomall_bot/cafe24_bot의
+    fetch_unit_qty_from_detail_page) 여기 캐시에 저장해둔다 - 다음부터는
+    같은 상품을 또 상세페이지까지 안 가도 되게."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE product_cache SET unit_qty = ? WHERE vendor_id = ? AND product_url = ?",
+        (unit_qty, vendor_id, product_url),
+    )
+    conn.commit()
+    conn.close()
+
+
 def get_refresh_status() -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()

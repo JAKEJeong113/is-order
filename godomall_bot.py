@@ -105,6 +105,48 @@ def _extract_unit_qty(text: str) -> int | None:
     return None
 
 
+def fetch_unit_qty_from_detail_page(base_url: str, login_id: str, login_pwd: str, product_url: str) -> int | None:
+    """목록 페이지 상품명에는 1타 개수가 안 보이는 상품(현동몰이 대부분)도,
+    상세페이지에는 "낱개가"와 "판매가"가 둘 다 있고 실측으로 확인해보니
+    판매가 ÷ 낱개가 = 실제 1타(구매 단위) 개수와 정확히 일치한다(예:
+    13,800원 ÷ 1,150원 = 12, 상세페이지의 "(46g*12입)*12타" 표기 중 "12입"과
+    일치 - "규격" 텍스트 형식이 상품마다 제각각이라 직접 파싱하는 것보다
+    이 비율이 훨씬 안정적이다). 카탈로그 전체를 상세페이지까지 크롤링하면
+    상품 수천 개 × 페이지 이동이라 너무 느리고 타임아웃 위험도 커서, 실제
+    발주 리포트에 뜬 상품만 그때그때 이 함수로 보충하고 결과를 캐시에
+    저장해둔다(store_reports.py에서 호출)."""
+    with browser_limit.browser_semaphore, sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"],
+        )
+        try:
+            context = browser.new_context()
+            page = context.new_page()
+            login_godomall(page, base_url, login_id, login_pwd)
+            page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(500)
+            body_text = page.inner_text("body")
+        except Exception as e:
+            print(f"[GODOMALL] {product_url} 상세페이지 조회 실패:", e)
+            return None
+        finally:
+            browser.close()
+
+    unit_price_match = re.search(r"낱개가\s*\n?\s*([\d,]+)\s*원", body_text)
+    sale_price_match = re.search(r"판매가\s*\n?\s*([\d,]+)\s*원", body_text)
+    if not unit_price_match or not sale_price_match:
+        return None
+
+    unit_price = int(re.sub(r"[^\d]", "", unit_price_match.group(1)))
+    sale_price = int(re.sub(r"[^\d]", "", sale_price_match.group(1)))
+    if unit_price <= 0:
+        return None
+
+    qty = round(sale_price / unit_price)
+    return qty if qty > 0 else None
+
+
 def search_candidates(page: Page, base_url: str, keyword: str, top_n: int = 3) -> list[dict]:
     """로그인된 상태에서 keyword로 검색해 검색어 일치도 상위 top_n개 후보를 반환."""
     url = f"{base_url}/goods/goods_search.php?keyword={quote(keyword)}"

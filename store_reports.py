@@ -9,7 +9,10 @@ import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import cafe24_bot
+import catalog_cache
 import db_conn
+import godomall_bot
 import mapping
 import popularity
 import price_compare
@@ -177,6 +180,36 @@ def _pick_best_offer(offers: list[dict], preferred_vendor: str | None) -> dict |
             if o["vendor_id"] == preferred_vendor:
                 return o
     return pool[0]  # price_compare.compare가 이미 개당가 오름차순으로 정렬해둠
+
+
+# 목록 크롤링으로는 1타 개수를 거의 못 읽어오는 도매처(현동몰/무마켓)만 지원한다.
+# 지원하는 도매처는 상세페이지에서 실제 발주 리포트에 뜬 상품만 그때그때 보충
+# 조회하고 결과를 캐시에 저장해둔다(catalog_cache.update_unit_qty) - 카탈로그
+# 전체를 상세페이지까지 크롤링하면 상품 수천 개 × 페이지 이동이라 너무 느리고
+# 타임아웃 위험도 커서, 실제로 필요한 만큼만 그때그때 채운다.
+_UNIT_QTY_DETAIL_FETCHERS = {
+    "hdinter": godomall_bot.fetch_unit_qty_from_detail_page,
+    "moomarket": cafe24_bot.fetch_unit_qty_from_detail_page,
+}
+
+
+def _fetch_missing_unit_qty(vendor_id: str, product_url: str) -> int | None:
+    fetcher = _UNIT_QTY_DETAIL_FETCHERS.get(vendor_id)
+    if not fetcher or not product_url:
+        return None
+    creds = vendors.get_vendor_credentials(vendor_id)
+    if not creds:
+        return None
+    login_id, login_pwd = creds
+    base_url = vendors.VENDORS[vendor_id]["base_url"]
+    try:
+        unit_qty = fetcher(base_url, login_id, login_pwd, product_url)
+    except Exception as e:
+        print(f"[STORE_REPORTS] {vendor_id} 상세페이지 1타 보충 조회 실패 ({product_url}):", e)
+        return None
+    if unit_qty and unit_qty > 0:
+        catalog_cache.update_unit_qty(vendor_id, product_url, unit_qty)
+    return unit_qty
 
 
 # --- 스케줄 CRUD ---
@@ -459,9 +492,15 @@ def _classify_report_items(
 
             pack_qty = int(offer.get("unit_qty") or 0)
             if pack_qty <= 0:
-                # 1타 개수를 크롤러가 아직 못 읽어온 상품 - 여기서 1개입으로
+                # 목록 크롤링으로는 1타 개수를 못 읽어온 상품 - 여기서 1개입으로
                 # 잘못 가정하면 "판매수량 = 타수"로 엉뚱한 발주 추천이 나간다.
-                # 케이스 수를 추정하지 않고 참고용으로만 보여주고, 판매량은
+                # 지원하는 도매처(현동몰/무마켓)는 실제로 이 리포트에 뜬 상품에
+                # 한해서만 상세페이지를 한 번 더 조회해 채워본다.
+                pack_qty = _fetch_missing_unit_qty(offer["vendor_id"], offer.get("product_url")) or 0
+
+            if pack_qty <= 0:
+                # 그래도 못 채웠으면(지원 안 하는 도매처거나 상세페이지 조회도
+                # 실패) 케이스 수를 추정하지 않고 참고용으로만 보여주고, 판매량은
                 # 이월에 그대로 남겨서 나중에 1타 개수가 확인되면 정상 반영되게 한다.
                 if write_carryover_on_reject:
                     set_carryover(key, item_key, "wholesale", pending_qty)
