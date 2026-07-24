@@ -796,6 +796,7 @@ def _handle_account_delete_reply(chat_id: str, state: dict, text: str) -> None:
     account = accounts[idx]
     telegram_store.set_disambig_state(chat_id, None)
     vendors.delete_store_vendor_account(state["store_id"], state["vendor_id"], account["id"])
+    vendors.sync_vendor_account_deletion_to_linked_identity(state["store_id"], state["vendor_id"], account["nickname"])
 
     vendor_name = vendors.VENDORS[state["vendor_id"]]["name"]
     note = ""
@@ -886,6 +887,9 @@ def _handle_credential_flow(chat_id: str, store_id: str, reg: dict, text: str) -
         telegram_store.clear_credential_registration(chat_id)
         accounts = vendors.list_store_vendor_accounts(store_id, vendor_id)
         account_nickname = next((a["nickname"] for a in accounts if a["id"] == account_id), "기본")
+        vendors.sync_vendor_account_to_linked_identity(
+            store_id, vendor_id, account_nickname, reg["cred_temp_id"], text.strip(),
+        )
         send_message(
             chat_id,
             f"{vendor_name} 계정({account_nickname})이 등록되었습니다.\n"

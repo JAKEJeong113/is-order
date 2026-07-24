@@ -546,6 +546,61 @@ def sync_vendor_prefs_to_linked_identity(store_id: str) -> None:
         _save_store_vendor_prefs(f"web:{email}", disabled, reg["preferred_vendor"])
 
 
+def _resolve_linked_account_store_id(store_id: str) -> str | None:
+    """계정(store_vendor_credentials) 동기화 전용 연결 해석 - 이 표는 텔레그램
+    쪽에서 chat_id가 아니라 store_name을 그대로 store_id로 쓰기 때문에(계정등록/
+    계정추가 명령 흐름 참고), sync_vendor_prefs_to_linked_identity처럼 chat_id를
+    거칠 필요 없이 store_name<->이메일을 바로 오간다."""
+    import web_auth
+
+    if store_id.startswith("web:"):
+        email = store_id[len("web:"):]
+        return web_auth.get_linked_store_name_by_email(email)
+    email = web_auth.get_email_by_linked_store_name(store_id)
+    return f"web:{email}" if email else None
+
+
+def sync_vendor_account_to_linked_identity(
+    store_id: str, vendor_id: str, nickname: str, login_id: str, login_pwd: str,
+) -> None:
+    """도매처 계정(아이디/비밀번호) 등록도 활성화 설정과 똑같이 웹과 텔레그램이
+    서로 다른 store_id로 저장돼 동기화가 안 되고 있었다(실사용 확인 - 같은
+    도매처 계정을 웹/텔레그램 양쪽에 따로 등록해서 두 벌이 존재). 어느 채널에서
+    등록/수정하든 연결된 반대쪽에도 같은 별명으로 즉시 반영한다 - 별명이 이미
+    있으면 add_store_vendor_account가 알아서 갱신하므로 upsert로 동작한다."""
+    linked_store_id = _resolve_linked_account_store_id(store_id)
+    if not linked_store_id:
+        return
+    add_store_vendor_account(linked_store_id, vendor_id, nickname, login_id, login_pwd)
+
+
+def sync_vendor_account_deletion_to_linked_identity(store_id: str, vendor_id: str, nickname: str) -> None:
+    """계정 삭제도 연결된 반대쪽에서 같은 별명의 계정을 찾아 함께 삭제한다."""
+    linked_store_id = _resolve_linked_account_store_id(store_id)
+    if not linked_store_id:
+        return
+    match = next(
+        (a for a in list_store_vendor_accounts(linked_store_id, vendor_id) if a["nickname"] == nickname),
+        None,
+    )
+    if match:
+        delete_store_vendor_account(linked_store_id, vendor_id, match["id"])
+
+
+def sync_vendor_account_default_to_linked_identity(store_id: str, vendor_id: str, nickname: str) -> None:
+    """웹의 "기본으로 설정" 버튼으로 바뀐 기본 계정을 연결된 반대쪽에도 반영한다
+    (텔레그램에는 기본 계정을 직접 바꾸는 명령이 없어 이 방향만 있으면 된다)."""
+    linked_store_id = _resolve_linked_account_store_id(store_id)
+    if not linked_store_id:
+        return
+    match = next(
+        (a for a in list_store_vendor_accounts(linked_store_id, vendor_id) if a["nickname"] == nickname),
+        None,
+    )
+    if match:
+        set_default_store_vendor_account(linked_store_id, vendor_id, match["id"])
+
+
 # --- 담기 속도 개선용: 지점별 로그인 세션(쿠키) 캐시. 매번 새로 로그인하는 대신
 # 저장된 쿠키로 브라우저 컨텍스트를 만들어서 로그인 과정을 건너뛴다. ---
 

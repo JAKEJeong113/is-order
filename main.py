@@ -1520,20 +1520,37 @@ def api_my_vendors_accounts_add(vendor_id: str, req: MyVendorAccountAddRequest, 
         account_id = vendors.add_store_vendor_account(store_id, vendor_id, req.nickname, req.login_id, req.login_pwd)
     except ValueError as e:
         return {"ok": False, "message": str(e)}
+    saved_nickname = next(
+        (a["nickname"] for a in vendors.list_store_vendor_accounts(store_id, vendor_id) if a["id"] == account_id),
+        req.nickname,
+    )
+    vendors.sync_vendor_account_to_linked_identity(store_id, vendor_id, saved_nickname, req.login_id, req.login_pwd)
     return {"ok": True, "id": account_id}
 
 
 @app.delete("/api/my-vendors/{vendor_id}/accounts/{account_id}")
 def api_my_vendors_accounts_delete(vendor_id: str, account_id: int, user: dict = Depends(require_web_user)):
     store_id = f"web:{user['email']}"
+    nickname = next(
+        (a["nickname"] for a in vendors.list_store_vendor_accounts(store_id, vendor_id) if a["id"] == account_id),
+        None,
+    )
     ok = vendors.delete_store_vendor_account(store_id, vendor_id, account_id)
+    if ok and nickname:
+        vendors.sync_vendor_account_deletion_to_linked_identity(store_id, vendor_id, nickname)
     return {"ok": ok}
 
 
 @app.post("/api/my-vendors/{vendor_id}/accounts/{account_id}/default")
 def api_my_vendors_accounts_set_default(vendor_id: str, account_id: int, user: dict = Depends(require_web_user)):
     store_id = f"web:{user['email']}"
+    nickname = next(
+        (a["nickname"] for a in vendors.list_store_vendor_accounts(store_id, vendor_id) if a["id"] == account_id),
+        None,
+    )
     ok = vendors.set_default_store_vendor_account(store_id, vendor_id, account_id)
+    if ok and nickname:
+        vendors.sync_vendor_account_default_to_linked_identity(store_id, vendor_id, nickname)
     return {"ok": ok}
 
 
