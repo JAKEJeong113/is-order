@@ -41,6 +41,10 @@
     .badge.none { background: #f3f4f6; color: var(--muted); }
     .total-cell { font-weight: 800; color: var(--mint-text); }
     .empty-text { color: var(--muted); font-size: 13px; padding: 30px 4px; text-align: center; }
+    th.sortable { cursor: pointer; user-select: none; }
+    th.sortable:hover { color: var(--mint-text); }
+    th .sort-arrow { display: inline-block; width: 10px; opacity: 0.35; }
+    th.sort-active .sort-arrow { opacity: 1; color: var(--mint-text); }
   </style>
 </head>
 <body>
@@ -60,20 +64,20 @@
   <div class="table-wrap">
     <table>
       <thead>
-        <tr>
-          <th>지점</th>
-          <th>텔레그램</th>
-          <th class="num">웹 로그인</th>
-          <th class="num">발주(웹)</th>
-          <th class="num">발주(텔레그램)</th>
-          <th class="num">가격비교</th>
-          <th class="num">바코드검색</th>
-          <th class="num">음료추천</th>
-          <th class="num">과자추천</th>
-          <th class="num">구매링크(텔레그램)</th>
-          <th class="num">판매데이터</th>
-          <th>마지막 발주표</th>
-          <th class="num">합계</th>
+        <tr id="headRow">
+          <th class="sortable" data-key="display_name" data-type="string">지점<span class="sort-arrow"></span></th>
+          <th class="sortable" data-key="telegram_status" data-type="telegram">텔레그램<span class="sort-arrow"></span></th>
+          <th class="num sortable" data-key="web_login" data-type="number">웹 로그인<span class="sort-arrow"></span></th>
+          <th class="num sortable" data-key="cart_web" data-type="number">발주(웹)<span class="sort-arrow"></span></th>
+          <th class="num sortable" data-key="cart_telegram" data-type="number">발주(텔레그램)<span class="sort-arrow"></span></th>
+          <th class="num sortable" data-key="compare_search" data-type="number">가격비교<span class="sort-arrow"></span></th>
+          <th class="num sortable" data-key="barcode_search" data-type="number">바코드검색<span class="sort-arrow"></span></th>
+          <th class="num sortable" data-key="beverage_view" data-type="number">음료추천<span class="sort-arrow"></span></th>
+          <th class="num sortable" data-key="snack_view" data-type="number">과자추천<span class="sort-arrow"></span></th>
+          <th class="num sortable" data-key="purchase_link" data-type="number">구매링크(텔레그램)<span class="sort-arrow"></span></th>
+          <th class="num sortable" data-key="sales_events" data-type="number">판매데이터<span class="sort-arrow"></span></th>
+          <th class="sortable" data-key="last_manual_report_at" data-type="string">마지막 발주표<span class="sort-arrow"></span></th>
+          <th class="num sortable" data-key="total" data-type="number">합계<span class="sort-arrow"></span></th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -93,15 +97,15 @@
     }
 
     let currentPeriod = "all";
+    let currentRows = [];
+    let sortKey = "total";
+    let sortDir = "desc";
+    // 텔레그램 연동 상태는 문자열 그대로 정렬하면 의미가 없어서(가나다순),
+    // 승인됨 > 승인대기 > 미연동 순서로 순위를 매겨서 정렬한다.
+    const TELEGRAM_RANK = { "승인됨": 2, "승인대기": 1, "미연동": 0 };
 
-    async function load() {
+    function renderRows(rows) {
       const tbody = document.getElementById("tbody");
-      tbody.innerHTML = '<tr><td colspan="13" class="empty-text">불러오는 중...</td></tr>';
-
-      const res = await fetch(`/api/admin/usage-stats?period=${currentPeriod}`);
-      const data = await res.json();
-      const rows = data.rows || [];
-
       if (rows.length === 0) {
         tbody.innerHTML = '<tr><td colspan="13" class="empty-text">표시할 데이터가 없습니다.</td></tr>';
         return;
@@ -130,12 +134,70 @@
       `).join("");
     }
 
+    function sortValue(row, key, type) {
+      if (type === "telegram") return TELEGRAM_RANK[row[key]] ?? -1;
+      const v = row[key];
+      if (type === "number") return v ?? 0;
+      // 문자열 정렬은 null/빈값을 항상 맨 뒤로 보낸다(오름차순/내림차순 상관없이).
+      if (v === null || v === undefined || v === "") return null;
+      return v;
+    }
+
+    function sortAndRender() {
+      const th = document.querySelector(`th[data-key="${sortKey}"]`);
+      const type = th ? th.dataset.type : "number";
+      const dirMul = sortDir === "asc" ? 1 : -1;
+
+      const sorted = [...currentRows].sort((a, b) => {
+        const va = sortValue(a, sortKey, type);
+        const vb = sortValue(b, sortKey, type);
+        if (va === null && vb === null) return 0;
+        if (va === null) return 1;
+        if (vb === null) return -1;
+        if (va < vb) return -1 * dirMul;
+        if (va > vb) return 1 * dirMul;
+        return 0;
+      });
+
+      document.querySelectorAll("#headRow th").forEach((h) => {
+        h.classList.toggle("sort-active", h.dataset.key === sortKey);
+        const arrow = h.querySelector(".sort-arrow");
+        if (!arrow) return;
+        arrow.textContent = h.dataset.key === sortKey ? (sortDir === "asc" ? "▲" : "▼") : "";
+      });
+
+      renderRows(sorted);
+    }
+
+    async function load() {
+      const tbody = document.getElementById("tbody");
+      tbody.innerHTML = '<tr><td colspan="13" class="empty-text">불러오는 중...</td></tr>';
+
+      const res = await fetch(`/api/admin/usage-stats?period=${currentPeriod}`);
+      const data = await res.json();
+      currentRows = data.rows || [];
+      sortAndRender();
+    }
+
     document.getElementById("periodRow").addEventListener("click", (e) => {
       const btn = e.target.closest(".period-btn");
       if (!btn) return;
       document.querySelectorAll(".period-btn").forEach((b) => b.classList.toggle("active", b === btn));
       currentPeriod = btn.dataset.period;
       load();
+    });
+
+    document.getElementById("headRow").addEventListener("click", (e) => {
+      const th = e.target.closest("th.sortable");
+      if (!th) return;
+      const key = th.dataset.key;
+      if (sortKey === key) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortKey = key;
+        sortDir = th.dataset.type === "number" ? "desc" : "asc";
+      }
+      sortAndRender();
     });
 
     load();
