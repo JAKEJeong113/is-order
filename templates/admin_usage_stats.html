@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>가맹점 사용 통계</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+    .period-row { display: flex; gap: 8px; margin-bottom: 16px; }
+    .period-btn {
+      padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      border: 1px solid var(--line); background: white; color: var(--muted); cursor: pointer;
+    }
+    .period-btn.active { background: var(--mint); color: white; border-color: var(--mint); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 980px; }
+    th {
+      text-align: left; padding: 10px 12px; background: #f3f6f5; color: var(--muted);
+      font-weight: 700; font-size: 11px; white-space: nowrap; position: sticky; top: 0;
+      border-bottom: 1px solid var(--line);
+    }
+    td { padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    tr:last-child td { border-bottom: none; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.store-name { font-weight: 700; white-space: normal; }
+    .sub { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
+    .badge { font-size: 10px; padding: 2px 7px; border-radius: 999px; font-weight: 700; }
+    .badge.linked { background: var(--mint-soft); color: var(--mint-text); }
+    .badge.pending { background: #fef3c7; color: #92400e; }
+    .badge.none { background: #f3f4f6; color: var(--muted); }
+    .total-cell { font-weight: 800; color: var(--mint-text); }
+    .empty-text { color: var(--muted); font-size: 13px; padding: 30px 4px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>가맹점 사용 통계</h1>
+  <div class="hint-text">
+    지점별로 어떤 기능을 얼마나 썼는지 보여줍니다. 로그인·가격비교·바코드검색·음료/과자추천 조회는
+    직접 기록한 값이고, 발주 실행은 실제 담기 작업 큐(cart_jobs), 판매 데이터 처리 건수는 리포트
+    분류 로그(order_events) 기준입니다. 마지막 발주표 생성일은 가장 최근 1건만 남습니다.
+  </div>
+
+  <div class="period-row" id="periodRow">
+    <button class="period-btn active" data-period="all">전체 기간</button>
+    <button class="period-btn" data-period="30d">최근 30일</button>
+    <button class="period-btn" data-period="7d">최근 7일</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>지점</th>
+          <th>텔레그램</th>
+          <th class="num">웹 로그인</th>
+          <th class="num">발주(웹)</th>
+          <th class="num">발주(텔레그램)</th>
+          <th class="num">가격비교</th>
+          <th class="num">바코드검색</th>
+          <th class="num">음료추천</th>
+          <th class="num">과자추천</th>
+          <th class="num">판매데이터</th>
+          <th>마지막 발주표</th>
+          <th class="num">합계</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <script>
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function telegramBadge(status) {
+      if (status === "승인됨") return '<span class="badge linked">승인됨</span>';
+      if (status === "승인대기") return '<span class="badge pending">승인대기</span>';
+      return '<span class="badge none">미연동</span>';
+    }
+
+    let currentPeriod = "all";
+
+    async function load() {
+      const tbody = document.getElementById("tbody");
+      tbody.innerHTML = '<tr><td colspan="12" class="empty-text">불러오는 중...</td></tr>';
+
+      const res = await fetch(`/api/admin/usage-stats?period=${currentPeriod}`);
+      const data = await res.json();
+      const rows = data.rows || [];
+
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="12" class="empty-text">표시할 데이터가 없습니다.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = rows.map((r) => `
+        <tr>
+          <td class="store-name">
+            ${escapeHtml(r.display_name)}
+            ${r.email ? `<span class="sub">${escapeHtml(r.email)}</span>` : '<span class="sub">웹 계정 없음(텔레그램 전용)</span>'}
+            ${r.linked_store_name ? `<span class="sub">${escapeHtml(r.linked_store_name)}</span>` : ""}
+          </td>
+          <td>${telegramBadge(r.telegram_status)}</td>
+          <td class="num">${r.web_login.toLocaleString()}</td>
+          <td class="num">${r.cart_web.toLocaleString()}</td>
+          <td class="num">${r.cart_telegram.toLocaleString()}</td>
+          <td class="num">${r.compare_search.toLocaleString()}</td>
+          <td class="num">${r.barcode_search.toLocaleString()}</td>
+          <td class="num">${r.beverage_view.toLocaleString()}</td>
+          <td class="num">${r.snack_view.toLocaleString()}</td>
+          <td class="num">${r.sales_events.toLocaleString()}</td>
+          <td>${r.last_manual_report_at ? escapeHtml(r.last_manual_report_at) : '<span class="sub">없음</span>'}</td>
+          <td class="num total-cell">${r.total.toLocaleString()}</td>
+        </tr>
+      `).join("");
+    }
+
+    document.getElementById("periodRow").addEventListener("click", (e) => {
+      const btn = e.target.closest(".period-btn");
+      if (!btn) return;
+      document.querySelectorAll(".period-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      currentPeriod = btn.dataset.period;
+      load();
+    });
+
+    load();
+  </script>
+</body>
+</html>

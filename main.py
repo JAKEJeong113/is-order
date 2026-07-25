@@ -64,6 +64,7 @@ import product_ranking
 import store_reports
 import telegram_bot
 import telegram_store
+import usage_stats
 import vendors
 import price_compare
 import web_auth
@@ -138,6 +139,7 @@ web_cart.init_web_cart_table()
 cart_jobs.init_cart_jobs_table()
 store_reports.init_store_report_tables()
 store_reports.init_manual_report_table()
+usage_stats.init_usage_events_table()
 
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 # CronTrigger를 직접 만들어서 trigger=로 넘기면 scheduler의 timezone을 자동으로
@@ -680,6 +682,9 @@ def api_login(req: LoginRequest, response: Response):
         web_auth.SESSION_COOKIE_NAME, token,
         max_age=web_auth.SESSION_TTL_DAYS * 86400, httponly=True, samesite="lax",
     )
+    logged_in_user = web_auth.get_user_by_id(user_id)
+    if logged_in_user:
+        usage_stats.log_event(f"web:{logged_in_user['email']}", "web_login")
     return {"ok": True}
 
 
@@ -718,6 +723,7 @@ def api_price_compare(req: PriceCompareRequest, user: dict = Depends(require_web
         return {"keyword": "", "vendors": [], "groups": []}
 
     store_id = f"web:{user['email']}"
+    usage_stats.log_event(store_id, "compare_search")
     result = price_compare.compare(keyword)
     disabled_vendors, _ = vendors.get_store_vendor_prefs(store_id)
     groups = price_compare.filter_groups_for_store(result.get("groups", []), disabled_vendors)
@@ -1210,7 +1216,8 @@ def register_product_routes(pt: product_ranking.ProductType, *, slug: str, page_
         return templates.TemplateResponse(page_template, {"request": request, "active_page": f"{slug}s"})
 
     @app.get(f"/api/{slug}-ranking")
-    def _store_ranking(_: dict = Depends(require_web_user)):
+    def _store_ranking(user: dict = Depends(require_web_user)):
+        usage_stats.log_event(f"web:{user['email']}", f"{slug}_view")
         return {"items": product_ranking.get_rankings(pt)}
 
     @app.get(f"/api/{slug}-price-history/{{item_key}}")
@@ -1853,6 +1860,18 @@ def admin_users_page(request: Request, _: bool = Depends(require_admin)):
     return templates.TemplateResponse("admin_users.html", {"request": request})
 
 
+@app.get("/admin/usage-stats", response_class=HTMLResponse)
+def admin_usage_stats_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("admin_usage_stats.html", {"request": request})
+
+
+@app.get("/api/admin/usage-stats")
+def api_admin_usage_stats(period: str = Query("all"), _: bool = Depends(require_admin)):
+    if period not in ("all", "7d", "30d"):
+        period = "all"
+    return {"rows": usage_stats.get_usage_summary(period)}
+
+
 @app.get("/api/admin/web-users")
 def api_admin_web_users(_: bool = Depends(require_admin)):
     approved_stores = [s["store_name"] for s in telegram_store.list_stores() if s["approved"]]
@@ -2092,6 +2111,7 @@ def api_barcode_search(q: str = Query(..., min_length=1), user: dict = Depends(r
     """텔레그램 "바코드" 명령과 동일한 검색(product_ranking.search_catalog,
     mapping.load_catalog() DB 카탈로그 기반) - 관리자 웹/텔레그램 바코드추가로
     저장한 값도 바로 반영된다."""
+    usage_stats.log_event(f"web:{user['email']}", "barcode_search")
     return {"ok": True, "items": product_ranking.search_catalog(q, limit=10)}
 
 
