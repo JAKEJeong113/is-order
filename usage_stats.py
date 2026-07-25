@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 
 import db_conn
 
-FEATURES = ("compare_search", "barcode_search", "beverage_view", "snack_view", "web_login")
+FEATURES = ("compare_search", "barcode_search", "beverage_view", "snack_view", "web_login", "purchase_link")
 
 
 def get_conn():
@@ -115,6 +115,7 @@ def get_usage_summary(period: str = "all") -> list[dict]:
             "barcode_search": _count("usage_events", "store_id", web_store_id, "feature = 'barcode_search'"),
             "beverage_view": _count("usage_events", "store_id", web_store_id, "feature = 'beverage_view'"),
             "snack_view": _count("usage_events", "store_id", web_store_id, "feature = 'snack_view'"),
+            "purchase_link": _count("usage_events", "store_id", tg_store_id, "feature = 'purchase_link'"),
             "sales_events": _count("order_events", "store_id", web_store_id),
             "last_manual_report_at": _last("store_manual_reports", "store_id", web_store_id),
         }
@@ -134,7 +135,8 @@ def get_usage_summary(period: str = "all") -> list[dict]:
     for r in rows:
         r["total"] = (
             r["web_login"] + r["cart_web"] + r["cart_telegram"] + r["compare_search"]
-            + r["barcode_search"] + r["beverage_view"] + r["snack_view"] + r["sales_events"]
+            + r["barcode_search"] + r["beverage_view"] + r["snack_view"] + r["purchase_link"]
+            + r["sales_events"]
         )
     rows.sort(key=lambda r: -r["total"])
     return rows

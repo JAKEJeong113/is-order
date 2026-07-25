@@ -19,6 +19,7 @@ import price_compare
 import product_ranking
 import store_reports
 import telegram_store
+import usage_stats
 import vendors
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -1155,6 +1156,7 @@ def handle_update(update: dict) -> None:
         if not link_keyword:
             send_message(chat_id, "사용법: 구매링크 (상품명)\n예: 구매링크 스프라이트")
             return
+        usage_stats.log_event(store_name, "purchase_link")
         results = product_ranking.search_products(link_keyword)
         if not results:
             send_message(chat_id, f"'{link_keyword}'에 해당하는 음료/과자 추천 상품을 찾지 못했어요.")

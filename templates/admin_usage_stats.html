@@ -70,6 +70,7 @@
           <th class="num">바코드검색</th>
           <th class="num">음료추천</th>
           <th class="num">과자추천</th>
+          <th class="num">구매링크(텔레그램)</th>
           <th class="num">판매데이터</th>
           <th>마지막 발주표</th>
           <th class="num">합계</th>
@@ -95,14 +96,14 @@
 
     async function load() {
       const tbody = document.getElementById("tbody");
-      tbody.innerHTML = '<tr><td colspan="12" class="empty-text">불러오는 중...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13" class="empty-text">불러오는 중...</td></tr>';
 
       const res = await fetch(`/api/admin/usage-stats?period=${currentPeriod}`);
       const data = await res.json();
       const rows = data.rows || [];
 
       if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="12" class="empty-text">표시할 데이터가 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13" class="empty-text">표시할 데이터가 없습니다.</td></tr>';
         return;
       }
 
@@ -121,6 +122,7 @@
           <td class="num">${r.barcode_search.toLocaleString()}</td>
           <td class="num">${r.beverage_view.toLocaleString()}</td>
           <td class="num">${r.snack_view.toLocaleString()}</td>
+          <td class="num">${r.purchase_link.toLocaleString()}</td>
           <td class="num">${r.sales_events.toLocaleString()}</td>
           <td>${r.last_manual_report_at ? escapeHtml(r.last_manual_report_at) : '<span class="sub">없음</span>'}</td>
           <td class="num total-cell">${r.total.toLocaleString()}</td>
