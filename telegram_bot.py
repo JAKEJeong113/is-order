@@ -387,7 +387,10 @@ def _format_link_list(title: str, items: list[dict]) -> str:
 def _store_prefs(chat_id: str) -> tuple[set, str | None]:
     reg = telegram_store.get_registration(chat_id) or {}
     explicit_disabled = set(reg.get("disabled_vendors") or [])
-    disabled = vendors.effective_disabled_vendors(chat_id, explicit_disabled)
+    # 활성화 여부(disabled_vendors)는 chat_id로 저장되지만, 계정 등록 여부(store_vendor_credentials)는
+    # store_name으로 저장된다(계정등록/계정삭제/계정현황 등 다른 모든 곳에서도 store_name을 store_id로
+    # 씀) - 여기서 chat_id를 잘못 넘기면 계정이 있어도 "등록 안 됨"으로 오판해 전부 비활성화돼버린다.
+    disabled = vendors.effective_disabled_vendors(reg.get("store_name") or chat_id, explicit_disabled)
     return disabled, reg.get("preferred_vendor")
 
 
@@ -986,8 +989,9 @@ def _handle_preferred_vendor_command(chat_id: str, text: str) -> None:
 def _format_vendor_status_lines(chat_id: str) -> list[str]:
     reg = telegram_store.get_registration(chat_id) or {}
     explicit_disabled = set(reg.get("disabled_vendors") or [])
-    registered = vendors.get_registered_vendor_ids(chat_id)
-    effective_disabled = vendors.effective_disabled_vendors(chat_id, explicit_disabled)
+    store_id = reg.get("store_name") or chat_id
+    registered = vendors.get_registered_vendor_ids(store_id)
+    effective_disabled = vendors.effective_disabled_vendors(store_id, explicit_disabled)
 
     lines = []
     for vid in CART_SUPPORTED_VENDORS:
@@ -1044,7 +1048,9 @@ def _handle_vendor_toggle_command(chat_id: str, text: str) -> None:
         # 도매처명 없이 "도매처 활성화"/"비활성화"만 보내면, 계정이 등록된
         # 도매처만 번호로 골라서 켜고 끌 수 있게 한다 - 계정이 없는 도매처는
         # effective_disabled_vendors가 항상 꺼진 상태로 취급해서 골라도 의미가 없다.
-        registered = sorted(vendors.get_registered_vendor_ids(chat_id), key=CART_SUPPORTED_VENDORS.index)
+        reg = telegram_store.get_registration(chat_id) or {}
+        store_id = reg.get("store_name") or chat_id
+        registered = sorted(vendors.get_registered_vendor_ids(store_id), key=CART_SUPPORTED_VENDORS.index)
         if not registered:
             send_message(chat_id, "등록된 도매처 계정이 없습니다. 먼저 '계정추가'로 도매처 계정을 등록해주세요.")
             return
@@ -1068,8 +1074,11 @@ def _handle_vendor_toggle_command(chat_id: str, text: str) -> None:
     telegram_store.set_vendor_enabled_for_store(chat_id, vendor_id, enabled)
     vendors.sync_vendor_prefs_to_linked_identity(chat_id)
     note = ""
-    if enabled and vendor_id not in vendors.get_registered_vendor_ids(chat_id):
-        note = " (계정이 등록되기 전까지는 비활성 상태로 유지됩니다)"
+    if enabled:
+        reg = telegram_store.get_registration(chat_id) or {}
+        store_id = reg.get("store_name") or chat_id
+        if vendor_id not in vendors.get_registered_vendor_ids(store_id):
+            note = " (계정이 등록되기 전까지는 비활성 상태로 유지됩니다)"
     send_message(chat_id, f"{vendors.VENDORS[vendor_id]['name']}를 {action}했습니다.{note}")
 
 
