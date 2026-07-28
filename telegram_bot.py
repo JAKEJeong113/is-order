@@ -4,11 +4,9 @@
 하고, 별도 워커 프로세스(worker.py)가 처리한 뒤 이 모듈의 send_message/
 _ask_next_stockout 등을 다시 호출해 결과를 알려준다(웹 서비스와 워커를 분리해
 동시 처리량을 늘리기 위함)."""
-import json
 import os
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -164,69 +162,6 @@ def send_message(chat_id, text: str) -> bool:
         return resp.ok
     except Exception as e:
         print("[TELEGRAM] 메시지 전송 실패:", e)
-        return False
-
-
-def _download_image(url: str | None) -> bytes | None:
-    """도매처 이미지를 우리가 먼저 내려받는다 - photo 파라미터에 URL을 그대로
-    넘기면(텔레그램이 그 URL을 직접 가져오는 방식) 도매처 사이트가 텔레그램의
-    자체 요청(봇/프리뷰 차단)만 막아 사진이 전부 텍스트로 대체되는 문제가
-    실사용(하리보 테스트)으로 확인됐다 - 같은 URL을 이쪽에서 일반 요청으로는
-    정상적으로 받아온다. 다운로드한 파일(bytes)을 업로드하면 텔레그램이 도매처
-    서버에 직접 접근할 필요가 없어져 차단 여부와 무관하게 항상 전달된다."""
-    if not url:
-        return None
-    try:
-        resp = requests.get(url, timeout=8)
-        resp.raise_for_status()
-        return resp.content
-    except Exception as e:
-        print(f"[TELEGRAM] 상품 이미지 다운로드 실패({url}):", e)
-        return None
-
-
-def send_photo_bytes(chat_id, image_bytes: bytes, caption: str) -> bool:
-    if not BOT_TOKEN:
-        print("[TELEGRAM] TELEGRAM_BOT_TOKEN이 설정되지 않아 사진을 보낼 수 없습니다.")
-        return False
-    try:
-        resp = requests.post(
-            f"{API_BASE}/sendPhoto",
-            data={"chat_id": chat_id, "caption": caption},
-            files={"photo": ("image.jpg", image_bytes)},
-            timeout=15,
-        )
-        return resp.ok
-    except Exception as e:
-        print("[TELEGRAM] 사진 전송 실패:", e)
-        return False
-
-
-def send_media_group(chat_id, items: list[tuple[bytes, str]]) -> bool:
-    """사진 여러 장(2~10장)을 캡션과 함께 앨범 하나(메시지 하나)로 묶어 보낸다.
-    상품 후보를 8개까지 개별 메시지로 보냈더니 화면을 너무 많이 차지하고(사진이
-    커서 스크롤이 김) 동시 전송 때문에 도착 순서도 뒤섞이는 문제가 있었다
-    (실사용 확인) - 앨범은 items 순서 그대로 한 메시지 안에서 넘겨보는 방식이라
-    두 문제 다 해결된다. 각 사진마다 캡션이 따로 붙어서 번호-사진 매칭도
-    그대로 유지된다."""
-    if not BOT_TOKEN or len(items) < 2:
-        return False
-    media = []
-    files = {}
-    for i, (image_bytes, caption) in enumerate(items):
-        attach_name = f"photo{i}"
-        media.append({"type": "photo", "media": f"attach://{attach_name}", "caption": caption})
-        files[attach_name] = (f"{attach_name}.jpg", image_bytes)
-    try:
-        resp = requests.post(
-            f"{API_BASE}/sendMediaGroup",
-            data={"chat_id": chat_id, "media": json.dumps(media, ensure_ascii=False)},
-            files=files,
-            timeout=30,
-        )
-        return resp.ok
-    except Exception as e:
-        print("[TELEGRAM] 앨범 전송 실패:", e)
         return False
 
 
@@ -526,50 +461,22 @@ def _candidate_caption(index: int, group: dict) -> str:
     return f"{index}. {name_indented} — {group['best_vendor_name']} {price_text}"
 
 
-CANDIDATE_PHOTO_MAX_WORKERS = 4
-
-
-def _send_disambig_prompt(chat_id: str, keyword: str, groups: list[dict]) -> None:
-    """상품 후보가 여러 개일 때 번호를 고르게 하는 프롬프트.
-
-    처음엔 후보마다 사진을 개별 메시지로 보냈는데, 실사용(하리보 테스트)에서
-    두 가지 문제가 확인됐다: ①동시 전송 때문에 도착 순서가 뒤섞임 ②사진 8장이
-    화면을 너무 많이 차지함. 그래서 앨범(sendMediaGroup) 하나로 묶어 보낸다 -
-    items 배열 순서를 그대로 지키고, 메시지 하나 안에서 넘겨보는 방식이라
-    화면도 훨씬 덜 차지한다. 이미지 다운로드 자체는(느린 구간) 병렬로 하되,
-    앨범에 넣는 순서는 번호 순서 그대로 유지한다."""
+def _format_disambig_prompt(keyword: str, groups: list[dict]) -> str:
+    """상품 후보가 여러 개일 때 번호를 고르게 하는 프롬프트. 한때 후보마다
+    사진을 붙여 보내봤지만(개별 메시지 → 앨범 순으로 시도), 실사용에서 도착
+    순서가 뒤섞이거나(개별 메시지) 클라이언트가 앨범을 캡션 없는 사진
+    그리드로만 보여줘(번호 확인이 안 됨) 텍스트로만 보여주는 원래 방식으로
+    되돌렸다. 대신 후보 사이에 빈 줄을 넣어 항목이 다닥다닥 붙어 보이던
+    문제를 개선한다."""
     shown = groups[:8]
-    send_message(chat_id, f"'{keyword}'에 해당하는 상품이 여러 개예요. 번호로 답장해주세요:")
-
-    if shown:
-        with ThreadPoolExecutor(max_workers=min(CANDIDATE_PHOTO_MAX_WORKERS, len(shown))) as pool:
-            downloaded = list(pool.map(lambda g: _download_image(g.get("best_image_url")), shown))
-
-        captions = [_candidate_caption(i, g) for i, g in enumerate(shown, start=1)]
-        media_items = [(img, cap) for img, cap in zip(downloaded, captions) if img]
-        text_only_captions = [cap for img, cap in zip(downloaded, captions) if not img]
-
-        if len(media_items) >= 2:
-            if not send_media_group(chat_id, media_items):
-                # 앨범 전송 자체가 실패하면(네트워크 등) 텍스트로라도 후보를 보여준다
-                for cap in captions:
-                    send_message(chat_id, cap)
-                text_only_captions = []
-        elif len(media_items) == 1:
-            img, cap = media_items[0]
-            if not send_photo_bytes(chat_id, img, cap):
-                send_message(chat_id, cap)
-
-        for cap in text_only_captions:
-            send_message(chat_id, cap)
-
-    outro = []
+    lines = [f"'{keyword}'에 해당하는 상품이 여러 개예요. 번호로 답장해주세요:\n"]
+    lines.append("\n\n".join(_candidate_caption(i, g) for i, g in enumerate(shown, start=1)))
     if len(groups) > len(shown):
-        outro.append(f"(그 외 {len(groups) - len(shown)}개 더 있어요. 상품명을 더 구체적으로 적어주시면 좁혀져요.)")
-    outro.append("여러 개를 담으려면 쉼표로 구분해서 답장해주세요. (예: 2,4)")
-    outro.append("해당하는 상품이 없으면 '스킵'이라고 답장해주세요.")
-    outro.append("전체를 취소하려면 '취소'라고 답장해주세요.")
-    send_message(chat_id, "\n".join(outro))
+        lines.append(f"\n(그 외 {len(groups) - len(shown)}개 더 있어요. 상품명을 더 구체적으로 적어주시면 좁혀져요.)")
+    lines.append("\n여러 개를 담으려면 쉼표로 구분해서 답장해주세요. (예: 2,4)")
+    lines.append("해당하는 상품이 없으면 '스킵'이라고 답장해주세요.")
+    lines.append("전체를 취소하려면 '취소'라고 답장해주세요.")
+    return "\n".join(lines)
 
 
 def _ask_next_disambiguation(chat_id: str, state: dict) -> None:
@@ -598,7 +505,7 @@ def _ask_next_disambiguation(chat_id: str, state: dict) -> None:
 
     state["current"] = keyword
     telegram_store.set_disambig_state(chat_id, state)
-    _send_disambig_prompt(chat_id, keyword, groups)
+    send_message(chat_id, _format_disambig_prompt(keyword, groups))
 
 
 def _handle_disambiguation_reply(chat_id: str, state: dict, text: str) -> None:
