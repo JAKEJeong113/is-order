@@ -7,6 +7,7 @@ _ask_next_stockout 등을 다시 호출해 결과를 알려준다(웹 서비스�
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -166,17 +167,28 @@ def send_message(chat_id, text: str) -> bool:
 
 
 def send_photo(chat_id, photo_url: str, caption: str) -> bool:
-    """상품 후보 사진 한 장을 캡션과 함께 보낸다. 텔레그램이 그 URL을 직접
-    가져오는 방식(HTML 링크만 전달, 이쪽에서 이미지를 내려받지 않음)이라 도매처
-    사이트가 hotlink를 막아두면 실패할 수 있어, 호출부는 실패 시 텍스트로
-    대체해야 한다."""
+    """상품 후보 사진 한 장을 캡션과 함께 보낸다. 처음엔 photo 파라미터에 URL을
+    그대로 넘겼는데(텔레그램이 그 URL을 직접 가져오는 방식), 실사용(하리보
+    테스트)에서 후보 8개가 전부 사진 없이 텍스트로만 온 걸 확인했다 - 같은
+    URL을 우리 쪽에서 일반 요청으로는 정상적으로 받아왔었어서, 도매처 사이트가
+    텔레그램의 자체 요청(봇/프리뷰 차단)만 막고 있는 것으로 추정된다. 그래서
+    이미지를 우리가 먼저 내려받아 실제 파일(bytes)로 업로드하는 방식으로
+    바꾼다 - 텔레그램이 도매처 서버에 직접 접근할 필요가 없어져 그쪽의 차단
+    여부와 무관하게 항상 전달된다."""
     if not BOT_TOKEN:
         print("[TELEGRAM] TELEGRAM_BOT_TOKEN이 설정되지 않아 사진을 보낼 수 없습니다.")
         return False
     try:
+        image_resp = requests.get(photo_url, timeout=8)
+        image_resp.raise_for_status()
+    except Exception as e:
+        print(f"[TELEGRAM] 상품 이미지 다운로드 실패({photo_url}):", e)
+        return False
+    try:
         resp = requests.post(
             f"{API_BASE}/sendPhoto",
-            json={"chat_id": chat_id, "photo": photo_url, "caption": caption},
+            data={"chat_id": chat_id, "caption": caption},
+            files={"photo": ("image.jpg", image_resp.content)},
             timeout=15,
         )
         return resp.ok
@@ -489,15 +501,27 @@ def _send_candidate_line(chat_id: str, index: int, group: dict) -> None:
     send_message(chat_id, caption)
 
 
+CANDIDATE_PHOTO_MAX_WORKERS = 4
+
+
 def _send_disambig_prompt(chat_id: str, keyword: str, groups: list[dict]) -> None:
     """상품 후보가 여러 개일 때 번호를 고르게 하는 프롬프트. 사진과 번호가
     1:1로 붙어있어야 헷갈리지 않으므로, 앨범(sendMediaGroup) 대신 후보마다
-    별도 메시지로 사진+캡션을 보내고 안내 문구는 마지막에 한 번에 보낸다."""
+    별도 메시지로 사진+캡션을 보내고 안내 문구는 마지막에 한 번에 보낸다.
+
+    sendPhoto는 텔레그램이 그 URL의 이미지를 실제로 내려받은 뒤에야 응답하는
+    방식이라 한 장에 1~수 초씩 걸릴 수 있다 - 8개를 순서대로 보내면 체감
+    대기시간이 수십 초까지 늘어지는 게 실사용(하리보 테스트)으로 확인돼서,
+    동시에 몇 개씩 보내 전체 대기시간을 줄인다. 각 캡션에 번호가 이미 박혀
+    있어 도착 순서가 뒤섞여도 사용자가 헷갈리지 않는다."""
     shown = groups[:8]
     send_message(chat_id, f"'{keyword}'에 해당하는 상품이 여러 개예요. 번호로 답장해주세요:")
 
-    for i, g in enumerate(shown, start=1):
-        _send_candidate_line(chat_id, i, g)
+    if shown:
+        with ThreadPoolExecutor(max_workers=min(CANDIDATE_PHOTO_MAX_WORKERS, len(shown))) as pool:
+            futures = [pool.submit(_send_candidate_line, chat_id, i, g) for i, g in enumerate(shown, start=1)]
+            for f in futures:
+                f.result()
 
     outro = []
     if len(groups) > len(shown):
