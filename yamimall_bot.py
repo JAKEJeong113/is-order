@@ -213,8 +213,8 @@ def find_top_yamimall_products(page, keyword: str, top_n: int = 3, max_pages: in
             if score <= 0:
                 continue
 
+            container = link.locator("xpath=ancestor::li[1]")
             try:
-                container = link.locator("xpath=ancestor::li[1]")
                 price_input = container.locator("input[name='ct_price']")
                 price = None
                 if price_input.count() > 0:
@@ -224,11 +224,20 @@ def find_top_yamimall_products(page, keyword: str, top_n: int = 3, max_pages: in
                 price = None
                 href = None
 
+            image_url = None
+            try:
+                img = container.locator("img").first
+                if img.count() > 0:
+                    image_url = img.get_attribute("src")
+            except Exception:
+                pass
+
             scored.append({
                 "name": text,
                 "price": price,
                 "unit_qty": unit_qty,
                 "product_url": href,
+                "image_url": image_url,
                 "score": score,
             })
 
@@ -276,8 +285,8 @@ def _extract_list_page_items(page) -> list[dict]:
         if not text or "SOLD OUT" in text.upper() or "품절" in text:
             continue
 
+        container = link.locator("xpath=ancestor::li[1]")
         try:
-            container = link.locator("xpath=ancestor::li[1]")
             price_input = container.locator("input[name='ct_price']")
             price = None
             if price_input.count() > 0:
@@ -288,6 +297,14 @@ def _extract_list_page_items(page) -> list[dict]:
             price = None
             href = None
             container_text = text
+
+        image_url = None
+        try:
+            img = container.locator("img").first
+            if img.count() > 0:
+                image_url = img.get_attribute("src")
+        except Exception:
+            pass
 
         # 같은 플랫폼이라도 사이트마다 "1박스(75g*12입)" 같은 1타 개수 표기가
         # 상품명 링크 안이 아니라 상품 카드 내 별도 줄(가격 등과 같은 위치)에
@@ -301,6 +318,7 @@ def _extract_list_page_items(page) -> list[dict]:
             "unit_qty": unit_qty,
             "product_url": href,
             "goods_no": None,
+            "image_url": image_url,
             "_key": href or text,
         })
 

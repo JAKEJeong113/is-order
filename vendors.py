@@ -49,6 +49,23 @@ VENDORS = {
 # 양쪽에서 공유해서 쓴다(둘 다 이 목록 밖 도매처는 자동 담기 후보로 보지 않음).
 CART_SUPPORTED_VENDORS = ("yamimall", "ccdome", "3bong", "hdinter", "moomarket", "douyou")
 
+# 플랫폼별로 실제 장바구니 페이지 경로가 다르다 - 고도몰 계열(ccdome/3bong/
+# hdinter)은 "/order/cart.php", 카페24(moomarket)는 "/order/basket.html",
+# 자체 제작 플랫폼(yamimall/douyou)은 ":443/shop/cart.php" (yamimall_bot.py의
+# _cart_has_item이 실제 확인에 쓰는 것과 동일한 경로). 담기 완료 후 사용자가
+# 바로 접속해서 확인할 수 있는 링크를 만드는 데 쓴다.
+_CAFE24_VENDORS = ("moomarket",)
+_CUSTOM_PLATFORM_VENDORS = ("yamimall", "douyou")
+
+
+def vendor_cart_url(vendor_id: str) -> str:
+    base_url = VENDORS[vendor_id]["base_url"]
+    if vendor_id in _CAFE24_VENDORS:
+        return f"{base_url}/order/basket.html"
+    if vendor_id in _CUSTOM_PLATFORM_VENDORS:
+        return f"{base_url}:443/shop/cart.php"
+    return f"{base_url}/order/cart.php"
+
 
 def _get_fernet() -> Fernet:
     key = os.getenv("VENDOR_CRED_KEY")
@@ -428,19 +445,35 @@ def get_store_vendor_credentials(store_id: str, vendor_id: str, account_id: int 
 STORE_MANAGED_VENDOR_IDS = ("yamimall", "ccdome", "3bong", "hdinter", "moomarket", "douyou")
 
 
-def list_store_vendor_status(store_id: str) -> list[dict]:
+def get_registered_vendor_ids(store_id: str) -> set:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT DISTINCT vendor_id FROM store_vendor_credentials WHERE store_id = ?", (store_id,))
     registered = {r[0] for r in cur.fetchall()}
     conn.close()
+    return registered
 
+
+def effective_disabled_vendors(store_id: str, explicit_disabled: set) -> set:
+    """명시적으로 비활성화한 도매처에, 이 지점이 아직 계정을 등록하지 않은
+    도매처까지 더해 실제로 걸러야 할 집합을 만든다. 계정 미등록 도매처는
+    가격비교 후보로 잡혀도 실제 담기(add_to_cart)가 "계정 미등록"으로 항상
+    실패하므로, 계정을 등록하기 전까지는 활성화 여부를 손댄 적이 없어도
+    기본값이 비활성화여야 한다(등록하는 순간부터는 따로 끄지 않는 한 자동으로
+    활성화됨 - 이 계산이 매번 등록 여부를 다시 확인하기 때문)."""
+    registered = get_registered_vendor_ids(store_id)
+    return explicit_disabled | {vid for vid in STORE_MANAGED_VENDOR_IDS if vid not in registered}
+
+
+def list_store_vendor_status(store_id: str) -> list[dict]:
+    registered = get_registered_vendor_ids(store_id)
     disabled, preferred = get_store_vendor_prefs(store_id)
+    effective_disabled = effective_disabled_vendors(store_id, disabled)
 
     return [
         {
             "vendor_id": vid, "name": meta["name"], "registered": vid in registered,
-            "enabled": vid not in disabled, "is_preferred": vid == preferred,
+            "enabled": vid not in effective_disabled, "is_preferred": vid == preferred,
         }
         for vid, meta in VENDORS.items()
         if vid in STORE_MANAGED_VENDOR_IDS

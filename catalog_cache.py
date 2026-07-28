@@ -30,6 +30,10 @@ def init_catalog_table():
         scraped_at TEXT
     )
     """)
+    # 기존에 이미 만들어진 테이블에는 CREATE TABLE IF NOT EXISTS가 컬럼을 추가해주지
+    # 않으므로 별도로 추가한다 - 텔레그램 후보 목록에 상품 이미지를 같이 보여주기
+    # 위해 도입.
+    cur.execute("ALTER TABLE product_cache ADD COLUMN IF NOT EXISTS image_url TEXT")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_product_cache_vendor ON product_cache (vendor_id)")
 
     cur.execute("""
@@ -53,8 +57,8 @@ def replace_vendor_catalog(vendor_id: str, products: list[dict]) -> None:
     cur.execute("DELETE FROM product_cache WHERE vendor_id = ?", (vendor_id,))
     cur.executemany(
         """
-        INSERT INTO product_cache (vendor_id, name, price, unit_qty, product_url, goods_no, scraped_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO product_cache (vendor_id, name, price, unit_qty, product_url, goods_no, image_url, scraped_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -64,6 +68,7 @@ def replace_vendor_catalog(vendor_id: str, products: list[dict]) -> None:
                 p.get("unit_qty"),
                 p.get("product_url"),
                 p.get("goods_no"),
+                p.get("image_url"),
                 now,
             )
             for p in products
@@ -175,7 +180,7 @@ def search_cached_products(vendor_id: str, keyword: str, limit: int = 30) -> lis
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-        SELECT name, price, unit_qty, product_url, goods_no FROM product_cache
+        SELECT name, price, unit_qty, product_url, goods_no, image_url FROM product_cache
         WHERE vendor_id = ? AND LOWER(regexp_replace(name, '\\s+', '', 'g')) LIKE ? ESCAPE '\\'
         LIMIT ?
     """, (vendor_id, f"%{escaped}%", limit))
@@ -184,12 +189,12 @@ def search_cached_products(vendor_id: str, keyword: str, limit: int = 30) -> lis
     if exact_rows:
         conn.close()
         return _dedupe_by_name([
-            {"name": r[0] or "", "price": r[1], "unit_qty": r[2], "product_url": r[3], "goods_no": r[4]}
+            {"name": r[0] or "", "price": r[1], "unit_qty": r[2], "product_url": r[3], "goods_no": r[4], "image_url": r[5]}
             for r in exact_rows
         ])
 
     cur.execute(
-        "SELECT name, price, unit_qty, product_url, goods_no FROM product_cache WHERE vendor_id = ?",
+        "SELECT name, price, unit_qty, product_url, goods_no, image_url FROM product_cache WHERE vendor_id = ?",
         (vendor_id,),
     )
     rows = cur.fetchall()
@@ -201,7 +206,7 @@ def search_cached_products(vendor_id: str, keyword: str, limit: int = 30) -> lis
         score = product_match.keyword_containment_score(keyword, name)
         if score < MIN_SEARCH_SCORE:
             continue
-        item = {"name": name, "price": r[1], "unit_qty": r[2], "product_url": r[3], "goods_no": r[4]}
+        item = {"name": name, "price": r[1], "unit_qty": r[2], "product_url": r[3], "goods_no": r[4], "image_url": r[5]}
         fuzzy.append((score, item))
 
     fuzzy.sort(key=lambda x: -x[0])

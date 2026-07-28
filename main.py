@@ -726,6 +726,7 @@ def api_price_compare(req: PriceCompareRequest, user: dict = Depends(require_web
     usage_stats.log_event(store_id, "compare_search")
     result = price_compare.compare(keyword)
     disabled_vendors, _ = vendors.get_store_vendor_prefs(store_id)
+    disabled_vendors = vendors.effective_disabled_vendors(store_id, disabled_vendors)
     groups = price_compare.filter_groups_for_store(result.get("groups", []), disabled_vendors)
     return {"keyword": keyword, "vendors": result.get("vendors", []), "groups": groups}
 
@@ -2248,6 +2249,7 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
     # 4) 쿠팡 카탈로그 로드
     catalog = mapping.load_catalog()
     disabled_vendors, preferred_vendor = vendors.get_store_vendor_prefs(store_id)
+    disabled_vendors = vendors.effective_disabled_vendors(store_id, disabled_vendors)
 
     for item in top_items:
         barcode = str(item.get("바코드번호", "") or "").strip().replace(".0", "")

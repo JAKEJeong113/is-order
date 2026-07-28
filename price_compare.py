@@ -81,6 +81,7 @@ def compare(keyword: str) -> dict:
             "representative_name": best["name"],
             "best_price": best.get("price"),
             "best_vendor_name": best["vendor_name"],
+            "best_image_url": best.get("image_url"),
             "vendor_count": len(offers),
             "offers": offers,
         })
@@ -111,6 +112,7 @@ def filter_groups_for_store(groups: list[dict], disabled_vendors: set) -> list[d
             "representative_name": best["name"],
             "best_price": best.get("price"),
             "best_vendor_name": best["vendor_name"],
+            "best_image_url": best.get("image_url"),
             "vendor_count": len(offers),
         })
     return filtered

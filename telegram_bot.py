@@ -79,7 +79,18 @@ KOREAN_TO_VENDOR_ID = {
     "현동몰": "hdinter", "무마켓": "moomarket", "또요몰": "douyou",
 }
 VENDOR_ID_TO_KOREAN = {v: k for k, v in KOREAN_TO_VENDOR_ID.items()}
-VENDOR_MENU_TEXT = "등록할 도매처를 입력해주세요: 야미몰 / 과자생각 / 삼봉몰 / 현동몰 / 무마켓 / 또요몰\n(취소하려면 '취소')"
+VENDOR_MENU_TEXT = "등록할 도매처를 번호로 답장해주세요:\n" + "\n".join(
+    f"{i}. {vendors.VENDORS[vid]['name']}" for i, vid in enumerate(CART_SUPPORTED_VENDORS, start=1)
+) + "\n(취소하려면 '취소')"
+
+
+def _resolve_vendor_choice(text: str, candidates: tuple = CART_SUPPORTED_VENDORS) -> str | None:
+    """도매처 메뉴 답장은 번호(메뉴에 뜬 순서)와 이름(예: "야미몰") 둘 다 받는다."""
+    stripped = text.strip()
+    if stripped.isdigit():
+        idx = int(stripped) - 1
+        return candidates[idx] if 0 <= idx < len(candidates) else None
+    return KOREAN_TO_VENDOR_ID.get(stripped)
 
 HELP_TEXT = """사용 가능한 명령어입니다:
 
@@ -92,8 +103,9 @@ HELP_TEXT = """사용 가능한 명령어입니다:
 [계정등록]
 도매처(야미몰/과자생각/삼봉몰) 아이디·비밀번호를 등록합니다.
 
-[계정추가 (도매처명)]
-한 도매처에 계정을 추가로 등록합니다(다매장 운영 시 등). 예: 계정추가 야미몰
+[계정추가]
+한 도매처에 계정을 추가로 등록합니다(다매장 운영 시 등). '계정추가'만 보내면
+도매처를 번호로 골라달라고 물어봐요(예: 계정추가 야미몰 처럼 바로 붙여도 됨).
 계정마다 별명을 붙일 수 있고, 도매처에 계정이 2개 이상이면 '확인' 후 어떤
 계정으로 담을지 물어봐요.
 
@@ -128,8 +140,10 @@ HELP_TEXT = """사용 가능한 명령어입니다:
 - 주거래처 확인: 현재 설정 확인
 - 주거래처 해제: 설정 해제
 
-[도매처 활성화 (도매처명)] / [도매처 비활성화 (도매처명)]
-가격비교에서 특정 도매처를 켜고 끌 수 있습니다. 예: 도매처 비활성화 삼봉몰
+[도매처 활성화] / [도매처 비활성화]
+가격비교에서 특정 도매처를 켜고 끌 수 있습니다. 도매처명 없이 보내면 계정이
+등록된 도매처를 번호로 골라달라고 물어봐요(예: 도매처 비활성화 삼봉몰 처럼
+바로 붙여도 됨). 계정이 등록되지 않은 도매처는 항상 꺼진 상태로 취급됩니다.
 - 도매처 목록: 현재 켜짐/꺼짐 상태 확인
 
 [도움말]
@@ -148,6 +162,26 @@ def send_message(chat_id, text: str) -> bool:
         return resp.ok
     except Exception as e:
         print("[TELEGRAM] 메시지 전송 실패:", e)
+        return False
+
+
+def send_photo(chat_id, photo_url: str, caption: str) -> bool:
+    """상품 후보 사진 한 장을 캡션과 함께 보낸다. 텔레그램이 그 URL을 직접
+    가져오는 방식(HTML 링크만 전달, 이쪽에서 이미지를 내려받지 않음)이라 도매처
+    사이트가 hotlink를 막아두면 실패할 수 있어, 호출부는 실패 시 텍스트로
+    대체해야 한다."""
+    if not BOT_TOKEN:
+        print("[TELEGRAM] TELEGRAM_BOT_TOKEN이 설정되지 않아 사진을 보낼 수 없습니다.")
+        return False
+    try:
+        resp = requests.post(
+            f"{API_BASE}/sendPhoto",
+            json={"chat_id": chat_id, "photo": photo_url, "caption": caption},
+            timeout=15,
+        )
+        return resp.ok
+    except Exception as e:
+        print("[TELEGRAM] 사진 전송 실패:", e)
         return False
 
 
@@ -352,7 +386,9 @@ def _format_link_list(title: str, items: list[dict]) -> str:
 
 def _store_prefs(chat_id: str) -> tuple[set, str | None]:
     reg = telegram_store.get_registration(chat_id) or {}
-    return set(reg.get("disabled_vendors") or []), reg.get("preferred_vendor")
+    explicit_disabled = set(reg.get("disabled_vendors") or [])
+    disabled = vendors.effective_disabled_vendors(chat_id, explicit_disabled)
+    return disabled, reg.get("preferred_vendor")
 
 
 # 웹 compare 페이지와 공유(price_compare.py가 단일 소스).
@@ -435,22 +471,38 @@ def _format_price_pair(price: int | None, name: str) -> str:
     return f"{price:,}원"
 
 
-def _format_disambig_prompt(keyword: str, groups: list[dict]) -> str:
+def _send_candidate_line(chat_id: str, index: int, group: dict) -> None:
+    """후보 하나를 사진+캡션으로 보낸다. 캐시에 이미지가 없거나(옛날에 크롤링된
+    상품) 도매처 사이트가 hotlink를 막아 전송이 실패하면 기존처럼 텍스트 한
+    줄로 대체한다."""
+    name = group["representative_name"].strip()
+    name_indented = name.replace("\n", "\n     ")
+    price_text = _format_price_pair(group.get("best_price"), name)
+    caption = f"{index}. {name_indented} — {group['best_vendor_name']} {price_text}"
+
+    image_url = group.get("best_image_url")
+    if image_url and send_photo(chat_id, image_url, caption):
+        return
+    send_message(chat_id, caption)
+
+
+def _send_disambig_prompt(chat_id: str, keyword: str, groups: list[dict]) -> None:
+    """상품 후보가 여러 개일 때 번호를 고르게 하는 프롬프트. 사진과 번호가
+    1:1로 붙어있어야 헷갈리지 않으므로, 앨범(sendMediaGroup) 대신 후보마다
+    별도 메시지로 사진+캡션을 보내고 안내 문구는 마지막에 한 번에 보낸다."""
     shown = groups[:8]
-    lines = [f"'{keyword}'에 해당하는 상품이 여러 개예요. 번호로 답장해주세요:\n"]
+    send_message(chat_id, f"'{keyword}'에 해당하는 상품이 여러 개예요. 번호로 답장해주세요:")
+
     for i, g in enumerate(shown, start=1):
-        name = g["representative_name"].strip()
-        # 포장단위 표기 때문에 상품명이 줄바꿈되는 경우, 이어지는 줄을 들여써서
-        # 다음 번호와 헷갈리지 않게 한다.
-        name_indented = name.replace("\n", "\n     ")
-        price_text = _format_price_pair(g.get("best_price"), name)
-        lines.append(f"{i}. {name_indented} — {g['best_vendor_name']} {price_text}")
+        _send_candidate_line(chat_id, i, g)
+
+    outro = []
     if len(groups) > len(shown):
-        lines.append(f"\n(그 외 {len(groups) - len(shown)}개 더 있어요. 상품명을 더 구체적으로 적어주시면 좁혀져요.)")
-    lines.append("\n여러 개를 담으려면 쉼표로 구분해서 답장해주세요. (예: 2,4)")
-    lines.append("해당하는 상품이 없으면 '스킵'이라고 답장해주세요.")
-    lines.append("전체를 취소하려면 '취소'라고 답장해주세요.")
-    return "\n".join(lines)
+        outro.append(f"(그 외 {len(groups) - len(shown)}개 더 있어요. 상품명을 더 구체적으로 적어주시면 좁혀져요.)")
+    outro.append("여러 개를 담으려면 쉼표로 구분해서 답장해주세요. (예: 2,4)")
+    outro.append("해당하는 상품이 없으면 '스킵'이라고 답장해주세요.")
+    outro.append("전체를 취소하려면 '취소'라고 답장해주세요.")
+    send_message(chat_id, "\n".join(outro))
 
 
 def _ask_next_disambiguation(chat_id: str, state: dict) -> None:
@@ -479,7 +531,7 @@ def _ask_next_disambiguation(chat_id: str, state: dict) -> None:
 
     state["current"] = keyword
     telegram_store.set_disambig_state(chat_id, state)
-    send_message(chat_id, _format_disambig_prompt(keyword, groups))
+    _send_disambig_prompt(chat_id, keyword, groups)
 
 
 def _handle_disambiguation_reply(chat_id: str, state: dict, text: str) -> None:
@@ -856,7 +908,7 @@ def _handle_credential_flow(chat_id: str, store_id: str, reg: dict, text: str) -
         return
 
     if step == "vendor":
-        vendor_id = KOREAN_TO_VENDOR_ID.get(text.strip())
+        vendor_id = _resolve_vendor_choice(text)
         if not vendor_id:
             send_message(chat_id, "찾을 수 없는 도매처예요.\n" + VENDOR_MENU_TEXT)
             return
@@ -931,31 +983,83 @@ def _handle_preferred_vendor_command(chat_id: str, text: str) -> None:
     )
 
 
+def _format_vendor_status_lines(chat_id: str) -> list[str]:
+    reg = telegram_store.get_registration(chat_id) or {}
+    explicit_disabled = set(reg.get("disabled_vendors") or [])
+    registered = vendors.get_registered_vendor_ids(chat_id)
+    effective_disabled = vendors.effective_disabled_vendors(chat_id, explicit_disabled)
+
+    lines = []
+    for vid in CART_SUPPORTED_VENDORS:
+        name = vendors.VENDORS[vid]["name"]
+        if vid not in registered:
+            state = "꺼짐 (계정 미등록)"
+        elif vid in effective_disabled:
+            state = "꺼짐"
+        else:
+            state = "켜짐"
+        lines.append(f"• {name}: {state}")
+    return lines
+
+
+def _handle_vendor_toggle_reply(chat_id: str, state: dict, text: str) -> None:
+    stripped = text.strip()
+    if stripped.lower() in CANCEL_WORDS:
+        telegram_store.set_disambig_state(chat_id, None)
+        send_message(chat_id, "도매처 설정 변경을 취소했습니다.")
+        return
+
+    candidates = tuple(state["candidates"])
+    vendor_id = _resolve_vendor_choice(stripped, candidates)
+    if not vendor_id:
+        send_message(chat_id, f"1~{len(candidates)} 사이의 번호로 답장해주세요. (취소하려면 '취소')")
+        return
+
+    telegram_store.set_disambig_state(chat_id, None)
+    action = state["action"]
+    telegram_store.set_vendor_enabled_for_store(chat_id, vendor_id, action == "활성화")
+    vendors.sync_vendor_prefs_to_linked_identity(chat_id)
+    send_message(chat_id, f"{vendors.VENDORS[vendor_id]['name']}를 {action}했습니다.")
+
+
 def _handle_vendor_toggle_command(chat_id: str, text: str) -> None:
     tokens = text.strip().split()  # tokens[0] == "도매처"
     if len(tokens) < 2:
-        send_message(chat_id, "사용법: 도매처 활성화 (도매처명) / 도매처 비활성화 (도매처명) / 도매처 목록")
+        send_message(chat_id, "사용법: 도매처 활성화 / 도매처 비활성화 / 도매처 목록")
         return
 
     action = tokens[1]
 
     if action in ("목록", "확인", "상태"):
-        reg = telegram_store.get_registration(chat_id) or {}
-        disabled = set(reg.get("disabled_vendors") or [])
-        lines = ["현재 도매처 상태:"]
-        for vid in CART_SUPPORTED_VENDORS:
-            name = vendors.VENDORS[vid]["name"]
-            state = "꺼짐" if vid in disabled else "켜짐"
-            lines.append(f"• {name}: {state}")
-        send_message(chat_id, "\n".join(lines))
+        send_message(chat_id, "\n".join(["현재 도매처 상태:"] + _format_vendor_status_lines(chat_id)))
         return
 
     if action not in ("활성화", "비활성화"):
-        send_message(chat_id, "사용법: 도매처 활성화 (도매처명) / 도매처 비활성화 (도매처명) / 도매처 목록")
+        send_message(chat_id, "사용법: 도매처 활성화 / 도매처 비활성화 / 도매처 목록")
         return
 
     vendor_name = " ".join(tokens[2:]).strip()
-    vendor_id = KOREAN_TO_VENDOR_ID.get(vendor_name)
+
+    if not vendor_name:
+        # 도매처명 없이 "도매처 활성화"/"비활성화"만 보내면, 계정이 등록된
+        # 도매처만 번호로 골라서 켜고 끌 수 있게 한다 - 계정이 없는 도매처는
+        # effective_disabled_vendors가 항상 꺼진 상태로 취급해서 골라도 의미가 없다.
+        registered = sorted(vendors.get_registered_vendor_ids(chat_id), key=CART_SUPPORTED_VENDORS.index)
+        if not registered:
+            send_message(chat_id, "등록된 도매처 계정이 없습니다. 먼저 '계정추가'로 도매처 계정을 등록해주세요.")
+            return
+
+        lines = [f"{action}할 도매처를 번호로 답장해주세요:"]
+        for i, vid in enumerate(registered, start=1):
+            lines.append(f"{i}. {vendors.VENDORS[vid]['name']}")
+        lines.append("\n(취소하려면 '취소')")
+
+        state = {"mode": "vendor_toggle", "action": action, "candidates": registered, "current": action}
+        telegram_store.set_disambig_state(chat_id, state)
+        send_message(chat_id, "\n".join(lines))
+        return
+
+    vendor_id = _resolve_vendor_choice(vendor_name)
     if not vendor_id:
         send_message(chat_id, f"찾을 수 없는 도매처예요: {vendor_name}\n{VENDOR_MENU_TEXT}")
         return
@@ -963,7 +1067,10 @@ def _handle_vendor_toggle_command(chat_id: str, text: str) -> None:
     enabled = action == "활성화"
     telegram_store.set_vendor_enabled_for_store(chat_id, vendor_id, enabled)
     vendors.sync_vendor_prefs_to_linked_identity(chat_id)
-    send_message(chat_id, f"{vendors.VENDORS[vendor_id]['name']}를 {action}했습니다.")
+    note = ""
+    if enabled and vendor_id not in vendors.get_registered_vendor_ids(chat_id):
+        note = " (계정이 등록되기 전까지는 비활성 상태로 유지됩니다)"
+    send_message(chat_id, f"{vendors.VENDORS[vendor_id]['name']}를 {action}했습니다.{note}")
 
 
 _SELECTIVE_ALERT_REPLY_RE = re.compile(r"^([\d,\s]+?)\s*번?\s*(발송|생략|스킵)$")
@@ -1084,6 +1191,8 @@ def handle_update(update: dict) -> None:
             _handle_barcode_add_reply(chat_id, disambig_state, text)
         elif mode == "report_confirm":
             _handle_report_confirm_reply(chat_id, disambig_state, text)
+        elif mode == "vendor_toggle":
+            _handle_vendor_toggle_reply(chat_id, disambig_state, text)
         else:
             _handle_disambiguation_reply(chat_id, disambig_state, text)
         return
@@ -1091,7 +1200,7 @@ def handle_update(update: dict) -> None:
     is_cred_trigger, inline_vendor_text = _match_cred_trigger(text)
     if is_cred_trigger:
         if inline_vendor_text:
-            vendor_id = KOREAN_TO_VENDOR_ID.get(inline_vendor_text)
+            vendor_id = _resolve_vendor_choice(inline_vendor_text)
             if not vendor_id:
                 telegram_store.start_credential_menu(chat_id)
                 send_message(chat_id, f"찾을 수 없는 도매처예요: {inline_vendor_text}\n" + VENDOR_MENU_TEXT)

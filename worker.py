@@ -59,13 +59,24 @@ def process_telegram_batch(job: dict) -> None:
             telegram_bot.send_message(chat_id, f"{done}/{total}개 처리 중...")
 
     try:
-        results, needs_followup = cart_add_logic.process_batch(store_id, items, resolved_accounts, on_progress=on_progress)
+        results, needs_followup, used_vendor_ids = cart_add_logic.process_batch(
+            store_id, items, resolved_accounts, on_progress=on_progress,
+        )
     except Exception as e:
-        results, needs_followup = [f"(처리 중 예상치 못한 오류로 중단됨: {e})"], []
+        results, needs_followup, used_vendor_ids = [f"(처리 중 예상치 못한 오류로 중단됨: {e})"], [], []
 
     cart_jobs.mark_done(job["id"], {"results": results, "needs_followup": needs_followup})
     telegram_bot._finish_processing(store_id)
-    telegram_bot.send_message(chat_id, "담기 결과:\n\n" + "\n".join(results))
+
+    message = "담기 결과:\n\n" + "\n".join(results)
+    if used_vendor_ids:
+        # 담기 완료 후 사용자가 실제 도매처 사이트에 바로 들어가 확인할 수 있게
+        # 이번 배치에서 담기에 성공한 도매처마다 장바구니 페이지 링크를 안내한다.
+        links = "\n".join(
+            f"- {vendors.VENDORS[vid]['name']}: {vendors.vendor_cart_url(vid)}" for vid in used_vendor_ids
+        )
+        message += "\n\n장바구니 바로 확인:\n" + links
+    telegram_bot.send_message(chat_id, message)
 
     if needs_followup:
         state = {

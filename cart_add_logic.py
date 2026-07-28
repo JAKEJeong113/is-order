@@ -159,9 +159,10 @@ def add_item_with_batch_fallback(
 
 def _process_single_item(
     store_id: str, item: dict, batch_vendors: set, resolved_accounts: dict,
-) -> tuple[str, dict | None]:
-    """상품 하나를 담고 결과 메시지 한 줄(+ 품절 후속확인이 필요하면 그 항목)을
-    만든다. process_batch가 상품마다(동시에) 호출한다."""
+) -> tuple[str, dict | None, str | None]:
+    """상품 하나를 담고 결과 메시지 한 줄(+ 품절 후속확인이 필요하면 그 항목,
+    + 실제로 담기에 성공한 도매처 id)을 만든다. process_batch가 상품마다(동시에)
+    호출한다."""
     pool = ThreadPoolExecutor(max_workers=1)
     try:
         future = pool.submit(add_item_with_batch_fallback, store_id, item, batch_vendors, resolved_accounts)
@@ -186,14 +187,17 @@ def _process_single_item(
         line = f"✓ {used_item['item_name']} - {used_item['vendor_name']} 담기 완료{switched_note}"
         popularity.log_event(store_id, "wholesale", used_item["item_key"], used_item["item_name"], used_item["qty"])
         followup = None
+        ok_vendor_id = used_item["vendor_id"]
     elif remaining_alts:
         line = f"⚠ {used_item['item_name']} - {item['vendor_name']} 등 이번 발주에 포함된 도매처 모두 품절 (다른 도매처 대안 확인해서 곧 다시 안내드릴게요)"
         followup = {"item_name": used_item["item_name"], "qty": used_item["qty"], "alt_offers": remaining_alts}
+        ok_vendor_id = None
     else:
         line = f"✗ {used_item['item_name']} - {used_item['vendor_name']} 실패{switched_note}: {result.get('reason', '')}"
         followup = None
+        ok_vendor_id = None
 
-    return line, followup
+    return line, followup, ok_vendor_id
 
 
 def process_batch(
@@ -216,14 +220,17 @@ def process_batch(
     완화할 수 있게 한다.
 
     반환: (결과 메시지 줄 목록 - 원래 items 순서 그대로, 품절로 후속 확인이
-    필요한 항목 목록 [{item_name, qty, alt_offers}])."""
+    필요한 항목 목록 [{item_name, qty, alt_offers}], 실제로 담기에 성공한
+    도매처 id 목록 - items 순서 기준 첫 등장 순, 중복 없음 - 담기 완료 후
+    바로 확인할 수 있는 사이트 링크를 안내하는 데 쓴다)."""
     resolved_accounts = resolved_accounts or {}
     batch_vendors = {it["vendor_id"] for it in items}
     total = len(items)
     if total == 0:
-        return [], []
+        return [], [], []
 
     ordered_lines: list[str | None] = [None] * total
+    ordered_vendor_ids: list[str | None] = [None] * total
     needs_followup: list[dict] = []
     followup_lock = threading.Lock()
     progress_lock = threading.Lock()
@@ -231,8 +238,9 @@ def process_batch(
 
     def run_one(idx: int, item: dict) -> None:
         nonlocal done_count
-        line, followup = _process_single_item(store_id, item, batch_vendors, resolved_accounts)
+        line, followup, ok_vendor_id = _process_single_item(store_id, item, batch_vendors, resolved_accounts)
         ordered_lines[idx] = line
+        ordered_vendor_ids[idx] = ok_vendor_id
         if followup:
             with followup_lock:
                 needs_followup.append(followup)
@@ -247,4 +255,11 @@ def process_batch(
         for f in futures:
             f.result()
 
-    return ordered_lines, needs_followup
+    used_vendor_ids: list[str] = []
+    seen_vendor_ids: set = set()
+    for vid in ordered_vendor_ids:
+        if vid and vid not in seen_vendor_ids:
+            seen_vendor_ids.add(vid)
+            used_vendor_ids.append(vid)
+
+    return ordered_lines, needs_followup, used_vendor_ids

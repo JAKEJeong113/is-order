@@ -546,6 +546,7 @@ def build_manual_wholesale_report(store_id: str, account_id: int | None, top_ite
     key = report_key(store_id, account_id)
     catalog = mapping.load_catalog()
     disabled_vendors, preferred_vendor = vendors.get_store_vendor_prefs(store_id)
+    disabled_vendors = vendors.effective_disabled_vendors(store_id, disabled_vendors)
     account = vendors.resolve_store_vendor_account(store_id, "orderqueen", account_id)
 
     classified = _classify_report_items(
@@ -592,6 +593,7 @@ def generate_report(store_id: str, account_id: int | None = None) -> dict:
 
     catalog = mapping.load_catalog()
     disabled_vendors, preferred_vendor = vendors.get_store_vendor_prefs(store_id)
+    disabled_vendors = vendors.effective_disabled_vendors(store_id, disabled_vendors)
 
     classified = _classify_report_items(
         store_id, key, top_items, catalog, disabled_vendors, preferred_vendor,

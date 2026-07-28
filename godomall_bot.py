@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import threading
 from pathlib import Path
 from urllib.parse import quote
 
@@ -14,6 +15,26 @@ import vendors
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
 DEBUG_SCREENSHOT_PATH = DATA_DIR / "debug_login_failure.png"
+
+# 고도몰은 같은 계정으로 동시에 로그인이 들어오면 "다른 곳에서 로그인 중입니다"
+# 식의 confirm 팝업을 띄우는데, add_to_cart의 dialog 핸들러는 (품절 alert 등을
+# 잡으려고) 모든 dialog를 무조건 취소 처리한다 - 그 결과 이 팝업도 취소돼 로그인이
+# login.php에 그대로 남고 "고도몰 로그인 실패"로 오판된다(실측: 같은 배치에서
+# 같은 계정 상품 2개를 동시 처리했더니 먼저 끝난 건 성공, 뒤이어 로그인을 시도한
+# 나머지 하나가 이 증상으로 실패). 같은 (지점, 계정, 도매처) 조합은 완전히
+# 순차 처리해서 애초에 동시 로그인 자체가 안 생기게 막는다.
+_account_locks: dict[str, threading.Lock] = {}
+_account_locks_guard = threading.Lock()
+
+
+def _get_account_lock(store_id: str, vendor_id: str) -> threading.Lock:
+    key = f"{store_id}::{vendor_id}"
+    with _account_locks_guard:
+        lock = _account_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _account_locks[key] = lock
+        return lock
 
 
 def login_godomall(page: Page, base_url: str, login_id: str, login_pwd: str) -> None:
@@ -147,6 +168,26 @@ def fetch_unit_qty_from_detail_page(base_url: str, login_id: str, login_pwd: str
     return qty if qty > 0 else None
 
 
+def _extract_image_url(item) -> str | None:
+    """목록 카드의 썸네일 이미지 URL. 이미지 로딩 자체는 _block_heavy_resources가
+    막아서 실제로 다운로드되지는 않지만, data-image-list 속성(hover 시 바뀌는
+    add1/add2와 달리 항상 이 상품의 기본 목록 이미지)은 HTML에 그대로 있어
+    네트워크 요청 없이 값만 읽을 수 있다. 이 속성이 없는 스킨이면 <img> 태그의
+    src로 대신한다."""
+    try:
+        box = item.locator(".item_photo_box").first
+        if box.count() > 0:
+            url = box.get_attribute("data-image-list")
+            if url:
+                return url
+        img = item.locator("img").first
+        if img.count() > 0:
+            return img.get_attribute("src")
+    except Exception:
+        pass
+    return None
+
+
 def search_candidates(page: Page, base_url: str, keyword: str, top_n: int = 3) -> list[dict]:
     """로그인된 상태에서 keyword로 검색해 검색어 일치도 상위 top_n개 후보를 반환."""
     url = f"{base_url}/goods/goods_search.php?keyword={quote(keyword)}"
@@ -182,6 +223,7 @@ def search_candidates(page: Page, base_url: str, keyword: str, top_n: int = 3) -
             "unit_qty": _extract_unit_qty(name),
             "goods_no": goods_no,
             "product_url": f"{base_url}/goods/goods_view.php?goodsNo={goods_no}" if goods_no else None,
+            "image_url": _extract_image_url(item),
             "score": score,
         })
 
@@ -218,6 +260,7 @@ def _extract_page_items(page: Page, base_url: str) -> list[dict]:
             "unit_qty": _extract_unit_qty(name),
             "goods_no": goods_no,
             "product_url": f"{base_url}/goods/goods_view.php?goodsNo={goods_no}" if goods_no else None,
+            "image_url": _extract_image_url(item),
         })
 
     return results
@@ -352,7 +395,15 @@ def add_to_cart(
     store_id: str, vendor_id: str, base_url: str, login_id: str, login_pwd: str, goods_no: str, qty: int,
 ) -> dict:
     """지점별 로그인 세션(쿠키)을 캐시해서, 저장된 세션이 있으면 로그인 과정을 건너뛴다.
-    캐시된 세션이 만료됐으면(담기 버튼을 못 찾으면) 새로 로그인해서 한 번 더 시도한다."""
+    캐시된 세션이 만료됐으면(담기 버튼을 못 찾으면) 새로 로그인해서 한 번 더 시도한다.
+    같은 (지점, 계정, 도매처) 조합끼리는 _get_account_lock으로 순차 처리된다."""
+    with _get_account_lock(store_id, vendor_id):
+        return _add_to_cart_locked(store_id, vendor_id, base_url, login_id, login_pwd, goods_no, qty)
+
+
+def _add_to_cart_locked(
+    store_id: str, vendor_id: str, base_url: str, login_id: str, login_pwd: str, goods_no: str, qty: int,
+) -> dict:
     with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,

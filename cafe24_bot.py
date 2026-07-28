@@ -132,6 +132,7 @@ def _extract_list_page_items(page: Page, base_url: str) -> list[dict]:
             return {
                 href: link ? link.getAttribute('href') : null,
                 name: img ? img.getAttribute('alt') : '',
+                imageUrl: img ? img.getAttribute('src') : null,
                 descText: desc ? desc.innerText : '',
             };
         })
@@ -153,12 +154,19 @@ def _extract_list_page_items(page: Page, base_url: str) -> list[dict]:
         if price_match:
             price = _parse_price(price_match.group(1))
 
+        image_url = raw.get("imageUrl") or None
+        if image_url and image_url.startswith("//"):
+            # 카페24 테마는 이미지를 프로토콜 상대경로("//moomarket.co.kr/...")로
+            # 내려주는데, 텔레그램 sendPhoto는 완전한 URL이 필요해서 https를 붙인다.
+            image_url = f"https:{image_url}"
+
         results.append({
             "name": name,
             "price": price,
             "unit_qty": _extract_unit_qty(name),
             "product_url": f"{base_url}{href}" if href.startswith("/") else href,
             "goods_no": product_no,
+            "image_url": image_url,
         })
 
     return results
