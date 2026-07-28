@@ -70,6 +70,11 @@
       display: flex; justify-content: space-between; align-items: center;
       gap: 12px; padding: 18px 20px; border-left: 3px solid var(--mint);
     }
+    .group-thumb {
+      width: 48px; height: 48px; border-radius: 8px; object-fit: cover;
+      flex-shrink: 0; background: var(--bg); border: 1px solid var(--line);
+    }
+    .group-title-row { display: flex; align-items: center; gap: 10px; }
     .group-title { font-size: 15px; font-weight: 700; color: var(--text); line-height: 1.35; }
     .group-count { font-size: 12px; color: var(--muted); margin-top: 4px; }
     .group-head .price { color: var(--text); font-size: 19px; font-weight: 800; text-align: right; }
@@ -351,13 +356,19 @@
         : `${g.best_vendor_name}에서만 발견`;
 
       const offersHtml = g.offers.map((o) => renderOfferRow(o, g.offers)).join("");
+      const thumbHtml = g.best_image_url
+        ? `<img class="group-thumb" src="${escapeHtml(g.best_image_url)}" alt="" loading="lazy" onerror="this.remove()">`
+        : "";
 
       return `
         <div class="group-card" id="group-${idx}" onclick="toggleGroup(${idx})">
           <div class="group-head">
-            <div>
-              <div class="group-title">${name}</div>
-              <div class="group-count">${compareText}</div>
+            <div class="group-title-row">
+              ${thumbHtml}
+              <div>
+                <div class="group-title">${name}</div>
+                <div class="group-count">${compareText}</div>
+              </div>
             </div>
             <div style="display:flex;align-items:center;gap:10px;">
               <div>
