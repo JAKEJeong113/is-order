@@ -1014,16 +1014,30 @@ def _handle_vendor_toggle_reply(chat_id: str, state: dict, text: str) -> None:
         return
 
     candidates = tuple(state["candidates"])
-    vendor_id = _resolve_vendor_choice(stripped, candidates)
-    if not vendor_id:
-        send_message(chat_id, f"1~{len(candidates)} 사이의 번호로 답장해주세요. (취소하려면 '취소')")
-        return
+    # 상품 후보 선택("2,4")과 같은 방식으로, 쉼표(또는 공백)로 구분된 여러
+    # 번호를 한 번에 받아 도매처 여러 개를 한 번에 켜고/끌 수 있게 한다.
+    raw_parts = [p for p in re.split(r"[,\s]+", stripped) if p]
+    vendor_ids: list[str] = []
+    seen: set = set()
+    for part in raw_parts:
+        vendor_id = _resolve_vendor_choice(part, candidates)
+        if not vendor_id:
+            send_message(
+                chat_id,
+                f"1~{len(candidates)} 사이의 번호로 답장해주세요. 여러 개는 쉼표로 (예: 1,2) (취소하려면 '취소')",
+            )
+            return
+        if vendor_id not in seen:
+            seen.add(vendor_id)
+            vendor_ids.append(vendor_id)
 
     telegram_store.set_disambig_state(chat_id, None)
     action = state["action"]
-    telegram_store.set_vendor_enabled_for_store(chat_id, vendor_id, action == "활성화")
+    for vendor_id in vendor_ids:
+        telegram_store.set_vendor_enabled_for_store(chat_id, vendor_id, action == "활성화")
     vendors.sync_vendor_prefs_to_linked_identity(chat_id)
-    send_message(chat_id, f"{vendors.VENDORS[vendor_id]['name']}를 {action}했습니다.")
+    names = ", ".join(vendors.VENDORS[vid]["name"] for vid in vendor_ids)
+    send_message(chat_id, f"{names}를 {action}했습니다.")
 
 
 def _handle_vendor_toggle_command(chat_id: str, text: str) -> None:
@@ -1058,7 +1072,8 @@ def _handle_vendor_toggle_command(chat_id: str, text: str) -> None:
         lines = [f"{action}할 도매처를 번호로 답장해주세요:"]
         for i, vid in enumerate(registered, start=1):
             lines.append(f"{i}. {vendors.VENDORS[vid]['name']}")
-        lines.append("\n(취소하려면 '취소')")
+        lines.append("\n여러 개를 고르려면 쉼표로 구분해서 답장해주세요. (예: 1,2)")
+        lines.append("(취소하려면 '취소')")
 
         state = {"mode": "vendor_toggle", "action": action, "candidates": registered, "current": action}
         telegram_store.set_disambig_state(chat_id, state)
