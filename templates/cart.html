@@ -38,6 +38,11 @@
       font-weight: 700; cursor: pointer; background: var(--text); color: white;
     }
     .vendor-btn:disabled { opacity: 0.6; cursor: default; }
+    .vendor-head-actions { display: flex; align-items: center; gap: 8px; }
+    .account-select {
+      padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+      font-size: 12px; background: var(--card); color: var(--text);
+    }
     .item-row {
       display: flex; justify-content: space-between; align-items: center;
       gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line);
@@ -87,6 +92,11 @@
 
   <script>
     let allItems = [];
+    // 도매처별 등록 계정 목록/선택 상태 - "이 도매처 전체 담기"·"전체 도매몰에
+    // 담기"를 누르는 시점에 계정마다 매번 물어보는 대신, 도매처명 옆 드롭다운으로
+    // 미리 골라두면 그 계정으로 바로 담는다(계정이 1개뿐이면 드롭다운 자체를 숨김).
+    let vendorAccounts = new Map(); // vendorId -> accounts[]
+    let vendorAccountChoice = new Map(); // vendorId -> account_id
 
     function escapeHtml(str) {
       return String(str ?? "")
@@ -99,7 +109,27 @@
       if (res.status === 401) { window.location.href = "/login"; return; }
       const data = await res.json();
       allItems = data.items || [];
+      await loadVendorAccounts();
       render();
+    }
+
+    async function loadVendorAccounts() {
+      const vendorIds = [...new Set(allItems.map((it) => it.vendor_id))];
+      await Promise.all(vendorIds.map(async (vendorId) => {
+        if (vendorAccounts.has(vendorId)) return;
+        try {
+          const res = await fetch(`/api/my-vendors/${vendorId}/accounts`);
+          const data = await res.json();
+          const accounts = data.accounts || [];
+          vendorAccounts.set(vendorId, accounts);
+          if (accounts.length >= 2) {
+            const def = accounts.find((a) => a.is_default) || accounts[0];
+            vendorAccountChoice.set(vendorId, def.id);
+          }
+        } catch (e) {
+          vendorAccounts.set(vendorId, []);
+        }
+      }));
     }
 
     function groupByVendor(items) {
@@ -173,11 +203,23 @@
         `;
         }).join("");
 
+        const accounts = vendorAccounts.get(vendorId) || [];
+        const accountSelectHtml = accounts.length >= 2 ? `
+          <select class="account-select" data-vendor-id="${escapeHtml(vendorId)}">
+            ${accounts.map((acc) => `
+              <option value="${acc.id}" ${acc.id === vendorAccountChoice.get(vendorId) ? "selected" : ""}>${escapeHtml(acc.nickname)}${acc.is_default ? " (기본)" : ""}</option>
+            `).join("")}
+          </select>
+        ` : "";
+
         html += `
           <div class="vendor-group" data-vendor-id="${escapeHtml(vendorId)}">
             <div class="vendor-head">
               <span class="vendor-name">${escapeHtml(vendorName)} (${items.length}개)</span>
-              <button class="vendor-btn">이 도매처 전체 담기</button>
+              <div class="vendor-head-actions">
+                ${accountSelectHtml}
+                <button class="vendor-btn">이 도매처 전체 담기</button>
+              </div>
             </div>
             ${rows}
           </div>
@@ -211,6 +253,11 @@
       const item = allItems.find((it) => it.id === itemId);
       if (!item) return { ok: false, reason: "이미 처리됨" };
 
+      // 명시적으로 넘어온 accountId(계정 선택 버튼을 눌러 재시도하는 경우)가
+      // 없으면, 도매처명 옆 드롭다운에서 미리 골라둔 계정을 쓴다 - 그러면
+      // 서버가 needs_account_choice를 돌려주는 왕복 없이 바로 그 계정으로 담는다.
+      const chosenAccountId = accountId ?? vendorAccountChoice.get(item.vendor_id) ?? null;
+
       const row = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
       const qty = parseInt(row.querySelector(".qty-input").value, 10) || 1;
 
@@ -231,7 +278,7 @@
         const res = await fetch(`/api/isorder-cart/${itemId}/add-to-vendor`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ account_id: accountId ?? null }),
+          body: JSON.stringify({ account_id: chosenAccountId }),
         });
         const enqueued = await res.json();
 
@@ -274,6 +321,11 @@
       const row = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
       const qty = parseInt(row.querySelector(".qty-input").value, 10) || 1;
 
+      // 지금 시도하는 altOffer는 대안 목록에서 바로 빼둔다 - 그대로 두면 이번
+      // 시도가 실패했을 때도 방금 실패한 도매처 버튼이 그대로 남아있어(예:
+      // "야미몰 실패: ... 찾지 못함" 메시지 바로 아래 "야미몰" 버튼이 다시 뜸)
+      // 사용자가 이미 실패한 곳을 또 누르게 되는 문제가 있었다.
+      item._pendingAlts = (item._pendingAlts || []).filter((o) => o.vendor_id !== altOffer.vendor_id);
       setItemStatus(item, "담는 중...");
       item._altAccountChoice = null;
       render();
@@ -314,6 +366,13 @@
         render();
       }
     }
+
+    document.getElementById("list").addEventListener("change", (e) => {
+      if (e.target.classList.contains("account-select")) {
+        const vendorId = e.target.dataset.vendorId;
+        vendorAccountChoice.set(vendorId, parseInt(e.target.value, 10));
+      }
+    });
 
     document.getElementById("list").addEventListener("click", async (e) => {
       const itemRow = e.target.closest(".item-row");

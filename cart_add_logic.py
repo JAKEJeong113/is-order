@@ -59,7 +59,15 @@ def offer_item_key(offer: dict) -> str:
 def build_alt_offers(chosen_vendor_id: str, all_offers: list[dict]) -> list[dict]:
     """가격비교 그룹 전체 offers 중 선택된 도매처를 제외하고, 담기 자동화가
     되는(CART_SUPPORTED_VENDORS) 후보만 alt_offers로 뽑는다(이미 단가순
-    정렬돼 있음 - price_compare.compare 기준)."""
+    정렬돼 있음 - price_compare.compare 기준).
+
+    o["name"]은 그 도매처 자신의 상품명 원문(크롤링 시점 저장, price_compare가
+    붙여준 값)이라 여기서 "item_name"으로 함께 들고 간다 - 최초 선택 도매처의
+    상품명을 다른 도매처 검색 키워드로 그대로 쓰면(예: "OO과자 14g (1타
+    30개입)"처럼 원래 도매처 표기 방식의 포장단위 문구가 포함된 이름을 다른
+    도매처 검색창에 넣으면) 실제로 판매 중인 상품인데도 검색 결과에서 못 찾는
+    문제가 있었다(에낙 스모크 바베큐 건 - 과자생각 표기명으로 야미몰을
+    검색해서 "찾지 못함" 오탐)."""
     alt_offers = []
     seen_vendors = {chosen_vendor_id}
     for o in all_offers or []:
@@ -72,6 +80,7 @@ def build_alt_offers(chosen_vendor_id: str, all_offers: list[dict]) -> list[dict
             "product_url": o["product_url"],
             "item_key": offer_item_key(o),
             "price": o.get("price"),
+            "item_name": (o.get("name") or "").strip() or None,
         })
     return alt_offers
 
@@ -132,7 +141,10 @@ def add_item_with_batch_fallback(
                 continue
             tried_vendor_ids.add(alt["vendor_id"])
             alt_item = {
-                "item_name": item["item_name"],
+                # alt["item_name"]이 있으면(그 도매처 자신의 상품명) 우선 쓴다 - 최초
+                # 선택 도매처의 상품명으로 다른 도매처를 검색하면 표기 차이로
+                # "찾지 못함" 오탐이 난다(build_alt_offers 주석 참고).
+                "item_name": alt.get("item_name") or item["item_name"],
                 "vendor_id": alt["vendor_id"],
                 "vendor_name": alt["vendor_name"],
                 "product_url": alt["product_url"],

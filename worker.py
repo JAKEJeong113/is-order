@@ -18,6 +18,7 @@ claim_next_job()이 FOR UPDATE SKIP LOCKED로 원자적이라 여러 스레드(�
 import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -115,16 +116,36 @@ def process_web_item(job: dict) -> None:
     item = job["payload"]["item"]
     with_fallback = job["payload"].get("with_fallback", False)
 
-    if with_fallback:
-        # /cart 페이지의 "담기" - 지금 장바구니에 이미 담긴 다른 상품들이 쓰는
-        # 도매처 중에서만 조용히 자동 전환을 시도한다(텔레그램 봇과 동일한 로직).
-        batch_vendors = {it["vendor_id"] for it in web_cart.list_items(store_id)}
-        result, used_item, remaining_alts = cart_add_logic.add_item_with_batch_fallback(store_id, item, batch_vendors)
-    else:
-        # /compare의 대안 도매처 선택 - 이미 사용자가 특정 도매처를 골랐으므로
-        # 자동 전환 없이 그 도매처로만 단발 시도한다.
-        result = cart_add_logic.add_single_item_to_cart(store_id, item)
+    # cart_add_logic.process_batch(텔레그램 배치 경로)는 상품마다
+    # ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS로 시간 제한을 걸어 브라우저가
+    # 멈춰도 나머지가 계속 진행되는데, 웹 /cart의 담기 경로(이 함수)는 그
+    # 보호막 없이 add_item_with_batch_fallback/add_single_item_to_cart를 바로
+    # 호출하고 있었다 - Playwright가 멈추면 job이 "processing"에 영원히 머물러
+    # 화면에 "담는 중..."이 계속 뜨는 채로(폴링만 300초 후 포기, job 자체는
+    # 안 끝남) 워커 스레드 하나를 영구히 잡아먹는 문제가 있었다(우마이봉
+    # 슈가러스크 건). 텔레그램 경로와 동일한 시간 제한을 똑같이 적용한다.
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        if with_fallback:
+            # /cart 페이지의 "담기" - 지금 장바구니에 이미 담긴 다른 상품들이 쓰는
+            # 도매처 중에서만 조용히 자동 전환을 시도한다(텔레그램 봇과 동일한 로직).
+            batch_vendors = {it["vendor_id"] for it in web_cart.list_items(store_id)}
+            future = pool.submit(cart_add_logic.add_item_with_batch_fallback, store_id, item, batch_vendors)
+            result, used_item, remaining_alts = future.result(
+                timeout=cart_add_logic.ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS
+            )
+        else:
+            # /compare의 대안 도매처 선택 - 이미 사용자가 특정 도매처를 골랐으므로
+            # 자동 전환 없이 그 도매처로만 단발 시도한다.
+            future = pool.submit(cart_add_logic.add_single_item_to_cart, store_id, item)
+            result = future.result(timeout=cart_add_logic.ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS)
+            used_item, remaining_alts = item, []
+    except FutureTimeoutError:
+        timeout_s = cart_add_logic.ITEM_CART_ADD_WITH_FALLBACK_TIMEOUT_SECONDS
+        result = {"ok": False, "reason": f"{timeout_s}초 넘게 응답이 없어 중단됨. 잠시 후 다시 시도해주세요."}
         used_item, remaining_alts = item, []
+    finally:
+        pool.shutdown(wait=False)
 
     if result.get("ok"):
         popularity.log_event(store_id, "wholesale", used_item["item_key"], used_item["item_name"], used_item["qty"])
