@@ -189,6 +189,8 @@ def init_table(pt: ProductType) -> None:
         cur.execute(f"ALTER TABLE {pt.table_name} ADD COLUMN price_checked_at TEXT")
     if "pending_price" not in existing_cols:
         cur.execute(f"ALTER TABLE {pt.table_name} ADD COLUMN pending_price INTEGER")
+    if "pending_count" not in existing_cols:
+        cur.execute(f"ALTER TABLE {pt.table_name} ADD COLUMN pending_count INTEGER NOT NULL DEFAULT 0")
 
     conn.commit()
     conn.close()
@@ -557,9 +559,23 @@ PRICE_CHECK_SIMILARITY_THRESHOLD = 0.4
 # 방어책: 지금 저장된 가격 대비 새 가격이 큰 폭으로 변했다면(다른 판매단위일
 # 가능성) 텍스트 유사도만으로는 부족하다고 보고 훨씬 높은 기준을 요구한다 -
 # 진짜 가격 변동(세일 등)은 이 정도로 유사도가 낮아지지 않는다.
-PRICE_CHECK_STRICT_SIMILARITY_THRESHOLD = 0.75
-PRICE_CHECK_DEVIATION_LOW_RATIO = 0.5   # 저장가의 50% 밑으로 떨어지면
-PRICE_CHECK_DEVIATION_HIGH_RATIO = 2.0  # 저장가의 200% 위로 뛰면
+#
+# (2026-07-29: 실제 알림 108건을 전수 확인한 결과, 50% 이상 떨어진 경우만
+# "의심"으로 봤던 기존 기준을 그대로 통과한 뒤 2회 연속 확인까지 거쳐 "확정"된
+# 상태로 실제 발송된 케이스가 여럿 나왔다 - 예: 빼빼로 화이트쿠키 45,400원 ->
+# 8,650원(81% 하락), 오징어땅콩 27,340원 -> 4,640원(83% 하락). 검색 결과가
+# 우연히 두 번 연속 같은 값을 주는 게 아니라, 검색어가 다른 판매단위/상품으로
+# 안정적으로 재매칭된 것으로 보인다 - 즉 "연속 확인"만으로는 이런 종류의
+# 오탐을 못 걸러낸다. 그래서 ①의심 기준 자체를 50%->20% 하락으로 낮추고
+# (조청유과 46% 하락 건은 기존 기준을 아예 안 걸렸었음) ②유사도 기준을
+# 올리고 ③60% 이상 떨어지는 극단적인 경우는 연속 확인 횟수를 2회->3회로
+# 늘려 안정적인 오탐도 더 걸러낸다.)
+PRICE_CHECK_STRICT_SIMILARITY_THRESHOLD = 0.85
+PRICE_CHECK_DEVIATION_LOW_RATIO = 0.8    # 저장가의 80% 밑으로 떨어지면(20%+ 하락) 의심
+PRICE_CHECK_DEVIATION_HIGH_RATIO = 2.0   # 저장가의 200% 위로 뛰면
+PRICE_CHECK_EXTREME_DEVIATION_RATIO = 0.4  # 저장가의 40% 밑으로 떨어지면(60%+ 하락) 더 엄격하게
+PRICE_CHECK_CONFIRMATIONS_REQUIRED = 2
+PRICE_CHECK_EXTREME_CONFIRMATIONS_REQUIRED = 3
 
 SEARCH_DELAY_SECONDS_PRICE_CHECK = 2.0
 
@@ -588,7 +604,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(f"""
-    SELECT item_key, item_name, price, pending_price FROM {pt.table_name}
+    SELECT item_key, item_name, price, pending_price, pending_count FROM {pt.table_name}
     WHERE reference_url IS NOT NULL AND deleted = 0
     ORDER BY price_checked_at ASC NULLS FIRST
     LIMIT ?
@@ -601,7 +617,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     new_lows = []
     now = datetime.now().isoformat(timespec="seconds")
 
-    for item_key, stored_name, stored_price, pending_price in targets:
+    for item_key, stored_name, stored_price, pending_price, pending_count in targets:
         entry = catalog.get(item_key)
         keyword = (entry.search_keyword or entry.menu_name) if entry else stored_name
         checked += 1
@@ -634,9 +650,11 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
 
         threshold = PRICE_CHECK_SIMILARITY_THRESHOLD
         is_deviant = False
+        is_extreme = False
         if stored_price and new_price:
             ratio = new_price / stored_price
             is_deviant = ratio < PRICE_CHECK_DEVIATION_LOW_RATIO or ratio > PRICE_CHECK_DEVIATION_HIGH_RATIO
+            is_extreme = ratio < PRICE_CHECK_EXTREME_DEVIATION_RATIO
             if is_deviant:
                 threshold = PRICE_CHECK_STRICT_SIMILARITY_THRESHOLD
 
@@ -652,21 +670,33 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
         # 다른 상품"을 걸러내지 못하는 사례가 실측으로 확인됐다(짧은 검색결과
         # 이름이 우연히 저장된 이름과 완전히 같아 유사도가 1.0으로 나오는 경우
         # 등). 그래서 가격이 크게 벌어졌을 때는 유사도가 아무리 높아도 한 번에
-        # 확정하지 않고, 바로 다음 스캔 주기에서 같은 가격이 다시 확인되어야만
-        # (2회 연속 확인) 실제 가격 변동으로 인정한다 - 잘못된 검색결과가 우연히
-        # 두 번 연속 뜨는 경우는 거의 없기 때문에 오탐을 사실상 걸러내면서도,
-        # 진짜 가격 변동(세일 등)은 한 주기(약 30분) 늦게라도 정상 반영된다.
-        if is_deviant:
-            if pending_price != new_price:
-                cur.execute(f"UPDATE {pt.table_name} SET pending_price = ? WHERE item_key = ?", (new_price, item_key))
-                print(f"[PRODUCT_RANKING:{pt.key}] {item_key!r} 가격 급변 1차 감지({stored_price} -> {new_price}) "
-                      f"- 다음 확인에서 같은 값이 또 나오면 확정")
+        # 확정하지 않고, 같은 가격이 연속으로 재확인돼야 실제 가격 변동으로
+        # 인정한다. 다만 2026-07-29 실측으로, "검색어가 다른 상품/판매단위로
+        # 안정적으로 재매칭된" 경우 2회 연속 확인 정도는 쉽게 통과한다는 걸
+        # 확인했다(빼빼로 화이트쿠키 81% 하락, 오징어땅콩 83% 하락 등이 실제로
+        # 이 경로로 통과해 발송됨) - 하락폭이 클수록(60%+) 우연이 아니라 안정적인
+        # 오탐일 가능성이 크다고 보고 요구 확인 횟수를 3회로 늘린다.
+        required_confirmations = (
+            PRICE_CHECK_EXTREME_CONFIRMATIONS_REQUIRED if is_extreme
+            else PRICE_CHECK_CONFIRMATIONS_REQUIRED if is_deviant
+            else 1
+        )
+
+        if required_confirmations > 1:
+            confirmed_count = (pending_count or 0) + 1 if pending_price == new_price else 1
+            if confirmed_count < required_confirmations:
+                cur.execute(
+                    f"UPDATE {pt.table_name} SET pending_price = ?, pending_count = ? WHERE item_key = ?",
+                    (new_price, confirmed_count, item_key),
+                )
+                print(f"[PRODUCT_RANKING:{pt.key}] {item_key!r} 가격 급변 감지({stored_price} -> {new_price}, "
+                      f"{confirmed_count}/{required_confirmations}회 확인) - 재확인 필요")
                 conn.commit()
                 time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
                 continue
-            cur.execute(f"UPDATE {pt.table_name} SET pending_price = NULL WHERE item_key = ?", (item_key,))
-        elif pending_price is not None:
-            cur.execute(f"UPDATE {pt.table_name} SET pending_price = NULL WHERE item_key = ?", (item_key,))
+            cur.execute(f"UPDATE {pt.table_name} SET pending_price = NULL, pending_count = 0 WHERE item_key = ?", (item_key,))
+        elif pending_price is not None or pending_count:
+            cur.execute(f"UPDATE {pt.table_name} SET pending_price = NULL, pending_count = 0 WHERE item_key = ?", (item_key,))
 
         cur.execute(
             "SELECT MIN(price) FROM price_history WHERE product_type = ? AND item_key = ?",
