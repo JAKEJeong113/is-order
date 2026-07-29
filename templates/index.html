@@ -216,7 +216,7 @@
       height:20px;
       border-radius:999px;
       background:#b8f3e9;
-      animation:float-dot 5s ease-in-out infinite;
+      animation:float-dot 3.8s ease-in-out infinite;
     }
     /* 히어로 배경이 완전히 정적이라 밋밋해서, 점/원 장식에만 아주 느린
        부유(float) 움직임을 준다 - 과하지 않게 은은한 정도로만. */
@@ -335,17 +335,8 @@
         );
 
       z-index:1;
-      animation:float-blob 8s ease-in-out infinite;
+      animation:float-blob 6.2s ease-in-out infinite;
     }
-
-    /* 히어로 아래 실적 통계 띠 - 꾸며낸 숫자가 아니라 실제 운영 데이터를
-       0에서부터 카운트업 애니메이션으로 보여준다(reveal.js의 IntersectionObserver
-       재사용, main.py landing_page가 stats를 실제 DB 집계로 넘김). */
-    .stat-bar{padding:36px 0;background:linear-gradient(135deg,var(--mint-dark),var(--mint))}
-    .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;text-align:center}
-    .stat-item{color:#fff}
-    .stat-number{font-size:clamp(28px,4vw,42px);font-weight:900;letter-spacing:-1px}
-    .stat-label{margin-top:4px;font-size:14px;color:rgba(255,255,255,.88);word-break:keep-all}
 
     section{padding:70px 0}
     .section-head{text-align:center;max-width:720px;margin:0 auto 34px}
@@ -712,7 +703,6 @@
       .btn{width:100%}
       .strength-grid{grid-template-columns:1fr}
       .contact-band{padding:24px}
-      .stat-grid{grid-template-columns:1fr;gap:22px}
     }
 
     /* 스크롤하면서 섹션이 아래에서 살짝 떠오르며 나타나는 효과 - 정적으로
@@ -784,23 +774,6 @@
               <noscript><style>.hero-intro-video{display:none}.hero-main-logo{display:block !important;opacity:1 !important}</style></noscript>
             </div>
           </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="stat-bar">
-      <div class="container stat-grid reveal">
-        <div class="stat-item">
-          <div class="stat-number" data-count-to="{{ stats.product_count }}">0</div>
-          <div class="stat-label">실시간 비교 상품 수</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-number" data-count-to="{{ stats.order_event_count }}">0</div>
-          <div class="stat-label">누적 발주 처리 건수</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-number" data-count-to="{{ stats.vendor_count }}">0</div>
-          <div class="stat-label">연동 도매처 수</div>
         </div>
       </div>
     </section>
@@ -1211,45 +1184,6 @@
     }, { threshold: 0.1, rootMargin: "0px 0px -40px 0px" });
 
     targets.forEach(function(el){ observer.observe(el); });
-  })();
-
-  (function(){
-    // 통계 띠 숫자를 0부터 실제 값까지 카운트업 - 화면에 들어올 때 한 번만
-    // 실행한다(reveal과 같은 이유로 unobserve).
-    var counters = document.querySelectorAll(".stat-number[data-count-to]");
-    if(!counters.length) return;
-
-    function animateCount(el){
-      var target = parseInt(el.getAttribute("data-count-to"), 10) || 0;
-      var duration = 1400;
-      var start = null;
-
-      function step(timestamp){
-        if(start === null) start = timestamp;
-        var progress = Math.min((timestamp - start) / duration, 1);
-        var eased = 1 - Math.pow(1 - progress, 3); // ease-out
-        el.textContent = Math.floor(eased * target).toLocaleString();
-        if(progress < 1) requestAnimationFrame(step);
-        else el.textContent = target.toLocaleString();
-      }
-      requestAnimationFrame(step);
-    }
-
-    if(!("IntersectionObserver" in window)){
-      counters.forEach(animateCount);
-      return;
-    }
-
-    var countObserver = new IntersectionObserver(function(entries){
-      entries.forEach(function(entry){
-        if(entry.isIntersecting){
-          animateCount(entry.target);
-          countObserver.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.4 });
-
-    counters.forEach(function(el){ countObserver.observe(el); });
   })();
 
   (function(){

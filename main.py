@@ -824,8 +824,18 @@ def api_isorder_cart_add(req: IsorderCartAddRequest, user: dict = Depends(requir
 
 @app.get("/api/isorder-cart")
 def api_isorder_cart_list(user: dict = Depends(require_web_user)):
+    """담는 도중(job이 아직 pending/processing) 사용자가 다른 페이지로 갔다
+    오거나 새로고침해도, 실제 담기는 워커가 백그라운드에서 계속 처리하고
+    있으니 그 작업을 이어서 안내할 수 있게 각 항목에 active_job_id를 함께
+    내려준다(프론트가 이 값이 있으면 새로 요청하지 않고 그 job을 이어서
+    폴링한다) - 안 그러면 화면만 초기 상태로 보여 사용자가 "담기가 취소됐다"고
+    오해하고 다시 눌러 중복 담기로 이어질 수 있다."""
     store_id = f"web:{user['email']}"
-    return {"items": web_cart.list_items(store_id)}
+    items = web_cart.list_items(store_id)
+    active_jobs = cart_jobs.get_active_web_item_jobs(store_id)
+    for item in items:
+        item["active_job_id"] = active_jobs.get(item["id"])
+    return {"items": items}
 
 
 @app.delete("/api/isorder-cart")
@@ -1982,16 +1992,7 @@ def load_coupang_catalog_for_search() -> pd.DataFrame:
 @app.get("/", response_class=HTMLResponse)
 @app.get("/index.html", response_class=HTMLResponse)
 def landing_page(request: Request):
-    # 랜딩페이지 통계 띠에 쓰는 실제 운영 데이터 - 꾸며낸 숫자를 보여주지
-    # 않도록 실제 카탈로그/발주 이력에서 그대로 집계한다.
-    stats = {
-        "product_count": catalog_cache.get_total_product_count(),
-        "order_event_count": popularity.get_total_event_count(),
-        "vendor_count": len(vendors.CART_SUPPORTED_VENDORS),
-    }
-    return templates.TemplateResponse(
-        "index.html", {"request": request, "tools": biz_tools.list_tools(), "stats": stats},
-    )
+    return templates.TemplateResponse("index.html", {"request": request, "tools": biz_tools.list_tools()})
 
 
 @app.get("/brand.html", response_class=HTMLResponse)

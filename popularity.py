@@ -30,16 +30,6 @@ def init_popularity_table():
     conn.close()
 
 
-def get_total_event_count() -> int:
-    """랜딩페이지 통계 띠에 쓰는 값 - 지금까지 쌓인 발주/장바구니 이벤트 총 건수."""
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM order_events")
-    count = cur.fetchone()[0]
-    conn.close()
-    return count
-
-
 def log_event(store_id: str, category: str, item_key: str, item_name: str, qty: int = 1) -> None:
     if category not in CATEGORIES or not item_key:
         return

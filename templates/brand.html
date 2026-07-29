@@ -420,6 +420,13 @@ section{padding:80px 0}
     grid-template-columns:1fr;
   }
 }
+
+/* 스크롤하면서 섹션이 아래에서 살짝 떠오르며 나타나는 효과 (index.html과 동일) */
+.reveal{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s ease}
+.reveal.in-view{opacity:1;transform:translateY(0)}
+@media(prefers-reduced-motion:reduce){
+  .reveal{opacity:1;transform:none;transition:none}
+}
 </style>
 </head>
 
@@ -461,7 +468,7 @@ section{padding:80px 0}
 
 <section>
   <div class="container">
-    <div class="intro-block">
+    <div class="intro-block reveal">
       <div class="intro-label">Introduction</div>
 
       <h2>
@@ -475,7 +482,7 @@ section{padding:80px 0}
       </p>
     </div>
 
-    <div class="benefit-grid">
+    <div class="benefit-grid reveal">
       <div class="benefit-card">
         <strong>無</strong>
         <b>가맹비 부담 완화</b>
@@ -499,7 +506,7 @@ section{padding:80px 0}
 
 <section class="advantage">
   <div class="advantage-container">
-    <div class="advantage-grid">
+    <div class="advantage-grid reveal">
 
       <div class="advantage-images">
         <img src="./images/store-front1.JPG" alt="i'S CREAM 매장 외관 사진1">
@@ -558,7 +565,7 @@ section{padding:80px 0}
 
 <div class="layout-section">
     <div class="advantage-container">
-        <div class="layout-content">
+        <div class="layout-content reveal">
 
             <div class="layout-text">
 
@@ -597,7 +604,7 @@ section{padding:80px 0}
 
 </div>
 
-  <div class="display-gallery">
+  <div class="display-gallery reveal">
     <div class="gallery-head">
         <div class="label">STORE DISPLAY</div>
         <h3>매장 진열 사진</h3>
@@ -656,6 +663,27 @@ section{padding:80px 0}
       toggle.setAttribute("aria-expanded", "false");
     });
   });
+})();
+
+(function(){
+  var targets = document.querySelectorAll(".reveal");
+  if(!targets.length) return;
+
+  if(!("IntersectionObserver" in window)){
+    targets.forEach(function(el){ el.classList.add("in-view"); });
+    return;
+  }
+
+  var observer = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if(entry.isIntersecting){
+        entry.target.classList.add("in-view");
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1, rootMargin: "0px 0px -40px 0px" });
+
+  targets.forEach(function(el){ observer.observe(el); });
 })();
 </script>
 </body>

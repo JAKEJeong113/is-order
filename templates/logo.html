@@ -332,6 +332,13 @@ section{padding:80px 0}
   .color-grid{grid-template-columns:1fr 1fr}
   .guide-grid{grid-template-columns:1fr}
 }
+
+/* 스크롤하면서 섹션이 아래에서 살짝 떠오르며 나타나는 효과 (index.html과 동일) */
+.reveal{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s ease}
+.reveal.in-view{opacity:1;transform:translateY(0)}
+@media(prefers-reduced-motion:reduce){
+  .reveal{opacity:1;transform:none;transition:none}
+}
 </style>
 </head>
 
@@ -380,7 +387,7 @@ section{padding:80px 0}
       <p class="section-desc">친근함, 즐거움, 쉬운 운영을 담은 브랜드 아이덴티티입니다.</p>
     </div>
 
-    <div class="logo-card">
+    <div class="logo-card reveal">
       <div class="logo-preview">
         <img src="./images/logo-main.png" alt="i'S CREAM 메인 로고">
       </div>
@@ -394,7 +401,7 @@ section{padding:80px 0}
       </div>
     </div>
 
-    <div class="logo-card">
+    <div class="logo-card reveal">
       <div class="logo-preview">
         <img src="./images/logo-header.png" alt="i'S CREAM 헤더 로고">
       </div>
@@ -417,7 +424,7 @@ section{padding:80px 0}
       <h2 class="section-title">브랜드 컬러</h2>
     </div>
 
-    <div class="color-grid">
+    <div class="color-grid reveal">
       <div class="color-box mint">#2FC5B3</div>
       <div class="color-box pink">#FF4FA3</div>
       <div class="color-box black">#111827</div>
@@ -433,7 +440,7 @@ section{padding:80px 0}
       <h2 class="section-title">로고 사용 가이드</h2>
     </div>
 
-    <div class="guide-grid">
+    <div class="guide-grid reveal">
       <div class="guide-card good">✓ 원본 비율 유지</div>
       <div class="guide-card good">✓ 충분한 여백 확보</div>
       <div class="guide-card bad">✗ 색상 임의 변경</div>
@@ -480,6 +487,27 @@ section{padding:80px 0}
       toggle.setAttribute("aria-expanded", "false");
     });
   });
+})();
+
+(function(){
+  var targets = document.querySelectorAll(".reveal");
+  if(!targets.length) return;
+
+  if(!("IntersectionObserver" in window)){
+    targets.forEach(function(el){ el.classList.add("in-view"); });
+    return;
+  }
+
+  var observer = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if(entry.isIntersecting){
+        entry.target.classList.add("in-view");
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1, rootMargin: "0px 0px -40px 0px" });
+
+  targets.forEach(function(el){ observer.observe(el); });
 })();
 </script>
 </body>
