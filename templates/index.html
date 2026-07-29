@@ -372,30 +372,59 @@
     .check{margin:18px 0 0;padding:0;list-style:none;color:#134e4a;font-size:15px}
     .check li{margin:8px 0}
     .check li::before{content:"✓";color:var(--mint-dark);font-weight:900;margin-right:8px}
+    /* i's ORDER 소개 카드의 화면 예시 목업 - 실제 /compare 페이지 디자인(민트
+       포인트, 도매처별 색 점, 최저가 배지)을 그대로 본떠 작게 재현한다. 실제
+       스크린샷이 아니라 항상 깔끔하게 보이는 정적 목업이라 실제 데이터/화면
+       크기에 좌우되지 않는다. */
     .mock-device{
-      min-height:250px;
-      border-radius:20px;
-      background:
-        linear-gradient(160deg,rgba(255,255,255,.85),rgba(255,255,255,.2)),
-        linear-gradient(135deg,#222 0 8%,#f8fafc 8% 84%,#111827 84% 100%);
-      box-shadow:0 18px 38px rgba(15,23,42,.18);
-      transform:perspective(900px) rotateX(8deg) rotateZ(1deg);
-      position:relative;
+      border-radius:16px;
+      background:#fff;
+      border:1px solid var(--line);
+      box-shadow:0 18px 38px rgba(15,23,42,.14);
       overflow:hidden;
     }
-    .mock-device::before{
-      content:"";
-      position:absolute;
-      inset:50px 32px 38px;
-      background:
-        linear-gradient(#c7f7ef 0 0) 0 0/45% 12px no-repeat,
-        linear-gradient(#e5e7eb 0 0) 0 28px/82% 9px no-repeat,
-        linear-gradient(#e5e7eb 0 0) 0 50px/70% 9px no-repeat,
-        linear-gradient(#14b8a6 0 0) 0 110px/24px 70px no-repeat,
-        linear-gradient(#99f6e4 0 0) 38px 88px/24px 92px no-repeat,
-        linear-gradient(#5eead4 0 0) 76px 125px/24px 55px no-repeat;
-      border-radius:8px;
+    .mock-browser-bar{
+      display:flex;align-items:center;gap:6px;
+      padding:10px 14px;
+      background:#f1f5f9;
+      border-bottom:1px solid var(--line);
     }
+    .mock-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}
+    .mock-url{
+      margin-left:8px;
+      font-size:11px;color:#94a3b8;
+      background:#fff;border:1px solid var(--line);border-radius:999px;
+      padding:3px 10px;
+    }
+    .mock-screen{padding:16px;background:linear-gradient(180deg,#f7fffd,#ffffff)}
+    .mock-search{
+      font-size:12px;color:var(--muted);
+      background:#fff;border:1px solid var(--line);border-radius:8px;
+      padding:8px 12px;margin-bottom:12px;
+    }
+    .mock-card{
+      display:flex;align-items:center;gap:10px;
+      background:#fff;border:1px solid var(--line);border-radius:10px;
+      padding:10px 12px;margin-bottom:8px;
+      box-shadow:0 4px 10px rgba(15,23,42,.04);
+    }
+    .mock-card:last-child{margin-bottom:0}
+    .mock-card.mock-cheapest{
+      background:linear-gradient(135deg,var(--mint),#1bb3a3);
+      border-color:transparent;
+    }
+    .mock-card.mock-cheapest b,
+    .mock-card.mock-cheapest .mock-name,
+    .mock-card.mock-cheapest .mock-price{color:#fff}
+    .mock-dot-vendor{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+    .mock-card-info{flex:1;min-width:0}
+    .mock-card-info b{font-size:12px}
+    .mock-badge{
+      font-size:9px;font-weight:800;background:#fff;color:var(--mint-dark);
+      border-radius:999px;padding:1px 7px;margin-left:6px;
+    }
+    .mock-name{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .mock-price{font-weight:800;font-size:14px;white-space:nowrap}
     .strength-card{background:linear-gradient(135deg,#fff9df,#ffffff)}
     .strength-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:22px}
     .strength-item{display:grid;grid-template-columns:48px 1fr;gap:12px;align-items:center}
@@ -909,7 +938,41 @@
               <a class="btn btn-primary" href="/order">i'S ORDER 바로가기 〉</a>
             </div>
           </div>
-          <div class="mock-device" aria-label="발주시스템 화면 예시"></div>
+          <div class="mock-device" aria-label="발주시스템 화면 예시">
+            <div class="mock-browser-bar">
+              <span class="mock-dot" style="background:#ff5f57"></span>
+              <span class="mock-dot" style="background:#febc2e"></span>
+              <span class="mock-dot" style="background:#28c840"></span>
+              <span class="mock-url">is-cream.co.kr/compare</span>
+            </div>
+            <div class="mock-screen">
+              <div class="mock-search">🔍 하리보 골드베렌</div>
+              <div class="mock-card mock-cheapest">
+                <span class="mock-dot-vendor" style="background:#f97316"></span>
+                <div class="mock-card-info">
+                  <b>야미몰</b><span class="mock-badge">최저가</span>
+                  <div class="mock-name">하리보 골드베렌 100g (1박스 30개)</div>
+                </div>
+                <div class="mock-price">21,000원</div>
+              </div>
+              <div class="mock-card">
+                <span class="mock-dot-vendor" style="background:#3b82f6"></span>
+                <div class="mock-card-info">
+                  <b>과자생각</b>
+                  <div class="mock-name">하리보 골드베렌 100g (1박스 24개)</div>
+                </div>
+                <div class="mock-price">23,500원</div>
+              </div>
+              <div class="mock-card">
+                <span class="mock-dot-vendor" style="background:#8b5cf6"></span>
+                <div class="mock-card-info">
+                  <b>삼봉몰</b>
+                  <div class="mock-name">하리보 골드베렌 100g (1박스 20개)</div>
+                </div>
+                <div class="mock-price">24,900원</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="strength-card reveal">
