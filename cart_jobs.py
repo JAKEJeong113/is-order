@@ -159,3 +159,24 @@ def get_job(job_id: int) -> dict | None:
         "id": row[0], "kind": row[1], "store_id": row[2], "status": row[3],
         "result": json.loads(row[4]) if row[4] else None,
     }
+
+
+def get_active_web_item_jobs(store_id: str) -> dict[int, int]:
+    """/cart 페이지가 새로고침/재방문 시 "아직 처리 중인 담기"를 이어서 보여줄 수
+    있게, 이 매장의 web_item job 중 아직 안 끝난(pending/processing) 것들을
+    {web_cart_item_id: job_id}로 돌려준다. 실제 담기(Playwright)는 워커가
+    브라우저 세션과 무관하게 백그라운드에서 계속 처리하므로, 담는 도중에 다른
+    페이지로 갔다 와도 job 자체는 취소되지 않는다 - 다만 화면이 그걸 몰라서
+    "취소된 것처럼" 보이는 문제가 있었다. 같은 항목에 job이 여러 개 걸려 있으면
+    (정상적으로는 안 생기지만) 가장 최근 것만 남긴다."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT web_cart_item_id, id FROM cart_jobs
+    WHERE store_id = ? AND kind = 'web_item' AND web_cart_item_id IS NOT NULL
+        AND status IN ('pending', 'processing')
+    ORDER BY id ASC
+    """, (store_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return {row[0]: row[1] for row in rows}
