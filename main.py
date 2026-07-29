@@ -1982,7 +1982,16 @@ def load_coupang_catalog_for_search() -> pd.DataFrame:
 @app.get("/", response_class=HTMLResponse)
 @app.get("/index.html", response_class=HTMLResponse)
 def landing_page(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "tools": biz_tools.list_tools()})
+    # 랜딩페이지 통계 띠에 쓰는 실제 운영 데이터 - 꾸며낸 숫자를 보여주지
+    # 않도록 실제 카탈로그/발주 이력에서 그대로 집계한다.
+    stats = {
+        "product_count": catalog_cache.get_total_product_count(),
+        "order_event_count": popularity.get_total_event_count(),
+        "vendor_count": len(vendors.CART_SUPPORTED_VENDORS),
+    }
+    return templates.TemplateResponse(
+        "index.html", {"request": request, "tools": biz_tools.list_tools(), "stats": stats},
+    )
 
 
 @app.get("/brand.html", response_class=HTMLResponse)

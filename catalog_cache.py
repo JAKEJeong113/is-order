@@ -120,6 +120,16 @@ def update_unit_qty(vendor_id: str, product_url: str, unit_qty: int) -> None:
     conn.close()
 
 
+def get_total_product_count() -> int:
+    """랜딩페이지 통계 띠에 쓰는 값 - 지금 캐시에 있는 도매처 상품 총 개수."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM product_cache")
+    count = cur.fetchone()[0]
+    conn.close()
+    return count
+
+
 def get_refresh_status() -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
