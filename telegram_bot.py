@@ -177,6 +177,15 @@ def alert_admin(message: str) -> None:
     send_message(ADMIN_CHAT_ID, f"⚠️ 서버 에러 발생\n\n{message}")
 
 
+def notify_admin(message: str) -> None:
+    """새 가입/승인 대기처럼 대표님이 알아야 할 정상적인 이벤트 알림.
+    alert_admin과 달리 에러가 아니므로 "서버 에러 발생" 문구를 붙이지 않는다."""
+    if not ADMIN_CHAT_ID:
+        print("[NOTIFY] ADMIN_TELEGRAM_CHAT_ID가 설정되지 않아 관리자 알림을 보낼 수 없습니다:", message)
+        return
+    send_message(ADMIN_CHAT_ID, message)
+
+
 def _format_comparison(matched: list[dict], not_found: list[str]) -> str:
     lines = ["아래 상품으로 최저가 담기를 준비했습니다:\n"]
     for m in matched:
@@ -859,6 +868,14 @@ def _handle_registration(chat_id: str, reg: dict, text: str) -> None:
             chat_id,
             "등록 신청이 완료되었습니다. 대표님 승인을 기다려주세요.\n"
             f"(내 chat_id: {chat_id})",
+        )
+        notify_admin(
+            "🆕 텔레그램 가입 승인 요청\n\n"
+            f"지점명: {reg.get('store_name') or '-'}\n"
+            f"연락처: {reg.get('phone') or '-'}\n"
+            f"사업자등록번호: {text}\n"
+            f"chat_id: {chat_id}\n\n"
+            "승인/반려는 관리자 페이지에서 진행해주세요."
         )
 
 

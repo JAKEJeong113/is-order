@@ -631,6 +631,15 @@ async def api_signup(
     if not ok:
         return {"ok": False, "message": message}
 
+    telegram_bot.notify_admin(
+        "🆕 웹 회원가입 알림\n\n"
+        f"이메일: {email}\n"
+        f"이름: {display_name}\n"
+        f"연락처: {phone or '-'}\n"
+        f"사업자등록번호: {business_reg_number or '-'}\n\n"
+        "가맹점 지점 연결은 관리자 페이지에서 진행해주세요."
+    )
+
     user_id = web_auth.verify_login(email, password)
     token = web_auth.create_session(user_id)
     response.set_cookie(
