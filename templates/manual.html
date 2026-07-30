@@ -7,7 +7,7 @@
   <style>
     :root {
       --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
-      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+      --line: #e5e7eb; --mint: #2fc5b3; --mint-soft: #ccfbf1; --mint-text: #0f766e;
       --amber-bg: #fef3c7; --amber-line: #fde68a; --amber-ink: #92400e;
       --coral: #dc2626; --coral-bg: #fee2e2;
     }
@@ -82,7 +82,7 @@
     .ds-sidebar .b { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 6px; margin-bottom: 1px; }
     .ds-sidebar .icon { width: 6px; height: 6px; border-radius: 2px; background: #cbd5e1; flex-shrink: 0; }
     .ds-sidebar .b.on { background: #ccfbf1; }
-    .ds-sidebar .b.on .icon { background: #14b8a6; }
+    .ds-sidebar .b.on .icon { background: #2fc5b3; }
     .ds-sidebar .b span { font-size: 9.5px; color: #374151; font-weight: 600; }
     .ds-sidebar .b.on span { color: #0f766e; }
     .ds-main { flex: 1; min-width: 0; padding: 14px 16px; }
@@ -90,7 +90,7 @@
     .ds-main .muted { color: #6b7280; font-size: 10.5px; }
     .ds-search { display: flex; gap: 6px; margin: 10px 0; }
     .ds-search .in { flex: 1; border: 1px solid #e5e7eb; border-radius: 7px; padding: 7px 9px; font-size: 10.5px; color: #9ca3af; background: #fff; }
-    .ds-search .btn { background: #14b8a6; color: #fff; font-size: 10.5px; font-weight: 700; border-radius: 7px; padding: 7px 12px; }
+    .ds-search .btn { background: #2fc5b3; color: #fff; font-size: 10.5px; font-weight: 700; border-radius: 7px; padding: 7px 12px; }
     .ds-row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
     .ds-stat { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 10px; }
     .ds-stat .l { font-size: 9px; color: #6b7280; }
@@ -98,25 +98,25 @@
     .ds-list { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
     .ds-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #f1f5f4; font-size: 10.5px; }
     .ds-item:last-child { border-bottom: none; }
-    .ds-item .rk { width: 15px; height: 15px; border-radius: 50%; background: #14b8a6; color: #fff; font-size: 8.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .ds-item .rk { width: 15px; height: 15px; border-radius: 50%; background: #2fc5b3; color: #fff; font-size: 8.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .ds-item .nm { flex: 1; font-weight: 700; color: #111827; }
     .ds-item .qt { color: #6b7280; font-size: 9.5px; font-family: ui-monospace, monospace; }
     .ds-tabs { display: flex; gap: 4px; margin: 10px 0 8px; }
     .ds-tabs .t { font-size: 9.5px; padding: 5px 9px; border-radius: 7px; background: #f1f5f4; color: #6b7280; font-weight: 700; }
-    .ds-tabs .t.on { background: #14b8a6; color: #fff; }
+    .ds-tabs .t.on { background: #2fc5b3; color: #fff; }
     .ds-note { background: #eff6ff; border: 1px solid #dbeafe; border-radius: 8px; padding: 8px 10px; font-size: 10px; color: #1e40af; margin: 8px 0; }
     .ds-notice { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; font-size: 10px; }
     .ds-notice .d { font-family: ui-monospace, monospace; color: #9ca3af; font-size: 9px; }
     .ds-btn-line { display: flex; gap: 6px; margin: 8px 0; }
     .ds-pill { font-size: 9.5px; font-weight: 700; padding: 5px 9px; border-radius: 999px; background: #111827; color: #fff; }
-    .ds-pill.mint { background: #14b8a6; }
+    .ds-pill.mint { background: #2fc5b3; }
     .ds-pill.ghost { background: #fee2e2; color: #b91c1c; }
     .ds-pill.line { background: #fff; border: 1px solid #e5e7eb; color: #374151; }
     .ds-field { border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px 8px; font-size: 9.5px; color: #9ca3af; background: #fff; }
     .ds-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
     .ds-grid6 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
     .ds-loading { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 30px 10px; text-align: center; }
-    .ds-spin { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #ccfbf1; border-top-color: #14b8a6; animation: manual-spin 0.9s linear infinite; }
+    .ds-spin { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #ccfbf1; border-top-color: #2fc5b3; animation: manual-spin 0.9s linear infinite; }
     @keyframes manual-spin { to { transform: rotate(360deg); } }
     .ds-loading b { font-size: 11px; color: #111827; }
     .ds-loading span { font-size: 9.5px; color: #6b7280; }
@@ -149,11 +149,11 @@
     .ds-prod { background: #fff; border: 1px solid #e5e7eb; border-radius: 9px; overflow: hidden; }
     .ds-prod .img { height: 46px; background: linear-gradient(135deg, #ccfbf1, #e0f2fe); display: flex; align-items: center; justify-content: center; font-size: 18px; }
     .ds-prod .body { padding: 7px 8px; }
-    .ds-prod .rk { font-size: 8px; color: #14b8a6; font-weight: 800; }
+    .ds-prod .rk { font-size: 8px; color: #2fc5b3; font-weight: 800; }
     .ds-prod .nm { font-size: 9.5px; font-weight: 700; color: #111827; margin: 2px 0 4px; }
     .ds-prod .pr { font-size: 10px; font-weight: 800; }
     .ds-prod .buy { margin-top: 5px; display: flex; justify-content: space-between; align-items: center; }
-    .ds-prod .buybtn { font-size: 8px; background: #14b8a6; color: #fff; padding: 3px 7px; border-radius: 999px; font-weight: 700; }
+    .ds-prod .buybtn { font-size: 8px; background: #2fc5b3; color: #fff; padding: 3px 7px; border-radius: 999px; font-weight: 700; }
     .ds-prod .trend { font-size: 8px; color: #6b7280; }
 
     footer.manual-foot { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 22px; color: var(--muted); font-size: 12px; max-width: 900px; }

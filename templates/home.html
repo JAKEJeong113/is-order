@@ -7,7 +7,7 @@
   <style>
     :root {
       --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
-      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+      --line: #e5e7eb; --mint: #2fc5b3; --mint-soft: #ccfbf1; --mint-text: #0f766e;
     }
     * { box-sizing: border-box; }
     body {
@@ -39,8 +39,19 @@
     .search-result-price { font-size: 15px; font-weight: 700; }
     .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
     .stat-card {
-      background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+      background: var(--card); border: 1px solid var(--line); border-top: 3px solid var(--line);
+      border-radius: 12px; padding: 14px;
     }
+    .stat-icon {
+      width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center;
+      justify-content: center; margin-bottom: 10px;
+    }
+    .stat-card.accent-mint { border-top-color: var(--mint); }
+    .stat-card.accent-mint .stat-icon { background: linear-gradient(135deg, var(--mint), #1bb3a3); }
+    .stat-card.accent-coral { border-top-color: #ff8a73; }
+    .stat-card.accent-coral .stat-icon { background: linear-gradient(135deg, #ff9d89, #ff6b52); }
+    .stat-card.accent-blue { border-top-color: #60a5fa; }
+    .stat-card.accent-blue .stat-icon { background: linear-gradient(135deg, #7cb8ff, #3b82f6); }
     .stat-label { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
     .stat-value { font-size: 22px; font-weight: 700; margin: 0; }
     .empty-text { color: var(--muted); font-size: 13px; padding: 20px 4px; }
@@ -62,9 +73,33 @@
       color: var(--mint-text); font-weight: 800; font-size: 13px;
       display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
-    .rank.top3 { background: var(--mint); color: white; }
+    /* 1~3위는 금/은/동 메달 느낌으로 - 그냥 같은 색이던 "top3"보다 눈에 잘 띄게 */
+    .rank.gold { background: linear-gradient(135deg,#ffe17a,#f5b544); color:#7a4a00; box-shadow:0 3px 8px rgba(245,181,68,.45); }
+    .rank.silver { background: linear-gradient(135deg,#f1f5f9,#cbd5e1); color:#475569; box-shadow:0 3px 8px rgba(148,163,184,.4); }
+    .rank.bronze { background: linear-gradient(135deg,#e8b48a,#c47b3f); color:#5c2e00; box-shadow:0 3px 8px rgba(196,123,63,.4); }
     .item-name { font-weight: 600; font-size: 14px; flex: 1; }
     .item-sub { font-size: 12px; color: var(--muted); text-align: right; }
+    /* 로딩 스켈레톤 - "불러오는 중..." 텍스트 대신 회색 뼈대가 은은하게
+       깜빡이며 채워지는 자리표시자. 실제 내용과 레이아웃이 비슷해서 로딩
+       중에도 화면이 훨씬 덜 허전해 보인다. */
+    .skeleton-row {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+      padding: 12px 14px; margin-bottom: 8px;
+    }
+    .skeleton-block {
+      background: linear-gradient(90deg, var(--line) 25%, #f3f4f6 37%, var(--line) 63%);
+      background-size: 400% 100%;
+      animation: skeleton-shimmer 1.4s ease infinite;
+      border-radius: 6px;
+    }
+    @keyframes skeleton-shimmer {
+      0% { background-position: 100% 50%; }
+      100% { background-position: 0 50%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton-block { animation: none; }
+    }
   </style>
 </head>
 <body>
@@ -82,15 +117,24 @@
   </div>
 
   <div class="stat-grid">
-    <div class="stat-card">
+    <div class="stat-card accent-mint">
+      <div class="stat-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+      </div>
       <p class="stat-label">등록된 도매처</p>
       <p class="stat-value" id="vendorStat">-</p>
     </div>
-    <div class="stat-card">
+    <div class="stat-card accent-coral">
+      <div class="stat-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21l-6-11h12z"/><path d="M9 10a3 3 0 0 1 6 0"/><circle cx="12" cy="7" r="4"/></svg>
+      </div>
       <p class="stat-label">인기상품 1위 (아이스크림)</p>
       <p class="stat-value" id="popularStat" style="font-size:15px;">-</p>
     </div>
-    <div class="stat-card">
+    <div class="stat-card accent-blue">
+      <div class="stat-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8l9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+      </div>
       <p class="stat-label">인기상품 1위 (도매처)</p>
       <p class="stat-value" id="popularWholesaleStat" style="font-size:15px;">-</p>
     </div>
@@ -141,12 +185,26 @@
           wholesaleData.items && wholesaleData.items.length ? wholesaleData.items[0].item_name : "데이터 없음";
       }
 
+      function skeletonRows(count) {
+        return Array.from({ length: count }, () => `
+          <div class="skeleton-row">
+            <div class="skeleton-block" style="width:28px;height:28px;border-radius:50%;flex-shrink:0;"></div>
+            <div class="skeleton-block" style="flex:1;height:14px;"></div>
+            <div class="skeleton-block" style="width:60px;height:14px;"></div>
+          </div>
+        `).join("");
+      }
+
+      function rankClass(i) {
+        return i === 0 ? "gold" : i === 1 ? "silver" : i === 2 ? "bronze" : "";
+      }
+
       async function runQuickSearch() {
         const keyword = document.getElementById("quickSearch").value.trim();
         const resultsEl = document.getElementById("quickSearchResults");
         if (!keyword) return;
 
-        resultsEl.innerHTML = '<p class="empty-text" style="margin-top:10px;">검색 중...</p>';
+        resultsEl.innerHTML = `<div style="margin-top:10px;">${skeletonRows(2)}</div>`;
         const res = await fetch(`/api/products/search?q=${encodeURIComponent(keyword)}`);
         const data = await res.json();
 
@@ -177,7 +235,7 @@
         });
 
         const listEl = document.getElementById("popularList");
-        listEl.innerHTML = '<div class="empty-text">불러오는 중...</div>';
+        listEl.innerHTML = skeletonRows(6);
 
         const res = await fetch(`/api/popular?category=${category}`);
         const data = await res.json();
@@ -189,7 +247,7 @@
 
         listEl.innerHTML = data.items.map((item, i) => `
           <div class="item-row">
-            <div class="rank ${i < 3 ? "top3" : ""}">${i + 1}</div>
+            <div class="rank ${rankClass(i)}">${i + 1}</div>
             <div class="item-name">${item.item_name || item.item_key}</div>
             <div class="item-sub">누적 ${item.total_qty.toLocaleString()}개<br>${item.store_count}개 지점</div>
           </div>

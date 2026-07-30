@@ -11,7 +11,7 @@
       --text: #111827;
       --muted: #6b7280;
       --line: #e5e7eb;
-      --mint: #14b8a6;
+      --mint: #2fc5b3;
       --mint-soft: #ccfbf1;
       --mint-text: #0f766e;
     }
@@ -127,6 +127,17 @@
     .offer-row.cheapest .cart-btn { background: white; color: var(--mint-text); }
     .cart-btn:disabled { opacity: 0.6; cursor: default; }
     .cart-status { font-size: 11px; margin-top: 4px; }
+    /* 담기 성공 시 버튼이 살짝 통통 튀며 초록색으로 바뀌는 짧은 피드백 -
+       반복 작업이라 과하지 않게 0.4초 정도로만. */
+    .cart-btn.cart-btn-success { background: var(--mint) !important; color: white !important; animation: cart-success-pop .4s ease; }
+    @keyframes cart-success-pop {
+      0% { transform: scale(1); }
+      45% { transform: scale(1.18); }
+      100% { transform: scale(1); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .cart-btn.cart-btn-success { animation: none; }
+    }
   </style>
 </head>
 <body>
@@ -178,7 +189,7 @@
       ccdome: "#3b82f6",
       "3bong": "#8b5cf6",
       samwon: "#ec4899",
-      hdinter: "#14b8a6",
+      hdinter: "#2fc5b3",
       moomarket: "#eab308",
       douyou: "#ef4444",
     };
@@ -231,6 +242,10 @@
         });
         const data = await res.json();
         statusEl.textContent = data.ok ? "장바구니에 담음 (/cart에서 확인)" : `실패: ${data.reason || data.error || ""}`;
+        if (data.ok) {
+          btnEl.classList.add("cart-btn-success");
+          setTimeout(() => btnEl.classList.remove("cart-btn-success"), 400);
+        }
       } catch (e) {
         statusEl.textContent = "담기 중 오류 발생";
       } finally {

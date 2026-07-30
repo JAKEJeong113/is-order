@@ -7,7 +7,7 @@
   <style>
     :root {
       --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
-      --line: #e5e7eb; --mint: #14b8a6; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+      --line: #e5e7eb; --mint: #2fc5b3; --mint-soft: #ccfbf1; --mint-text: #0f766e;
     }
     * { box-sizing: border-box; }
     body {
@@ -264,7 +264,7 @@
       const xAt = (i) => padX + (i / (points.length - 1)) * w;
       const yAt = (v) => topPad + h - ((v - min) / range) * h;
 
-      ctx.strokeStyle = "#14b8a6";
+      ctx.strokeStyle = "#2fc5b3";
       ctx.lineWidth = 2;
       ctx.beginPath();
       points.forEach((p, i) => {
@@ -274,7 +274,7 @@
       ctx.stroke();
 
       const lastX = xAt(points.length - 1), lastY = yAt(points[points.length - 1].price);
-      ctx.fillStyle = "#14b8a6";
+      ctx.fillStyle = "#2fc5b3";
       ctx.beginPath();
       ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
       ctx.fill();
