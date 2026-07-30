@@ -906,6 +906,13 @@ def cart_page(request: Request):
     return templates.TemplateResponse("cart.html", {"request": request, "active_page": "cart"})
 
 
+@app.get("/manual", response_class=HTMLResponse)
+def manual_page(request: Request):
+    if not get_current_web_user(request):
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("manual.html", {"request": request, "active_page": "manual"})
+
+
 @app.post("/admin/debug-copy-vendor-cred/{vendor_id}/{store_id}")
 def admin_debug_copy_vendor_cred(vendor_id: str, store_id: str, _: bool = Depends(require_admin)):
     """진단용 임시 엔드포인트: 관리자가 등록해둔 크롤링용 계정을 지정한 store_id의
@@ -2046,6 +2053,7 @@ def robots_txt():
         "Disallow: /my-vendors",
         "Disallow: /patch-notes",
         "Disallow: /barcode-search",
+        "Disallow: /manual",
         "Disallow: /vendors",
         "Disallow: /login",
         "Disallow: /signup",
