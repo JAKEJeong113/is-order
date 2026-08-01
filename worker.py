@@ -27,6 +27,7 @@ import browser_limit
 import cart_add_logic
 import cart_jobs
 import popularity
+import store_expiry
 import telegram_bot
 import telegram_store
 import vendors
@@ -43,6 +44,7 @@ def _init_tables() -> None:
     telegram_store.init_telegram_tables()
     popularity.init_popularity_table()
     cart_jobs.init_cart_jobs_table()
+    store_expiry.init_store_expiry_tables()
 
 
 def process_telegram_batch(job: dict) -> None:

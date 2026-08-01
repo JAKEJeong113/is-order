@@ -17,6 +17,7 @@ import consumables
 import popularity
 import price_compare
 import product_ranking
+import store_expiry
 import store_reports
 import telegram_store
 import usage_stats
@@ -145,6 +146,12 @@ HELP_TEXT = """사용 가능한 명령어입니다:
 등록된 도매처를 번호로 골라달라고 물어봐요(예: 도매처 비활성화 삼봉몰 처럼
 바로 붙여도 됨). 계정이 등록되지 않은 도매처는 항상 꺼진 상태로 취급됩니다.
 - 도매처 목록: 현재 켜짐/꺼짐 상태 확인
+
+[유통기한알림]
+담을 때 화면에서 읽은 유통기한이 임박하면(기본 30일/14일/7일 전) 자동으로
+알려드려요. '유통기한알림'만 보내면 현재 설정을 보여주고, '유통기한알림
+30일 켜기'/'유통기한알림 30일 끄기'처럼 기준일별로 켜고 끌 수 있어요.
+같은 상품을 재발주하면 유통기한이 새 값으로 자동 갱신됩니다.
 
 [도움말]
 이 안내를 다시 봅니다."""
@@ -1085,6 +1092,37 @@ def _handle_vendor_toggle_command(chat_id: str, text: str) -> None:
     send_message(chat_id, f"{vendors.VENDORS[vendor_id]['name']}를 {action}했습니다.{note}")
 
 
+_EXPIRY_PREF_DAYS_MAP = {"30일": 30, "14일": 14, "7일": 7}
+
+
+def _handle_expiry_pref_command(chat_id: str, text: str) -> None:
+    """담기(발주) 시점에 자동으로 기록해두는 유통기한이 임박했을 때 보내는
+    알림의 기준일(30/14/7일 전)을 지점별로 켜고 끈다. 기본값은 셋 다 켜짐이라
+    아무 설정 없이도 바로 동작하고, 원치 않는 기준만 꺼두면 된다."""
+    reg = telegram_store.get_registration(chat_id) or {}
+    store_id = reg.get("store_name") or chat_id
+    tokens = text.strip().split()  # tokens[0] == "유통기한알림"
+
+    if len(tokens) == 1:
+        prefs = store_expiry.get_expiry_prefs(store_id)
+        lines = ["유통기한 임박 알림 설정 (담은 상품의 유통기한이 가까워지면 텔레그램으로 알려드려요):"]
+        for days in store_expiry.THRESHOLDS:
+            lines.append(f"- {days}일 전: {'켜짐' if prefs.get(days) else '꺼짐'}")
+        lines.append("\n설정을 바꾸려면 '유통기한알림 30일 켜기' / '유통기한알림 30일 끄기'처럼 보내주세요.")
+        send_message(chat_id, "\n".join(lines))
+        return
+
+    usage = "사용법: 유통기한알림 / 유통기한알림 30일 켜기 / 유통기한알림 14일 끄기 / 유통기한알림 7일 켜기"
+    if len(tokens) < 3 or tokens[1] not in _EXPIRY_PREF_DAYS_MAP or tokens[2] not in ("켜기", "끄기"):
+        send_message(chat_id, usage)
+        return
+
+    days = _EXPIRY_PREF_DAYS_MAP[tokens[1]]
+    enabled = tokens[2] == "켜기"
+    store_expiry.set_expiry_pref(store_id, days, enabled)
+    send_message(chat_id, f"{days}일 전 유통기한 알림을 {'켰습니다' if enabled else '껐습니다'}.")
+
+
 _SELECTIVE_ALERT_REPLY_RE = re.compile(r"^([\d,\s]+?)\s*번?\s*(발송|생략|스킵)$")
 
 
@@ -1346,6 +1384,10 @@ def handle_update(update: dict) -> None:
 
     if text.strip().startswith("도매처"):
         _handle_vendor_toggle_command(chat_id, text)
+        return
+
+    if text.strip().startswith("유통기한알림"):
+        _handle_expiry_pref_command(chat_id, text)
         return
 
     # 새 발주 목록으로 처리

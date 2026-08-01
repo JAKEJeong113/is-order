@@ -61,6 +61,7 @@ import mailer
 import patch_notes
 import popularity
 import product_ranking
+import store_expiry
 import store_reports
 import telegram_bot
 import telegram_store
@@ -132,6 +133,7 @@ biz_tools.init_table()
 consumables.init_table()
 mapping.init_catalog_table()
 mapping.init_unclassified_queue_table()
+store_expiry.init_store_expiry_tables()
 patch_notes.init_patch_notes_table()
 board.init_announcements_table()
 board.init_suggestions_table()
@@ -241,12 +243,17 @@ scheduler.add_job(
 # (앱이 재시작돼도 DB만 보고 판단하므로 안전 - 인메모리 job 등록 상태에
 # 의존하지 않는다.)
 def _resolve_chat_id_for_store(store_id: str) -> str | None:
-    if not store_id.startswith("web:"):
-        return None
-    email = store_id[len("web:"):]
-    linked_store_name = web_auth.get_linked_store_name_by_email(email)
-    if not linked_store_name:
-        return None
+    """store_id -> 텔레그램 chat_id. 웹 계정(store_id="web:이메일")은 연결된
+    지점명을 거쳐 찾고, 텔레그램에서 곧바로 등록한 지점은 store_id 자체가
+    이미 store_name이라 그대로 찾는다(예: 유통기한 알림처럼 웹/텔레그램 양쪽
+    출처의 store_id를 모두 받아야 하는 호출부에서 필요)."""
+    if store_id.startswith("web:"):
+        email = store_id[len("web:"):]
+        linked_store_name = web_auth.get_linked_store_name_by_email(email)
+        if not linked_store_name:
+            return None
+    else:
+        linked_store_name = store_id
     matches = [
         s for s in telegram_store.list_stores()
         if s["approved"] and s["store_name"] == linked_store_name
@@ -380,6 +387,70 @@ scheduler.add_job(
     _run_store_report_tick,
     trigger=IntervalTrigger(minutes=15),
     id="store_report_tick",
+    replace_existing=True,
+)
+
+
+# 유통기한 임박 알림: 담기(add_to_cart) 시점에 store_expiry에 기록해둔 값을
+# 매일 한 번 훑어서, 지점이 켜둔 기준일(30/14/7일 전)을 넘겼는데 아직 그
+# 기준으로는 안 보낸 항목만 골라 텔레그램으로 알려준다. 이미 지난 항목은
+# 더 추적할 이유가 없어(재발주 시 새 유통기한으로 어차피 덮어써짐) 알림
+# 여부와 무관하게 여기서 정리한다.
+def _run_expiry_check_tick() -> None:
+    try:
+        today = date.today()
+        prefs_cache: dict[str, dict] = {}
+        for row in store_expiry.list_all_expiry_rows():
+            try:
+                expiry = date.fromisoformat(row["expiry_date"])
+            except ValueError:
+                store_expiry.delete_expiry_row(row["id"])
+                continue
+
+            days_left = (expiry - today).days
+            if days_left < 0:
+                store_expiry.delete_expiry_row(row["id"])
+                continue
+
+            store_id = row["store_id"]
+            if store_id not in prefs_cache:
+                prefs_cache[store_id] = store_expiry.get_expiry_prefs(store_id)
+            prefs = prefs_cache[store_id]
+
+            due_thresholds = [
+                d for d in store_expiry.THRESHOLDS
+                if prefs.get(d) and days_left <= d and not row[f"notified_{d}d"]
+            ]
+            if not due_thresholds:
+                continue
+
+            chat_id = _resolve_chat_id_for_store(store_id)
+            if not chat_id:
+                continue
+
+            vendor_name = vendors.VENDORS.get(row["vendor_id"], {}).get("name", row["vendor_id"])
+            for d in due_thresholds:
+                try:
+                    telegram_bot.send_message(
+                        chat_id,
+                        f"⏰ 유통기한 임박 안내\n\n{row['item_name']} ({vendor_name})\n"
+                        f"유통기한: {expiry.isoformat()} (D-{days_left})\n\n"
+                        "재발주하시면 유통기한이 새 값으로 자동 갱신됩니다.",
+                    )
+                    store_expiry.mark_notified(row["id"], d)
+                except Exception as e:
+                    telegram_bot.alert_admin(
+                        f"유통기한 알림 발송 실패 (store_id={store_id}, item={row['item_name']}): {e}"
+                    )
+    except Exception as e:
+        telegram_bot.alert_admin(f"유통기한 알림 작업 실패: {e}")
+        raise
+
+
+scheduler.add_job(
+    _run_expiry_check_tick,
+    trigger=CronTrigger(hour=8, minute=30, timezone=KST),
+    id="daily_expiry_check",
     replace_existing=True,
 )
 

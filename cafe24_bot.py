@@ -2,6 +2,7 @@
 """카페24(Cafe24) 플랫폼 공통 봇: 무마켓(moomarket)에서 사용."""
 import os
 import re
+from datetime import date
 from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright, TimeoutError as PWTimeoutError
@@ -12,6 +13,55 @@ import vendors
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
 DEBUG_SCREENSHOT_PATH = DATA_DIR / "debug_cafe24_cart_failure.png"
+
+# 유통기한 추출 - 무마켓(카페24) 상세페이지는 화면에 보이는 본문에는
+# 유통기한이 없고, 판매자가 "상품 설명"란에 날짜만 적어둔 걸 카페24 템플릿이
+# <meta name="description">/OpenGraph/JSON-LD에 그대로 흘려보내는 방식으로
+# 들어있다(실측 확인) - 이 필드는 지금 보고 있는 상품 하나에만 붙는 값이라
+# "함께 사면 좋은 상품" 등 다른 상품 날짜가 섞일 위험이 아예 없다. 내용
+# 전체가 날짜 형식과 정확히 일치할 때만(설명이 우연히 날짜를 언급하는
+# 진짜 문장인 경우를 배제하기 위해) 유통기한으로 받아들인다. 혹시 이 방식을
+# 안 쓰는 상품(설명에 날짜 대신 진짜 문구를 적어둔 경우)을 위해 본문의
+# "소비기한"/"유통기한" 라벨 검색도 폴백으로 둔다.
+_META_DATE_LONG_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_META_DATE_SHORT_RE = re.compile(r"^(\d{2})\.(\d{2})\.(\d{2})$")
+_EXPIRY_LABEL_RE = re.compile(r"(?:소비기한|유통기한)\D{0,10}(\d{4}-\d{2}-\d{2})")
+_EXPIRY_LABEL_SHORT_RE = re.compile(r"(?:소비기한|유통기한)\D{0,10}(\d{2})\.(\d{2})\.(\d{2})")
+
+
+def _parse_expiry_from_meta_description(content: str) -> date | None:
+    content = (content or "").strip()
+    if _META_DATE_LONG_RE.match(content):
+        try:
+            return date.fromisoformat(content)
+        except ValueError:
+            return None
+    m = _META_DATE_SHORT_RE.match(content)
+    if m:
+        yy, mm, dd = m.groups()
+        try:
+            return date.fromisoformat(f"20{yy}-{mm}-{dd}")
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_expiry_from_text(text: str) -> date | None:
+    text = text or ""
+    m = _EXPIRY_LABEL_RE.search(text)
+    if m:
+        try:
+            return date.fromisoformat(m.group(1))
+        except ValueError:
+            pass
+    m2 = _EXPIRY_LABEL_SHORT_RE.search(text)
+    if m2:
+        yy, mm, dd = m2.groups()
+        try:
+            return date.fromisoformat(f"20{yy}-{mm}-{dd}")
+        except ValueError:
+            pass
+    return None
 
 
 def login_cafe24(page: Page, base_url: str, login_id: str, login_pwd: str) -> None:
@@ -267,6 +317,7 @@ def add_to_cart(store_id: str, base_url: str, login_id: str, login_pwd: str, pro
         cached_state = vendors.get_session_state(store_id, "moomarket")
         context = browser.new_context(storage_state=cached_state) if cached_state else browser.new_context()
         page = context.new_page()
+        expiry: date | None = None
 
         # 야미몰에서 클릭 성공/alert만 믿었다가 실제로는 하나도 안 담기는 문제를
         # 겪은 뒤로, 여기서도 처음부터 alert 캡처 + 실제 장바구니 개수 확인을 같이 한다.
@@ -295,9 +346,27 @@ def add_to_cart(store_id: str, base_url: str, login_id: str, login_pwd: str, pro
                 return -1
 
         def _try_add() -> str:
+            nonlocal expiry
             alert_messages.clear()
             page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(800)
+
+            # 리다이렉트(로그인 만료, 잘못된 URL 등)로 실제 상품 상세페이지가 아닌
+            # 다른 화면(홈 등)에 있을 수 있는데, 그 경우 페이지에 있는 "유통기한"
+            # 라벨이 전혀 다른 상품 걸 수 있다(실제로 다른 도매처에서 이 문제를
+            # 확인함) - 최소한 홈/로그인 화면으로 튕기진 않았을 때만 추출한다.
+            if page.url.rstrip("/") != base_url.rstrip("/") and "login" not in page.url.lower():
+                try:
+                    meta_desc = page.locator("meta[name='description']").first
+                    if meta_desc.count() > 0:
+                        expiry = _parse_expiry_from_meta_description(meta_desc.get_attribute("content", timeout=2000))
+                except Exception:
+                    pass
+                if not expiry:
+                    try:
+                        expiry = _parse_expiry_from_text(page.locator("body").inner_text())
+                    except Exception:
+                        pass
 
             before_count = _read_cart_count()
 
@@ -395,7 +464,10 @@ def add_to_cart(store_id: str, base_url: str, login_id: str, login_pwd: str, pro
             if logged_in_fresh:
                 vendors.save_session_state(store_id, "moomarket", context.storage_state())
 
-            return {"ok": True, "qty": qty}
+            ok_result = {"ok": True, "qty": qty}
+            if expiry:
+                ok_result["expiry_date"] = expiry.isoformat()
+            return ok_result
         except Exception as e:
             return {"ok": False, "reason": str(e)}
         finally:

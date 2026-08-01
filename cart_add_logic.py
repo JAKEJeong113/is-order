@@ -4,10 +4,12 @@
 공유해서 쓴다(원래 텔레그램 봇에만 있던 로직을 분리했다)."""
 import threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from datetime import date
 
 import cafe24_bot
 import godomall_bot
 import popularity
+import store_expiry
 import vendors
 import yamimall_bot
 
@@ -103,15 +105,31 @@ def add_single_item_to_cart(store_id: str, item: dict) -> dict:
     session_key = f"{store_id}#acct{account['id']}"
 
     if item["vendor_id"] == "yamimall":
-        return yamimall_bot.add_to_cart(session_key, login_id, login_pwd, item["product_url"], item["qty"], keyword=item.get("item_name"))
-    if item["vendor_id"] == "moomarket":
-        return cafe24_bot.add_to_cart(session_key, base_url, login_id, login_pwd, item["product_url"], item["qty"])
-    if item["vendor_id"] == "douyou":
-        return yamimall_bot.add_to_cart_via_list(
+        result = yamimall_bot.add_to_cart(session_key, login_id, login_pwd, item["product_url"], item["qty"], keyword=item.get("item_name"))
+    elif item["vendor_id"] == "moomarket":
+        result = cafe24_bot.add_to_cart(session_key, base_url, login_id, login_pwd, item["product_url"], item["qty"])
+    elif item["vendor_id"] == "douyou":
+        result = yamimall_bot.add_to_cart_via_list(
             session_key, item["vendor_id"], login_id, login_pwd, item["product_url"], item["qty"],
             base_url=base_url, keyword=item.get("item_name"),
         )
-    return godomall_bot.add_to_cart(session_key, item["vendor_id"], base_url, login_id, login_pwd, item["item_key"], item["qty"])
+    else:
+        result = godomall_bot.add_to_cart(session_key, item["vendor_id"], base_url, login_id, login_pwd, item["item_key"], item["qty"])
+
+    # 담기 자체가 성공했고 그 화면에서 유통기한을 읽어냈으면(도매처마다 지원
+    # 여부가 다름 - yamimall_bot/godomall_bot/cafe24_bot 주석 참고) 지점별로
+    # 기록해둔다. 유통기한 저장이 실패해도 방금 성공한 담기 자체를 실패로
+    # 되돌리면 안 되므로 별도로 감싸서 무시한다.
+    if result.get("ok") and result.get("expiry_date"):
+        try:
+            store_expiry.upsert_expiry(
+                store_id, item["vendor_id"], item.get("item_key") or item["product_url"],
+                item.get("item_name") or "", date.fromisoformat(result["expiry_date"]),
+            )
+        except Exception:
+            pass
+
+    return result
 
 
 def add_item_with_batch_fallback(

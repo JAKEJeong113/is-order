@@ -4,6 +4,7 @@ import json
 import os
 import re
 import threading
+from datetime import date
 from pathlib import Path
 from urllib.parse import quote
 
@@ -15,6 +16,50 @@ import vendors
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
 DEBUG_SCREENSHOT_PATH = DATA_DIR / "debug_login_failure.png"
+
+# 유통기한(소비기한) 추출 - 과자생각/현동몰은 "소비기한"/"유통기한" 라벨이
+# 있어 그 바로 뒤 날짜만 신뢰해서 쓴다(상세페이지 하단 "함께 보면 좋은 상품"
+# 추천 영역에 다른 상품의 날짜가 섞여 있을 수 있어, 라벨 없이 페이지 전체를
+# 훑으면 엉뚱한 상품 걸 집어올 위험이 있다 - 실제로 이 파일의 .btn_basket_cart
+# 관련 주석에도 같은 문제가 이미 기록돼 있다). 삼봉몰은 라벨이 없는 대신
+# 실측으로 확인한 결과 상품 자신의 날짜가 항상 페이지에서 가장 먼저 나오는
+# 날짜였다(추천 영역 날짜는 그 뒤에 나옴) - 라벨을 못 찾았을 때만 이 경험적
+# 규칙(첫 매치)으로 폴백한다. 날짜 표기가 YYYY-MM-DD(과자생각/현동몰)와
+# YY.MM.DD(삼봉몰) 두 가지라 둘 다 인식한다.
+_EXPIRY_LABEL_RE = re.compile(r"(?:소비기한|유통기한)\D{0,10}(\d{4}-\d{2}-\d{2})")
+_BARE_DATE_LONG_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_BARE_DATE_SHORT_RE = re.compile(r"\b(\d{2})\.(\d{2})\.(\d{2})\b")
+
+
+def _parse_expiry_from_text(text: str, allow_bare: bool = False) -> date | None:
+    text = text or ""
+    m = _EXPIRY_LABEL_RE.search(text)
+    if m:
+        try:
+            return date.fromisoformat(m.group(1))
+        except ValueError:
+            pass
+    if not allow_bare:
+        return None
+
+    candidates = []
+    m2 = _BARE_DATE_LONG_RE.search(text)
+    if m2:
+        candidates.append((m2.start(), m2.group(0)))
+    m3 = _BARE_DATE_SHORT_RE.search(text)
+    if m3:
+        yy, mm, dd = m3.groups()
+        candidates.append((m3.start(), f"20{yy}-{mm}-{dd}"))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: c[0])
+    try:
+        d = date.fromisoformat(candidates[0][1])
+    except ValueError:
+        return None
+    if date.today().year <= d.year <= date.today().year + 6:
+        return d
+    return None
 
 # 고도몰은 같은 계정으로 동시에 로그인이 들어오면 "다른 곳에서 로그인 중입니다"
 # 식의 confirm 팝업을 띄우는데, add_to_cart의 dialog 핸들러는 (품절 alert 등을
@@ -412,6 +457,7 @@ def _add_to_cart_locked(
         cached_state = vendors.get_session_state(store_id, vendor_id)
         context = browser.new_context(storage_state=cached_state) if cached_state else browser.new_context()
         page = context.new_page()
+        expiry: date | None = None
 
         # 야미몰/무마켓에서 클릭 성공(예외 없음)만 믿었다가 실제로는 하나도 안
         # 담기는 문제를 겪은 뒤로, 여기도 처음부터 alert 캡처 + 실제 장바구니
@@ -433,6 +479,7 @@ def _add_to_cart_locked(
                 return -1
 
         def _try_add() -> str:
+            nonlocal expiry
             alert_messages.clear()
             page.goto(
                 f"{base_url}/goods/goods_view.php?goodsNo={goods_no}",
@@ -454,6 +501,16 @@ def _add_to_cart_locked(
                 page.wait_for_selector("#cartBtn", timeout=8000)
             except PWTimeoutError:
                 pass
+
+            # 리다이렉트(예: 잘못된 goods_no, 세션 문제 등)로 실제로는 이 상품의
+            # 상세페이지가 아닌 다른 화면(홈 등)에 있을 수 있는데, 그 경우 페이지에
+            # 있는 "유통기한" 라벨이 전혀 다른 상품 걸 수 있다 - URL에 이 goods_no가
+            # 그대로 남아있을 때만(=진짜 이 상품 상세페이지일 때만) 추출한다.
+            if f"goodsNo={goods_no}" in page.url:
+                try:
+                    expiry = _parse_expiry_from_text(page.locator("body").inner_text(), allow_bare=True)
+                except Exception:
+                    pass
 
             # 수량 입력(아래 target_qty 채우기) 전에 이미 #cartBtn이 없는 건지,
             # 아니면 수량을 채우는 순간(예: 재고 초과) 리다이렉트가 발생하는
@@ -583,7 +640,10 @@ def _add_to_cart_locked(
             if logged_in_fresh:
                 vendors.save_session_state(store_id, vendor_id, context.storage_state())
 
-            return {"ok": True, "goods_no": goods_no, "qty": qty}
+            ok_result = {"ok": True, "goods_no": goods_no, "qty": qty}
+            if expiry:
+                ok_result["expiry_date"] = expiry.isoformat()
+            return ok_result
         except Exception as e:
             return {"ok": False, "goods_no": goods_no, "qty": qty, "reason": str(e)}
         finally:

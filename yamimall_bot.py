@@ -2,6 +2,7 @@ import json
 import math
 import os
 import re
+from datetime import date
 from pathlib import Path
 from urllib.parse import quote
 
@@ -16,6 +17,36 @@ YAMIMALL_URL = "https://xn--352blx12s.com"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
 DEBUG_LOGIN_SCREENSHOT_PATH = DATA_DIR / "debug_yamimall_login_failure.png"
+
+# 유통기한(소비기한) 추출 - 상품 상세페이지(item.php)는 "소비기한" 라벨이 있어
+# 그 바로 뒤 날짜만 신뢰해서 쓴다("함께 사면 좋은 상품" 등 관련 상품 영역에
+# 다른 상품의 날짜가 섞여 있을 수 있어, 라벨 없이 페이지 전체에서 날짜를
+# 찾으면 엉뚱한 상품 걸 집어올 위험이 있다 - 실측으로 확인됨). 반면 목록
+# 페이지(list.php)의 상품 카드는 이미 그 상품 하나로 범위가 좁혀져 있어
+# 라벨 없이 날짜 패턴만 봐도 안전하다(add_to_cart_via_list에서 allow_bare=True로 씀).
+_EXPIRY_LABEL_RE = re.compile(r"(?:소비기한|유통기한)\D{0,10}(\d{4}-\d{2}-\d{2})")
+_BARE_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _parse_expiry_from_text(text: str, allow_bare: bool = False) -> date | None:
+    m = _EXPIRY_LABEL_RE.search(text or "")
+    if m:
+        try:
+            return date.fromisoformat(m.group(1))
+        except ValueError:
+            pass
+    if allow_bare:
+        m2 = _BARE_DATE_RE.search(text or "")
+        if m2:
+            try:
+                d = date.fromisoformat(m2.group(0))
+                # 페이지에 숨어있는 날짜 입력 위젯의 기본값(예: 3530-01-01)
+                # 같은 터무니없는 값을 유통기한으로 잘못 저장하지 않도록 방어.
+                if date.today().year <= d.year <= date.today().year + 6:
+                    return d
+            except ValueError:
+                pass
+    return None
 
 
 def run_yamimall_search(page, keyword: str, base_url: str = YAMIMALL_URL) -> None:
@@ -518,6 +549,7 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
     # 여기서 바로 호출하지 않고, 아래 with 블록이 완전히 끝난 뒤에 호출한다.
     needs_list_fallback = False
     result: dict = {"ok": False, "reason": "알 수 없는 오류"}
+    expiry: date | None = None
 
     with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
@@ -541,12 +573,21 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
         page.on("dialog", _on_dialog)
 
         def _try_add() -> str:
+            nonlocal expiry
             alert_messages.clear()
             page.goto(
                 f"{YAMIMALL_URL}:443/shop/item.php?code={item_code}",
                 wait_until="domcontentloaded",
                 timeout=30000,
             )
+            # 리다이렉트로 실제로는 이 상품의 상세페이지가 아닐 수 있는데, 그 경우
+            # 페이지에 있는 "소비기한"이 전혀 다른 상품 걸 수 있다 - URL에 이
+            # item_code가 그대로 남아있을 때만(=진짜 이 상품 상세페이지일 때만) 추출.
+            if f"code={item_code}" in page.url:
+                try:
+                    expiry = _parse_expiry_from_text(page.locator("body").inner_text())
+                except Exception:
+                    pass
 
             # 수량 1개는 +버튼을 누를 필요가 없다. 수량 조절 UI(.add_qty_class)가
             # 지연된 AJAX로 늦게 뜨거나, 상품에 따라 아예 없는 경우(고정 수량 등)도
@@ -630,6 +671,8 @@ def add_to_cart(store_id: str, username: str, password: str, product_url: str, q
                 if logged_in_fresh:
                     vendors.save_session_state(store_id, "yamimall", context.storage_state())
                 result = {"ok": True, "item_code": item_code, "qty": qty}
+                if expiry:
+                    result["expiry_date"] = expiry.isoformat()
         except Exception as e:
             result = {"ok": False, "reason": str(e)}
         finally:
@@ -667,6 +710,7 @@ def add_to_cart_via_list(
     # 검색어로 그대로 쓰면 사이트 검색이 매칭되는 상품을 못 찾는다). 첫 줄(순수
     # 상품명)만 검색어로 쓴다.
     search_keyword = (keyword or item_code).splitlines()[0].strip()
+    expiry: date | None = None
 
     with browser_limit.browser_semaphore, sync_playwright() as p:
         browser = p.chromium.launch(
@@ -723,10 +767,17 @@ def add_to_cart_via_list(
             return links.first.locator("xpath=ancestor::li[1]")
 
         def _try_add() -> str:
+            nonlocal expiry
             alert_messages.clear()
             container = _find_container()
             if container is None:
                 return "not_found"
+
+            try:
+                container_text = container.evaluate("(el) => el.innerText || el.textContent || ''")
+                expiry = _parse_expiry_from_text(container_text, allow_bare=True)
+            except Exception:
+                pass
 
             # 이 목록 카드의 수량 스텝퍼(.qty_plus_class2)는 화면 크기가 0이라
             # Playwright의 일반 클릭/입력으로는 아예 상호작용이 안 된다(실측
@@ -891,7 +942,10 @@ def add_to_cart_via_list(
             if logged_in_fresh:
                 vendors.save_session_state(store_id, vendor_id, context.storage_state())
 
-            return {"ok": True, "item_code": item_code, "qty": qty}
+            ok_result = {"ok": True, "item_code": item_code, "qty": qty}
+            if expiry:
+                ok_result["expiry_date"] = expiry.isoformat()
+            return ok_result
         except Exception as e:
             return {"ok": False, "reason": str(e)}
         finally:
