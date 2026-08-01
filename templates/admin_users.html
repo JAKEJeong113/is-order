@@ -78,7 +78,10 @@
           <div class="link-row">
             <select id="store-${u.id}">${options}</select>
             <button onclick="linkStore(${u.id})">저장</button>
-            <a class="doc-link" href="/admin/api/web-users/${u.id}/business-reg-image" target="_blank" rel="noopener">사업자등록증 보기</a>
+            ${u.has_business_reg_image ? `
+              <a class="doc-link" href="/admin/api/web-users/${u.id}/business-reg-image" target="_blank" rel="noopener">사업자등록증 보기</a>
+              <button class="btn-danger" onclick="deleteImage(${u.id})">이미지 삭제</button>
+            ` : `<span class="doc-link" style="opacity:.5;">이미지 없음</span>`}
             <button class="btn-danger" onclick="deleteUser(${u.id}, '${u.email}')">삭제</button>
           </div>
         </div>
@@ -98,6 +101,18 @@
         body: JSON.stringify({ store_name: sel.value || null }),
       });
       loadUsers();
+    }
+
+    async function deleteImage(userId) {
+      if (!confirm("사업자등록증 이미지를 삭제할까요?\n(먼저 '사업자등록증 보기'로 확인/다운로드한 뒤 삭제해주세요 - 계정과 지점 연결은 그대로 유지되고 이미지만 지워집니다.)")) return;
+
+      const res = await fetch(`/admin/api/web-users/${userId}/business-reg-image`, { method: "DELETE" });
+      if (res.ok) {
+        loadUsers();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.detail || "삭제에 실패했습니다.");
+      }
     }
 
     async function deleteUser(userId, email) {

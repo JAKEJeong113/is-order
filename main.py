@@ -1995,6 +1995,16 @@ def api_admin_business_reg_image(user_id: int, _: bool = Depends(require_admin))
     return Response(content=image_bytes, media_type=mimetype)
 
 
+@app.delete("/admin/api/web-users/{user_id}/business-reg-image")
+def api_admin_delete_business_reg_image(user_id: int, _: bool = Depends(require_admin)):
+    """가입 심사(사업자등록증 확인)가 끝난 뒤 DB 용량을 아끼려고 이미지만
+    지운다 - 계정/지점 연결 등 다른 정보는 그대로 남는다."""
+    ok = web_auth.delete_business_reg_image(user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="등록된 사업자등록증이 없습니다.")
+    return {"ok": True}
+
+
 class DeleteWebUserRequest(BaseModel):
     reason: str
 

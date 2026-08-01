@@ -275,15 +275,34 @@ def list_users() -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT id, email, display_name, linked_store_name, created_at
+    SELECT id, email, display_name, linked_store_name, created_at, (business_reg_image IS NOT NULL)
     FROM web_users ORDER BY created_at DESC
     """)
     rows = cur.fetchall()
     conn.close()
     return [
-        {"id": r[0], "email": r[1], "display_name": r[2], "linked_store_name": r[3], "created_at": r[4]}
+        {
+            "id": r[0], "email": r[1], "display_name": r[2], "linked_store_name": r[3], "created_at": r[4],
+            "has_business_reg_image": bool(r[5]),
+        }
         for r in rows
     ]
+
+
+def delete_business_reg_image(user_id: int) -> bool:
+    """관리자가 사업자등록증 이미지를 확인(다운로드)한 뒤, DB 용량을 아끼려고
+    이미지만 지우고 계정 자체는 그대로 둘 때 쓴다 - 이미지는 가입 심사용으로만
+    필요하고 심사가 끝나면 더 보관할 이유가 없다."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE web_users SET business_reg_image = NULL, business_reg_image_mimetype = NULL WHERE id = ?",
+        (user_id,),
+    )
+    updated = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
 
 
 def get_user_by_id(user_id: int) -> dict | None:
