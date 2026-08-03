@@ -13,6 +13,17 @@ LOGIN_URL = "https://www.orderqueen.kr/backoffice_admin/login.itp"
 # 매출 리포트 페이지에서 기본 30초 타임아웃 초과 확인), 조금 여유를 둔다.
 PAGE_GOTO_TIMEOUT_MS = 45000
 
+# wait_for_load_state("networkidle", ...)에 쓰는 타임아웃. 원래 20초로 짧게
+# 박혀 있었는데, 2026-08-03 실제 운영 로그에서 로그인 직후는 통과하고 매출
+# 리포트 페이지(SAL03020.itp) 진입 직후의 networkidle 대기에서만 20초를 넘겨
+# 실패한 사례가 확인됐다(재시도 2회 다 같은 지점에서 실패). 이 페이지가 백그라운드
+# 네트워크 요청(광고/분석 등으로 추정)을 계속 띄우는 걸로 보이는데, 조회
+# 결과에 필요한 요소(날짜 입력칸/조회·다운로드 버튼)가 페이지 로드 시점부터
+# 이미 DOM에 존재해서(실측 확인) 특정 요소를 기다리는 방식으로는 "조회 결과가
+# 실제로 갱신됐는지"를 구분할 수 없다 - 그래서 wait_for_selector로 바꾸는 대신
+# PAGE_GOTO_TIMEOUT_MS와 동일하게 여유를 늘리는 쪽을 택했다.
+NETWORKIDLE_TIMEOUT_MS = PAGE_GOTO_TIMEOUT_MS
+
 # 환경변수에서 읽기
 REPORT_URL = "https://www.orderqueen.kr/backoffice_admin/SAL03020.itp"
 DATE_FROM_SELECTOR = os.getenv("OQ_DATE_FROM_SELECTOR", "#schSDate")
@@ -71,7 +82,7 @@ def _download_orderqueen_xlsx_inner(
 
     # ✅ 로그인 제출: 버튼 클릭 대신 Enter로 submit (버튼 셀렉터 문제 회피)
     pw_box.press("Enter")
-    page.wait_for_load_state("networkidle", timeout=20000)
+    page.wait_for_load_state("networkidle", timeout=NETWORKIDLE_TIMEOUT_MS)
 
     # ✅ 아직 로그인 페이지면(실패/추가 버튼 필요) fallback 후보 클릭
     if "login.itp" in page.url:
@@ -88,7 +99,7 @@ def _download_orderqueen_xlsx_inner(
             loc = page.locator(sel)
             if loc.count() > 0:
                 loc.first.click()
-                page.wait_for_load_state("networkidle", timeout=20000)
+                page.wait_for_load_state("networkidle", timeout=NETWORKIDLE_TIMEOUT_MS)
                 break
 
     # ✅ 그래도 로그인 페이지면: 디버그 스크린샷 저장하고 중단
@@ -99,7 +110,7 @@ def _download_orderqueen_xlsx_inner(
 
     # 2️⃣ 매출 리포트 페이지 이동
     page.goto(REPORT_URL, wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
-    page.wait_for_load_state("networkidle", timeout=20000)
+    page.wait_for_load_state("networkidle", timeout=NETWORKIDLE_TIMEOUT_MS)
 
     # 3️⃣ 기간 입력 (readonly라 JS로 강제 세팅)
     page.evaluate(
@@ -128,7 +139,7 @@ def _download_orderqueen_xlsx_inner(
 
     # 조회 클릭
     page.click(SEARCH_BUTTON_SELECTOR)
-    page.wait_for_load_state("networkidle", timeout=20000)
+    page.wait_for_load_state("networkidle", timeout=NETWORKIDLE_TIMEOUT_MS)
 
     # 4️⃣ 엑셀 다운로드
     try:
@@ -151,7 +162,10 @@ def _download_orderqueen_xlsx_inner(
 # 사이트의 일시적인 느림/타임아웃 한 번으로 그날 리포트를 통째로 못 받는
 # 사고가 실제로 있었다(SAL03020.itp 30초 타임아웃). 완전히 새 브라우저
 # 세션으로 한 번 더 시도해서 이런 일시적 문제를 흡수한다.
-DOWNLOAD_MAX_ATTEMPTS = 2
+# (2026-08-03: networkidle 타임아웃으로 재시도 2번이 같은 지점에서 모두
+# 실패한 사례가 있어 - NETWORKIDLE_TIMEOUT_MS를 늘린 것과 별개로 - 여유를
+# 한 번 더 뒀다.)
+DOWNLOAD_MAX_ATTEMPTS = 3
 DOWNLOAD_RETRY_DELAY_SECONDS = 5
 
 
