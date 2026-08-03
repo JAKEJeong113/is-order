@@ -413,15 +413,20 @@ def crawl_full_catalog(
                         break
 
                     items = _extract_list_page_items(page)
-                    if not items:
-                        break
-
+                    # 페이지 자체가 비어 보여도 렌더링이 늦어서(사이트가 가끔 느릴 때가
+                    # 있는 게 이 프로젝트 전반에서 실측으로 여러 번 확인됨) 실제로는
+                    # 상품이 있는 페이지일 수 있다 - 바로 break하면 그 뒤 페이지가
+                    # 아무리 많이 남아있어도 카테고리 전체를 조용히 포기하게 된다(실제로
+                    # 야미몰 전체 크롤링이 카테고리당 페이지 1장 분량만 모으고 끝난
+                    # 사고의 원인으로 추정됨). "새 상품 없음"과 똑같이 연속 횟수로만
+                    # 판단한다.
                     new_count = 0
-                    for item in items:
-                        key = item.pop("_key")
-                        if key not in products:
-                            products[key] = item
-                            new_count += 1
+                    if items:
+                        for item in items:
+                            key = item.pop("_key")
+                            if key not in products:
+                                products[key] = item
+                                new_count += 1
 
                     if new_count == 0:
                         consecutive_empty_pages += 1

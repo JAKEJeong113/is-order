@@ -373,15 +373,18 @@ def crawl_full_catalog(
                         break
 
                     items = _extract_page_items(page, base_url)
-                    if not items:
-                        break
-
+                    # 페이지가 비어 보여도 렌더링이 늦어서(사이트가 가끔 느릴 때가 있는
+                    # 게 이 프로젝트 전반에서 실측으로 여러 번 확인됨) 실제로는 상품이
+                    # 있는 페이지일 수 있다 - 바로 break하면 그 뒤 페이지가 아무리 많이
+                    # 남아있어도 카테고리 전체를 조용히 포기하게 된다. "새 상품 없음"과
+                    # 똑같이 연속 횟수로만 판단한다.
                     new_count = 0
-                    for it in items:
-                        key = it["goods_no"] or it["name"]
-                        if key not in all_products:
-                            all_products[key] = it
-                            new_count += 1
+                    if items:
+                        for it in items:
+                            key = it["goods_no"] or it["name"]
+                            if key not in all_products:
+                                all_products[key] = it
+                                new_count += 1
 
                     if new_count == 0:
                         consecutive_empty_pages += 1
