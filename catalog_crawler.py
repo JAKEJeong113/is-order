@@ -61,6 +61,18 @@ def crawl_vendor(vendor_id: str) -> dict:
     finally:
         pool.shutdown(wait=False)
 
+    # 예외 없이 "성공"으로 끝났는데 상품이 0개면 진짜로 그 도매처가 텅 빈 게
+    # 아니라 로그인 세션이 미묘하게 깨졌거나 사이트 구조가 바뀌는 등 크롤링
+    # 자체가 조용히 실패한 경우일 가능성이 훨씬 크다(실측: 과자생각이 이 경로로
+    # 캐시가 통째로 0건이 됨). 이 상태를 그대로 replace_vendor_catalog에 넘기면
+    # 멀쩡했던 기존 캐시까지 빈 걸로 덮어써버리므로, 0건이면 기존 캐시를 그대로
+    # 두고 실패로 기록해서 다음 크롤링 때 회복을 노린다.
+    if not products:
+        error = "크롤링 결과 0건 - 기존 캐시를 유지합니다(사이트 구조 변경/로그인 세션 문제 가능성)"
+        print(f"[CATALOG_CRAWLER] {vendor_id} 크롤링 실패:", error)
+        catalog_cache.record_refresh_error(vendor_id, error)
+        return {"vendor_id": vendor_id, "ok": False, "error": error}
+
     catalog_cache.replace_vendor_catalog(vendor_id, products)
     return {"vendor_id": vendor_id, "ok": True, "product_count": len(products)}
 
