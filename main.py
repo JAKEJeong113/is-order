@@ -2510,6 +2510,13 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
                         break
 
             unit_qty = int(offer.get("unit_qty") or 0) if offer else 0
+            if unit_qty <= 0 and offer:
+                # 목록 크롤링으로는 1타 개수를 거의 못 읽어오는 도매처(현동몰/무마켓)는
+                # 자동 리포트(store_reports._classify_report_items)와 동일하게 상세페이지를
+                # 한 번 더 조회해서 채워본다 - 이 보충 없이는 두 도매처 상품이 거의 다
+                # "1타 수량 미확인"으로만 나온다(실측 확인).
+                unit_qty = store_reports._fetch_missing_unit_qty(offer["vendor_id"], offer.get("product_url")) or 0
+
             if unit_qty <= 0:
                 item["추천박스수"] = "1타 수량 미확인"
                 item["포장반영"] = "#N/A"
