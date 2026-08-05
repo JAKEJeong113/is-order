@@ -576,6 +576,11 @@ class OrderQueenImportResponse(BaseModel):
     representative_partner_link: Optional[str] = None
     account_id: Optional[int] = None
     account_nickname: Optional[str] = None
+    # 사용자가 고른 조회 시작일이 이미 집계된(이월에 반영된) 기간과 겹치면
+    # 서버가 실제로 조회/집계한 시작일로 당겨서 돌려준다 - 화면과 텔레그램
+    # 메시지가 실제 집계 범위와 다르게 표시되는 걸 막기 위함(period_from 참고).
+    period_from: str
+    period_to: str
 
 class YamimallCartRequest(BaseModel):
     items: list[dict]
@@ -2270,6 +2275,23 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
     account = vendors.resolve_store_vendor_account(store_id, "orderqueen", req.account_id)
     account_nickname = account["nickname"] if account else None
 
+    # "수동 생성"을 반복(예: 같은 날 조회 시작일을 안 바꾸고 여러 번, 또는 자동
+    # 리포트가 이미 돈 뒤에 겹치는 기간으로) 누르면, 이 기간의 판매량이
+    # apply_manual_pull_carryover로 이월에 또 더해져서 실제로는 한 번만 팔린
+    # 게 두 번(또는 그 이상) 잡히는 문제가 있었다(예: "이번 X개+이월 X개"처럼
+    # 정확히 겹쳐 보이는 현상). 이미 집계된(커서 이전) 구간은 조회 자체를
+    # 하지 않도록 조회 시작일을 커서 다음날로 당겨서, 항상 "아직 안 센 새
+    # 판매 데이터"만 조회·집계한다 - 자동 리포트(generate_report)와 동일한
+    # 방식이다.
+    cursor_key = store_reports.report_key(store_id, req.account_id)
+    cursor = store_reports.get_last_aggregated_until(cursor_key)
+    effective_period_from = max(req.period_from, cursor + timedelta(days=1))
+    if effective_period_from > req.period_to:
+        raise HTTPException(
+            status_code=400,
+            detail=f"선택하신 기간은 이미 집계된 판매 데이터입니다({cursor.isoformat()}까지 반영됨). 조회 종료일을 그 이후로 선택해주세요.",
+        )
+
     job_id = uuid.uuid4().hex[:8]
     sales_xlsx_path = str(DOWNLOAD_DIR / f"아이즈크림 오산세교_{job_id}.xlsx")
 
@@ -2277,7 +2299,7 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
     download_orderqueen_xlsx(
         login_id=login_id,
         login_pw=login_pw,
-        period_from=req.period_from,
+        period_from=effective_period_from,
         period_to=req.period_to,
         save_path=sales_xlsx_path,
     )
@@ -2285,7 +2307,7 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
     # 2) 판매 데이터 파싱
     _, summary, top_items = parse_menu_sales_xlsx(
         xlsx_path=sales_xlsx_path,
-        period_from=req.period_from,
+        period_from=effective_period_from,
         period_to=req.period_to,
     )
 
@@ -2600,7 +2622,7 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
     # 예약 주기가 도래하지 않아도 수동으로 불러온 도매몰/아이스크림 판매량이
     # 자동 리포트의 이월(carryover)에서 누락되지 않도록 반영한다 (갭이 있으면
     # store_reports가 알아서 커서를 건드리지 않고 건너뜀).
-    store_reports.apply_manual_pull_carryover(store_id, req.account_id, req.period_from, req.period_to, manual_carryover_items)
+    store_reports.apply_manual_pull_carryover(store_id, req.account_id, effective_period_from, req.period_to, manual_carryover_items)
 
     # 7) 엑셀 생성
     export_path = None
@@ -2640,11 +2662,13 @@ def import_from_orderqueen(req: OrderQueenImportRequest, user: dict = Depends(re
         "representative_partner_link": representative_partner_link,
         "account_id": req.account_id,
         "account_nickname": account_nickname,
+        "period_from": effective_period_from.isoformat(),
+        "period_to": req.period_to.isoformat(),
     }
 
     # order 페이지를 벗어나도 마지막 수동 생성 결과를 이어볼 수 있도록 저장.
     store_reports.save_manual_report(
-        store_id, req.account_id, req.period_from.isoformat(), req.period_to.isoformat(), safety, response,
+        store_id, req.account_id, effective_period_from.isoformat(), req.period_to.isoformat(), safety, response,
     )
 
     return response

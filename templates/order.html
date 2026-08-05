@@ -1171,10 +1171,17 @@
 
       document.getElementById("sendTelegramBtn").disabled = false;
 
+      // 조회 시작일이 이미 집계된 기간과 겹치면 서버가 실제로 집계한 시작일로
+      // 당겨서 돌려준다(data.period_from) - 화면 표시는 실제로 반영된 기간을
+      // 보여줘야 사용자가 헷갈리지 않는다(직접 고른 periodFrom이 아님).
+      if (data.period_from && data.period_from !== periodFrom) {
+        alert(`${periodFrom}~${data.period_from} 전날까지는 이미 집계된 기간이라, ${data.period_from}부터 다시 집계했습니다(중복 집계 방지).`);
+      }
+
       const label = document.getElementById("lastGeneratedText");
       label.style.display = "";
       const acctPrefix = data.account_nickname ? `[${data.account_nickname}] ` : "";
-      label.innerText = `${acctPrefix}마지막 생성: 방금 (${periodFrom} ~ ${periodTo})`;
+      label.innerText = `${acctPrefix}마지막 생성: 방금 (${data.period_from} ~ ${data.period_to})`;
 
     } catch (e) {
       alert("요청 중 오류가 발생했어.\n\n" + e);
@@ -1194,12 +1201,15 @@
     btn.innerText = "발송 중...";
 
     try {
+      // 날짜picker 원본 값이 아니라 실제로 집계에 쓰인 기간(currentData.period_from/
+      // period_to - 서버가 중복 집계 방지를 위해 당겼을 수 있음)을 그대로 써야
+      // 텔레그램 메시지 헤더가 실제 반영된 기간과 다르게 뜨지 않는다.
       const res = await fetch("/api/store-reports/send-manual", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
-          period_from: document.getElementById("periodFrom").value,
-          period_to: document.getElementById("periodTo").value,
+          period_from: currentData.period_from || document.getElementById("periodFrom").value,
+          period_to: currentData.period_to || document.getElementById("periodTo").value,
           top_items: currentData.top_items,
           account_id: getManualAccountId(),
         }),
