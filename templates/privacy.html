@@ -19,7 +19,6 @@
     table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
     th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
     th { background: #f3f4f6; }
-    .blank { color: #b91c1c; font-weight: 600; }
     .note { font-size: 12px; color: var(--muted); margin-top: 6px; }
     .back { display: inline-block; margin-top: 24px; font-size: 13px; color: var(--mint); text-decoration: none; font-weight: 600; }
   </style>
@@ -45,13 +44,13 @@
     <p><b>서비스 이용 중 자동 생성되는 정보</b>: 주문/장바구니 이용 내역(품목, 수량, 일시), 기능 이용 로그(일시)</p>
 
     <h2>2. 개인정보의 보유 및 이용 기간</h2>
-    <p>회원 탈퇴 시까지 보유하며, 탈퇴 처리 시 파기합니다. 다만 다음의 경우는 예외로 합니다.</p>
-    <p class="blank">[[관계 법령에 따른 보존 의무 및 그 기간, 내부 방침상 별도 보관 기간이 있다면 기입 필요 —
-    현재 코드에는 결제·전자상거래 기록 보존 로직이 없습니다.]]</p>
+    <p>회사는 회원에게 재화를 직접 판매하거나 대금을 받지 않으며(대금 결제는 각 도매몰에서 발생),
+    「전자상거래 등에서의 소비자보호에 관한 법률」에 따른 거래기록 보존 의무의 대상이 되는 거래를
+    직접 수행하지 않습니다. 따라서 별도의 법정 보존 의무가 없는 한, 회원 탈퇴 시 지체 없이 파기합니다.</p>
 
     <h2>3. 파기절차와 파기방법</h2>
-    <p>회원 탈퇴 등으로 개인정보 보유 목적이 달성된 경우, 관리자 확인 후 해당 정보를
-    <span class="blank">[[파기까지 소요되는 절차/기간 기입 필요]]</span> 파기합니다.</p>
+    <p>회원 탈퇴 등으로 개인정보 보유 목적이 달성된 경우, 개인정보 보호책임자의 확인을 거쳐
+    파기 사유가 발생한 날로부터 5일 이내에 해당 정보를 파기합니다.</p>
     <ul>
       <li>전자적 파일 형태의 정보는 복구 불가능한 방법으로 영구 삭제합니다.</li>
       <li>사업자등록증 이미지 등 첨부파일은 DB 레코드 삭제를 통해 파기합니다.</li>
@@ -69,20 +68,24 @@
       <tr><td>도매몰 6곳(야미몰 등)</td><td>발주 자동화(장바구니 담기·조회)</td><td>매장이 등록한 도매몰 로그인 정보</td></tr>
       <tr><td>오더퀸(OrderQueen)</td><td>매장 판매 데이터 조회</td><td>매장이 등록한 POS 로그인 정보</td></tr>
     </table>
-    <p class="note">Telegram, Resend는 해외 사업자입니다. 국외 이전 관련 별도 고지·동의 절차 필요 여부는
-    <span class="blank">[[법률 검토 필요]]</span></p>
+    <p class="note">Telegram(운영사: Telegram FZ-LLC, 아랍에미리트 두바이 소재)에는 chat_id, 전화번호,
+    사업자등록번호, 대화 메시지가 봇 API를 통해 실시간으로 전송되며, Resend(운영사: Plus Five Five, Inc.
+    dba Resend, 미국 캘리포니아 샌프란시스코 소재)에는 이메일 주소, 표시 이름, (해당 시) 안내 사유가 이메일
+    발송 API를 통해 실시간으로 전송됩니다. 각 사는 자체 개인정보처리방침에 따라 위 정보를 보유·이용합니다.
+    텔레그램 연동은 선택 사항이라 원치 않으시면 웹 서비스만 이용하실 수 있으나, 이메일 발송은 비밀번호
+    재설정 등 서비스 제공에 필수적이라 별도 거부 시 해당 기능 이용이 제한됩니다.</p>
 
     <h2>6. 이용자의 권리와 행사 방법</h2>
     <p>이용자는 언제든지 자신의 개인정보에 대해 열람, 정정, 삭제, 처리정지를 요구할 수 있습니다.</p>
-    <p>요구 방법: <span class="blank">[[접수 창구(이메일/전화 등) 기입 필요]]</span></p>
-    <p>처리 기한: <span class="blank">[[내부 기준 확정 필요 — 통상 접수 후 10일 이내 등]]</span></p>
+    <p>요구 방법: 고객센터(전화 010-8498-7595, 이메일 lottotto0404@naver.com, 평일 09:00-18:00)로 연락</p>
+    <p>처리 기한: 요구를 받은 날로부터 10일 이내 (「개인정보 보호법 시행령」 제41조)</p>
 
     <h2>7. 개인정보 보호책임자 및 연락처</h2>
     <table>
-      <tr><th>성명</th><td class="blank">[[기입 필요]]</td></tr>
-      <tr><th>직책</th><td class="blank">[[기입 필요]]</td></tr>
-      <tr><th>연락처(전화)</th><td class="blank">[[기입 필요]]</td></tr>
-      <tr><th>연락처(이메일)</th><td class="blank">[[기입 필요]]</td></tr>
+      <tr><th>성명</th><td>정상경</td></tr>
+      <tr><th>직책</th><td>대표</td></tr>
+      <tr><th>연락처(전화)</th><td>010-8498-7595</td></tr>
+      <tr><th>연락처(이메일)</th><td>lottotto0404@naver.com</td></tr>
     </table>
 
     <h2>8. 쿠키(Cookie) 등 자동 수집 장치와 거부 방법</h2>
@@ -93,7 +96,7 @@
     이용할 수 없습니다.</p>
 
     <h2>부칙</h2>
-    <p>이 개인정보처리방침은 <span class="blank">[[시행일 기입 필요]]</span>부터 적용됩니다.</p>
+    <p>이 개인정보처리방침은 2026년 8월 1일부터 적용됩니다.</p>
 
     <a class="back" href="/signup">← 회원가입으로 돌아가기</a>
   </div>
