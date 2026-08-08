@@ -685,14 +685,22 @@ def get_session_state(store_id: str, vendor_id: str) -> dict | None:
     conn.close()
     if not row or not row[0]:
         return None
+    raw = row[0]
     try:
-        return json.loads(row[0])
+        # 기존에 평문으로 저장된 세션(암호화 적용 전)과의 호환을 위해
+        # 복호화 실패 시 평문 JSON으로 한 번 더 시도한다.
+        raw = _get_fernet().decrypt(raw.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        pass
+    try:
+        return json.loads(raw)
     except ValueError:
         return None
 
 
 def save_session_state(store_id: str, vendor_id: str, state: dict) -> None:
     now = datetime.now().isoformat(timespec="seconds")
+    encrypted = _get_fernet().encrypt(json.dumps(state).encode("utf-8")).decode("utf-8")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
@@ -701,7 +709,7 @@ def save_session_state(store_id: str, vendor_id: str, state: dict) -> None:
     ON CONFLICT(store_id, vendor_id) DO UPDATE SET
         storage_state = excluded.storage_state,
         saved_at = excluded.saved_at
-    """, (store_id, vendor_id, json.dumps(state), now))
+    """, (store_id, vendor_id, encrypted, now))
     conn.commit()
     conn.close()
 

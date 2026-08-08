@@ -35,6 +35,10 @@
     .success-icon { font-size: 40px; text-align: center; margin-bottom: 6px; }
     .success-desc { font-size: 13px; color: var(--muted); text-align: center; margin: 0 0 20px; line-height: 1.6; }
     #successPanel { display: none; }
+    .consent-row { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 16px; }
+    .consent-row input { width: auto; margin: 2px 0 0; }
+    .consent-row label { margin: 0; font-size: 13px; color: var(--text); font-weight: 400; }
+    .consent-row a { color: var(--mint); font-weight: 600; text-decoration: none; }
   </style>
 </head>
 <body>
@@ -65,6 +69,11 @@
       <input id="bizRegImage" type="file" accept="image/jpeg,image/png,image/webp">
       <div class="file-hint">JPG, PNG, WEBP만 가능 · 최대 8MB</div>
 
+      <div class="consent-row">
+        <input id="privacyConsent" type="checkbox">
+        <label for="privacyConsent"><a href="/privacy" target="_blank" rel="noopener">개인정보처리방침</a>에 따른 개인정보 수집·이용에 동의합니다. (필수)</label>
+      </div>
+
       <button id="signupBtn">가입하기</button>
       <div class="switch-link">이미 계정이 있으신가요? <a href="/login">로그인</a></div>
     </div>
@@ -92,6 +101,7 @@
       const phone = document.getElementById("phone").value.trim();
       const imageInput = document.getElementById("bizRegImage");
       const imageFile = imageInput.files[0];
+      const privacyConsent = document.getElementById("privacyConsent").checked;
       const errorEl = document.getElementById("error");
       errorEl.textContent = "";
 
@@ -103,6 +113,10 @@
         errorEl.textContent = "사업자등록증 사진을 첨부해주세요.";
         return;
       }
+      if (!privacyConsent) {
+        errorEl.textContent = "개인정보 수집·이용에 동의해주세요.";
+        return;
+      }
 
       const formData = new FormData();
       formData.append("email", email);
@@ -112,6 +126,7 @@
       formData.append("address", address);
       formData.append("phone", phone);
       formData.append("business_reg_image", imageFile);
+      formData.append("privacy_consent", privacyConsent ? "true" : "false");
 
       const res = await fetch("/api/auth/signup", {
         method: "POST",

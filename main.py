@@ -55,6 +55,7 @@ import cart_jobs
 import catalog_cache
 import catalog_crawler
 import consumables
+import db_conn
 import godomall_bot
 import board
 import mailer
@@ -687,6 +688,11 @@ def signup_page(request: Request):
     )
 
 
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy_page(request: Request):
+    return templates.TemplateResponse("privacy.html", {"request": request})
+
+
 @app.post("/api/auth/signup")
 async def api_signup(
     response: Response,
@@ -697,12 +703,14 @@ async def api_signup(
     address: str = Form(""),
     phone: str = Form(""),
     business_reg_image: UploadFile = File(...),
+    privacy_consent: bool = Form(False),
 ):
     image_bytes = await business_reg_image.read()
     ok, message = web_auth.signup(
         email, password, display_name,
         business_reg_number=business_reg_number, address=address, phone=phone,
         business_reg_image_bytes=image_bytes, business_reg_image_mimetype=business_reg_image.content_type,
+        privacy_consent=privacy_consent,
     )
     if not ok:
         return {"ok": False, "message": message}
@@ -2010,6 +2018,37 @@ def api_admin_delete_business_reg_image(user_id: int, _: bool = Depends(require_
     return {"ok": True}
 
 
+# 웹 회원(store_id = f"web:{email}")을 참조하는 모든 테이블. 관리자가 회원을
+# 삭제할 때 web_users/web_sessions만 지우고 이 데이터들을 남겨두면 개인정보가
+# 실제로는 파기되지 않은 채 남는다 - 회원 삭제 시 반드시 함께 지운다.
+_WEB_USER_DATA_TABLES = [
+    "suggestions",
+    "cart_jobs",
+    "order_events",
+    "usage_events",
+    "store_item_expiry",
+    "store_expiry_prefs",
+    "store_report_schedules",
+    "store_report_state",
+    "store_item_carryover",
+    "store_manual_reports",
+    "store_vendor_credentials",
+    "store_vendor_prefs",
+    "store_vendor_sessions",
+    "web_cart_items",
+]
+
+
+def _purge_web_user_data(email: str) -> None:
+    store_id = f"web:{email}"
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    for table in _WEB_USER_DATA_TABLES:
+        cur.execute(f"DELETE FROM {table} WHERE store_id = ?", (store_id,))
+    conn.commit()
+    conn.close()
+
+
 class DeleteWebUserRequest(BaseModel):
     reason: str
 
@@ -2025,6 +2064,7 @@ def api_admin_delete_web_user(user_id: int, req: DeleteWebUserRequest, _: bool =
         return {"ok": False, "message": "존재하지 않는 회원입니다."}
 
     mail_ok, mail_message = mailer.send_account_deleted_email(user["email"], user["display_name"], reason)
+    _purge_web_user_data(user["email"])
     web_auth.delete_user(user_id)
     return {"ok": True, "mail_sent": mail_ok, "mail_message": mail_message}
 

@@ -58,6 +58,8 @@ def init_web_auth_tables():
         cur.execute("ALTER TABLE web_users ADD COLUMN business_reg_image BYTEA")
     if "business_reg_image_mimetype" not in existing_cols:
         cur.execute("ALTER TABLE web_users ADD COLUMN business_reg_image_mimetype TEXT")
+    if "privacy_consent_at" not in existing_cols:
+        cur.execute("ALTER TABLE web_users ADD COLUMN privacy_consent_at TEXT")
     conn.commit()
     conn.close()
 
@@ -74,6 +76,7 @@ def signup(
     email: str, password: str, display_name: str,
     business_reg_number: str = "", address: str = "", phone: str = "",
     business_reg_image_bytes: bytes | None = None, business_reg_image_mimetype: str | None = None,
+    privacy_consent: bool = False,
 ) -> tuple[bool, str]:
     email = email.strip().lower()
     display_name = display_name.strip()
@@ -101,6 +104,8 @@ def signup(
         return False, "사업자등록증은 JPG, PNG, WEBP 이미지만 가능합니다."
     if len(business_reg_image_bytes) > MAX_BUSINESS_REG_IMAGE_BYTES:
         return False, "사업자등록증 이미지 용량은 8MB 이하여야 합니다."
+    if not privacy_consent:
+        return False, "개인정보 수집·이용에 동의해주세요."
 
     salt = os.urandom(16)
     password_hash = _hash_password(password, salt)
@@ -112,11 +117,11 @@ def signup(
         cur.execute("""
         INSERT INTO web_users
             (email, password_hash, password_salt, display_name, business_reg_number, address, phone,
-             business_reg_image, business_reg_image_mimetype, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             business_reg_image, business_reg_image_mimetype, privacy_consent_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             email, password_hash, salt.hex(), display_name, business_reg_number, address, phone,
-            psycopg2.Binary(business_reg_image_bytes), business_reg_image_mimetype, now,
+            psycopg2.Binary(business_reg_image_bytes), business_reg_image_mimetype, now, now,
         ))
         conn.commit()
     except psycopg2.IntegrityError:
