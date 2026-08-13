@@ -27,6 +27,14 @@ DOWNLOAD_DIR = BASE_DIR / "downloads"
 CASE_ORDER_THRESHOLD = 0.6
 DAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]
 
+# 오더퀸 사이트 자체가 일시적으로 응답 불가 상태일 때(2026-08-13 실제 장애
+# 사례), 실패를 그대로 그날의 결과로 확정해버리면 다음 주 같은 요일까지
+# 리포트를 못 받는다. 그래서 재시도 가능한 실패(retryable)는 그날 안에
+# 최대 REPORT_MAX_RETRIES번, REPORT_RETRY_INTERVAL_MINUTES분 간격으로 다시
+# 시도한다.
+REPORT_MAX_RETRIES = 3
+REPORT_RETRY_INTERVAL_MINUTES = 60
+
 POPULARITY_CATEGORY_BY_IS_COUPANG = {0: "icecream", 1: "coupang", 2: "wholesale"}
 
 
@@ -72,6 +80,12 @@ def init_store_report_tables() -> None:
     existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(store_report_schedules)").fetchall()}
     if "account_id" not in existing_cols:
         cur.execute("ALTER TABLE store_report_schedules ADD COLUMN account_id INTEGER")
+        conn.commit()
+    if "retry_count" not in existing_cols:
+        cur.execute("ALTER TABLE store_report_schedules ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
+    if "next_retry_at" not in existing_cols:
+        cur.execute("ALTER TABLE store_report_schedules ADD COLUMN next_retry_at TEXT")
         conn.commit()
     conn.close()
 
@@ -270,35 +284,63 @@ def set_schedule_enabled(store_id: str, schedule_id: int, enabled: bool) -> bool
 
 
 def list_due_schedules(now: datetime, window_minutes: int = 15) -> list[dict]:
-    """지금 실행돼야 할 예약들 - 오늘 요일과 일치하고, 예약 시각이 지금부터
-    window_minutes분 이내로 지났고, 오늘 아직 발송 안 한 것만."""
+    """지금 실행돼야 할 예약들 - (1) 오늘 요일과 일치하고 예약 시각이 지금부터
+    window_minutes분 이내로 지났고 오늘 아직 발송 안 한 것, 또는 (2) 재시도가
+    예정되어 있고(next_retry_at) 그 시각이 이미 지난 것."""
     today_str = now.date().isoformat()
     dow = now.weekday()
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT id, store_id, time, account_id FROM store_report_schedules
-    WHERE enabled = 1 AND day_of_week = ? AND (last_fired_date IS NULL OR last_fired_date != ?)
+    SELECT id, store_id, time, account_id, retry_count, next_retry_at FROM store_report_schedules
+    WHERE enabled = 1 AND (
+        (day_of_week = ? AND (last_fired_date IS NULL OR last_fired_date != ?))
+        OR next_retry_at IS NOT NULL
+    )
     """, (dow, today_str))
     rows = cur.fetchall()
     conn.close()
 
     due = []
-    for schedule_id, store_id, time_str, account_id in rows:
+    for schedule_id, store_id, time_str, account_id, retry_count, next_retry_at in rows:
+        entry = {
+            "id": schedule_id, "store_id": store_id, "time": time_str,
+            "account_id": account_id, "retry_count": retry_count or 0,
+        }
+        if next_retry_at:
+            if datetime.fromisoformat(next_retry_at) <= now:
+                due.append(entry)
+            continue
         try:
             hh, mm = (int(x) for x in time_str.split(":"))
         except ValueError:
             continue
         sched_dt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
         if sched_dt <= now < sched_dt + timedelta(minutes=window_minutes):
-            due.append({"id": schedule_id, "store_id": store_id, "time": time_str, "account_id": account_id})
+            due.append(entry)
     return due
 
 
 def mark_schedule_fired(schedule_id: int, fired_date: str) -> None:
+    """오늘의 실행을 확정한다(성공/재시도 소진 후 최종 실패 모두 포함) -
+    다음 재시도가 남아있지 않도록 재시도 상태도 함께 초기화한다."""
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("UPDATE store_report_schedules SET last_fired_date = ? WHERE id = ?", (fired_date, schedule_id))
+    cur.execute(
+        "UPDATE store_report_schedules SET last_fired_date = ?, retry_count = 0, next_retry_at = NULL WHERE id = ?",
+        (fired_date, schedule_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def schedule_retry(schedule_id: int, retry_count: int, next_retry_at: datetime) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE store_report_schedules SET retry_count = ?, next_retry_at = ? WHERE id = ?",
+        (retry_count, next_retry_at.isoformat(timespec="seconds"), schedule_id),
+    )
     conn.commit()
     conn.close()
 
@@ -568,7 +610,7 @@ def build_manual_wholesale_report(store_id: str, account_id: int | None, top_ite
 def generate_report(store_id: str, account_id: int | None = None) -> dict:
     creds = vendors.get_store_vendor_credentials(store_id, "orderqueen", account_id)
     if not creds:
-        return {"ok": False, "reason": "오더퀸 계정이 등록되어 있지 않습니다. '내 도매처 계정'에서 먼저 등록해주세요."}
+        return {"ok": False, "reason": "오더퀸 계정이 등록되어 있지 않습니다. '내 도매처 계정'에서 먼저 등록해주세요.", "retryable": False}
     login_id, login_pw = creds
     account = vendors.resolve_store_vendor_account(store_id, "orderqueen", account_id)
     account_nickname = account["nickname"] if account else None
@@ -577,7 +619,7 @@ def generate_report(store_id: str, account_id: int | None = None) -> dict:
     period_from = get_last_aggregated_until(key) + timedelta(days=1)
     period_to = date.today()
     if period_from > period_to:
-        return {"ok": False, "reason": "집계할 새 판매 데이터가 아직 없습니다."}
+        return {"ok": False, "reason": "집계할 새 판매 데이터가 아직 없습니다.", "retryable": False}
 
     job_id = uuid.uuid4().hex[:8]
     sales_xlsx_path = str(DOWNLOAD_DIR / f"report_{job_id}.xlsx")
@@ -589,7 +631,10 @@ def generate_report(store_id: str, account_id: int | None = None) -> dict:
         )
         _, _, top_items = parse_menu_sales_xlsx(sales_xlsx_path, period_from, period_to)
     except Exception as e:
-        return {"ok": False, "reason": f"오더퀸 판매 데이터 조회 실패: {e}"}
+        # 오더퀸 사이트 자체의 일시적 장애(타임아웃 등)일 가능성이 높은
+        # 케이스라 재시도 대상으로 표시한다 - 계정 미등록/새 데이터 없음과
+        # 달리 시간이 지나면 저절로 해소될 수 있다.
+        return {"ok": False, "reason": f"오더퀸 판매 데이터 조회 실패: {e}", "retryable": True}
 
     catalog = mapping.load_catalog()
     disabled_vendors, preferred_vendor = vendors.get_store_vendor_prefs(store_id)

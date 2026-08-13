@@ -343,15 +343,38 @@ def _run_store_report_tick() -> None:
         store_id = sched["store_id"]
         schedule_id = sched["id"]
         account_id = sched.get("account_id")
+        retry_count = sched.get("retry_count", 0)
         try:
             chat_id = _resolve_chat_id_for_store(store_id)
             if not chat_id:
                 telegram_bot.alert_admin(f"자동 발주 리포트: {store_id}에 연결된 텔레그램 지점을 찾지 못했습니다.")
+                store_reports.mark_schedule_fired(schedule_id, now.date().isoformat())
                 continue
 
             report = store_reports.generate_report(store_id, account_id)
             if not report.get("ok"):
-                telegram_bot.send_message(chat_id, f"자동 발주 리포트 생성에 실패했습니다.\n\n{report.get('reason')}")
+                # 오더퀸 사이트 일시 장애 등 재시도로 해소될 수 있는 실패는
+                # 그날 안에 몇 번 더 시도한다 - 다음 주 같은 요일까지 기다리지
+                # 않도록. 첫 실패에서만 안내하고 이후 재시도는 조용히 진행한다.
+                if report.get("retryable") and retry_count < store_reports.REPORT_MAX_RETRIES:
+                    next_retry_at = now + timedelta(minutes=store_reports.REPORT_RETRY_INTERVAL_MINUTES)
+                    store_reports.schedule_retry(schedule_id, retry_count + 1, next_retry_at)
+                    if retry_count == 0:
+                        telegram_bot.send_message(
+                            chat_id,
+                            f"자동 발주 리포트 생성에 실패했습니다.\n\n{report.get('reason')}\n\n"
+                            f"{store_reports.REPORT_RETRY_INTERVAL_MINUTES}분 뒤 자동으로 다시 시도합니다.",
+                        )
+                    continue
+
+                if retry_count > 0:
+                    telegram_bot.send_message(
+                        chat_id,
+                        f"자동 발주 리포트 생성에 {retry_count + 1}차례 시도했지만 계속 실패했습니다.\n\n{report.get('reason')}",
+                    )
+                else:
+                    telegram_bot.send_message(chat_id, f"자동 발주 리포트 생성에 실패했습니다.\n\n{report.get('reason')}")
+                store_reports.mark_schedule_fired(schedule_id, now.date().isoformat())
                 continue
 
             # 도매처/쿠팡/아이스크림을 3개 메시지로 나눠 보낸다 - 확인/스킵/수정
@@ -378,9 +401,9 @@ def _run_store_report_tick() -> None:
                     "report_key": report["report_key"],
                     "wholesale_items": report["wholesale_items"],
                 })
+            store_reports.mark_schedule_fired(schedule_id, now.date().isoformat())
         except Exception as e:
             telegram_bot.alert_admin(f"자동 발주 리포트 처리 실패 (store_id={store_id}): {e}")
-        finally:
             store_reports.mark_schedule_fired(schedule_id, now.date().isoformat())
 
 
