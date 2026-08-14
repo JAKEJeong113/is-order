@@ -40,8 +40,10 @@ python miricanvas_elements/select_subjects.py
    Bash로 다운로드한 뒤:
    ```bash
    python miricanvas_elements/crop_transparent.py <다운로드한_이미지> \
-       miricanvas_elements/output/<오늘날짜>/<주제>.png --padding 8
+       miricanvas_elements/output/<오늘날짜>/<주제>.png --padding 0
    ```
+   여백 없이 그림 경계선에 딱 붙게 자르는 것 — `--padding`을 0 이외의 값으로
+   주지 말 것 (사용자가 여백 남는 걸 확인하고 0으로 고정하라고 함)
 
 ## 3. 결과 정리
 - 오늘 생성된 20개 파일은 `miricanvas_elements/output/YYYY-MM-DD/` 에 저장됨
