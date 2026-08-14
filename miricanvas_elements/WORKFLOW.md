@@ -43,7 +43,10 @@ python miricanvas_elements/select_subjects.py
        miricanvas_elements/output/<오늘날짜>/<주제>.png --padding 0
    ```
    여백 없이 그림 경계선에 딱 붙게 자르는 것 — `--padding`을 0 이외의 값으로
-   주지 말 것 (사용자가 여백 남는 걸 확인하고 0으로 고정하라고 함)
+   주지 말 것 (사용자가 여백 남는 걸 확인하고 0으로 고정하라고 함).
+   짧은 변이 700px 미만이면 스크립트가 자동으로 비율 유지 확대함 — 미리캔버스
+   업로드 최소 해상도(700px~9800px) 기준을 못 맞춰 업로드가 실패했던 적이
+   있어서 기본값(`--min-size 700`)으로 항상 적용됨, 따로 옵션 안 줘도 됨
 
 ## 3. 결과 정리
 - 오늘 생성된 20개 파일은 `miricanvas_elements/output/YYYY-MM-DD/` 에 저장됨
