@@ -27,12 +27,15 @@ DOWNLOAD_DIR = BASE_DIR / "downloads"
 CASE_ORDER_THRESHOLD = 0.6
 DAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]
 
-# 오더퀸 사이트 자체가 일시적으로 응답 불가 상태일 때(2026-08-13 실제 장애
-# 사례), 실패를 그대로 그날의 결과로 확정해버리면 다음 주 같은 요일까지
-# 리포트를 못 받는다. 그래서 재시도 가능한 실패(retryable)는 그날 안에
-# 최대 REPORT_MAX_RETRIES번, REPORT_RETRY_INTERVAL_MINUTES분 간격으로 다시
-# 시도한다.
-REPORT_MAX_RETRIES = 3
+# 오더퀸 사이트 자체가 일시적으로 응답 불가 상태일 때(2026-08-13, 2026-08-21
+# 실제 장애 사례 - 둘 다 오전 7시경 시작돼 오더퀸 쪽 아침 정산/배치 처리
+# 시간대와 겹치는 것으로 추정), 실패를 그대로 그날의 결과로 확정해버리면
+# 다음 주 같은 요일까지 리포트를 못 받는다. 그래서 재시도 가능한 실패
+# (retryable)는 그날 안에 최대 REPORT_MAX_RETRIES번, REPORT_RETRY_INTERVAL_MINUTES분
+# 간격으로 다시 시도한다.
+# 2026-08-21 장애는 1시간 간격 3회(총 3시간)로도 부족해서 다음 주까지 못
+# 받은 사례라, 6회(총 6시간)로 늘렸다 - 아침 시간대 전체를 커버하기 위함.
+REPORT_MAX_RETRIES = 6
 REPORT_RETRY_INTERVAL_MINUTES = 60
 
 POPULARITY_CATEGORY_BY_IS_COUPANG = {0: "icecream", 1: "coupang", 2: "wholesale"}
