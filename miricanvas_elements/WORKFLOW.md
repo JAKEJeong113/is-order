@@ -21,19 +21,34 @@ python miricanvas_elements/select_subjects.py
 - 실행하면 오늘 뽑힌 주제가 `used_subjects.json`에 기록되고, 콘솔에 JSON
   배열로 출력됨. 예: `["텀블러", "고양이", "선인장", ...]`
 - 풀에 주제를 더 추가하고 싶으면 `subjects_pool.json`을 직접 편집
+- 사용자가 "트렌디한 걸로", "이런 주제로" 등 특정 테마를 요청하면 이 랜덤 선정을
+  건너뛰고 해당 테마에 맞는 20개를 직접 골라서 2단계로 진행 (`used_subjects.json`
+  기록은 생략 — 풀에 없는 임시 테마이므로)
 
 ## 2. 주제별로 요소 이미지 생성 (선정된 20개 각각 반복)
 각 주제에 대해:
 
-1. **이미지 생성** — `generate_image` 툴 사용. 반드시 아래 그대로:
+1. **이미지 생성** — `generate_image`(또는 `generate_image_batch`) 툴 사용.
+   반드시 아래 그대로:
    - `model: "recraft_v4_1"`, `model_type: "utility"` (래스터 PNG로 나옴 —
      `"vector"`는 SVG로 나와서 배경 제거/크롭이 안 되니 쓰지 말 것)
+   - `resolution: "2k"` — 기본값(1k)은 피사체가 캔버스 여백 없이 꽉 차게
+     나와서 배경 제거 후 크롭하면 미리캔버스가 "피사체 일부가 잘림"으로
+     업로드를 거부하는 경우가 있었음. 2k로 캔버스를 키우면 같은 구도에서도
+     실제 픽셀 여백이 넉넉해짐
    - `background_color: "#FFFFFF"` (배경 제거를 쉽게 하기 위함)
    - **`use_unlim: false`를 항상 명시적으로 넣을 것.** 생략하면 무제한 생성권을
      쓸지 물어보는 확인 절차(`unlim_choice`)가 걸리는데, 이 자동화는 사람이
      없는 상태로 도는 거라 응답할 사람이 없어 그대로 멈춰버림. 매번 명시적으로
      `false`를 넣어야 막히지 않고 크레딧으로 바로 진행됨.
-   - prompt 예: `"{주제}를 표현한 플랫 일러스트, 심플한 스티커 스타일, 순백색 배경, 테두리 없음"`
+   - prompt에 피사체 설명 + 여백 지시를 함께 넣을 것, 예:
+     `"{주제}를 표현한 플랫 일러스트, 피사체 전체가 프레임 안에 다 들어오게 여백을
+     두고 배치, 잘리지 않음, 순백색 배경, 배경과 명확히 분리됨, 심플한 스티커
+     스타일, 테두리 없음"`
+   - 가끔 프롬프트와 무관한 엉뚱한 이미지가 나오거나(예: 캠핑의자 요청에 캐릭터
+     그림이 나오는 등) `nsfw`/`failed` 상태가 뜨기도 함 — 생성 후 반드시 실제
+     내용이 주제와 맞는지, 배경이 잘 분리됐는지 눈으로 확인하고 이상하면
+     프롬프트를 좀 더 구체적으로 바꿔서 재시도할 것
 2. **배경 제거** — 생성 결과의 job_id를 `media_id`로 써서 `remove_background`
    툴 적용 (`media_type: "image"`)
 3. **로컬 다운로드 + 경계선 크롭** — `remove_background` 결과의 `result_url`을
@@ -47,6 +62,21 @@ python miricanvas_elements/select_subjects.py
    짧은 변이 700px 미만이면 스크립트가 자동으로 비율 유지 확대함 — 미리캔버스
    업로드 최소 해상도(700px~9800px) 기준을 못 맞춰 업로드가 실패했던 적이
    있어서 기본값(`--min-size 700`)으로 항상 적용됨, 따로 옵션 안 줘도 됨
+4. **잘림/경계터치 최종 확인** — 20개를 다 만든 뒤, 각 PNG의 알파 채널이
+   이미지 가장자리(맨 위/아래/왼쪽/오른쪽 픽셀 줄)에 닿아있는지 검사해서
+   걸리는 게 있으면 그 항목만 다시 생성. 예:
+   ```python
+   from PIL import Image
+   a = Image.open(path).getchannel("A")
+   w, h = a.size
+   touches_edge = (
+       any(a.getpixel((x, 0)) > 10 for x in range(0, w, 5)) or
+       any(a.getpixel((x, h - 1)) > 10 for x in range(0, w, 5)) or
+       any(a.getpixel((0, y)) > 10 for y in range(0, h, 5)) or
+       any(a.getpixel((w - 1, y)) > 10 for y in range(0, h, 5))
+   )
+   ```
+   경계에 닿아있으면 "피사체가 잘림"으로 미리캔버스 심사에서 거부될 수 있음
 
 ## 3. 결과 정리
 - 오늘 생성된 20개 파일은 `miricanvas_elements/output/YYYY-MM-DD/` 에 저장됨
