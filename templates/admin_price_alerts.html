@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>최저가 감지 이력</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #2fc5b3; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+    .filter-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .filter-btn {
+      padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      border: 1px solid var(--line); background: white; color: var(--muted); cursor: pointer;
+    }
+    .filter-btn.active { background: var(--mint); color: white; border-color: var(--mint); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 720px; }
+    th {
+      text-align: left; padding: 10px 12px; background: #f3f6f5; color: var(--muted);
+      font-weight: 700; font-size: 11px; white-space: nowrap; position: sticky; top: 0;
+      border-bottom: 1px solid var(--line);
+    }
+    td { padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    tr:last-child td { border-bottom: none; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.item-name { font-weight: 700; white-space: normal; }
+    .price-drop { color: var(--mint-text); font-weight: 700; }
+    .old-price { color: var(--muted); text-decoration: line-through; margin-right: 4px; }
+    .badge { font-size: 11px; padding: 3px 9px; border-radius: 999px; font-weight: 700; }
+    .badge.pending { background: #fef3c7; color: #92400e; }
+    .badge.notified { background: #dbeafe; color: #1e40af; }
+    .badge.broadcast { background: var(--mint-soft); color: var(--mint-text); }
+    .badge.skipped { background: #f3f4f6; color: var(--muted); }
+    .empty-text { color: var(--muted); font-size: 13px; padding: 30px 4px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>최저가 감지 이력</h1>
+  <div class="hint-text">
+    음료/과자 가격 스캔(30분 간격)에서 역대 최저가를 갱신한 상품 기록입니다. 감지되면 즉시 대표님 개인
+    텔레그램으로 알림이 가고, 대표님이 "전체발송"/"생략"으로 응답한 결과가 상태에 반영됩니다.
+    최신 200건만 보여줍니다.
+  </div>
+
+  <div class="filter-row" id="filterRow">
+    <button class="filter-btn active" data-status="all">전체</button>
+    <button class="filter-btn" data-status="pending">대기중</button>
+    <button class="filter-btn" data-status="notified">알림전송(응답대기)</button>
+    <button class="filter-btn" data-status="broadcast">전체발송됨</button>
+    <button class="filter-btn" data-status="skipped">생략됨</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>감지 시각</th>
+          <th>구분</th>
+          <th>상품명</th>
+          <th class="num">가격 변동</th>
+          <th>상태</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <script>
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    const PRODUCT_TYPE_LABEL = { beverage: "음료", snack: "과자" };
+    const STATUS_LABEL = {
+      pending: ["pending", "대기중"],
+      notified: ["notified", "알림전송(응답대기)"],
+      broadcast: ["broadcast", "전체발송됨"],
+      skipped: ["skipped", "생략됨"],
+    };
+
+    let currentStatus = "all";
+    let currentRows = [];
+
+    function statusBadge(status) {
+      const info = STATUS_LABEL[status];
+      if (!info) return `<span class="badge">${escapeHtml(status)}</span>`;
+      return `<span class="badge ${info[0]}">${info[1]}</span>`;
+    }
+
+    function renderRows(rows) {
+      const tbody = document.getElementById("tbody");
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-text">표시할 데이터가 없습니다.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = rows.map((r) => `
+        <tr>
+          <td>${escapeHtml(r.created_at)}</td>
+          <td>${PRODUCT_TYPE_LABEL[r.product_type] || escapeHtml(r.product_type)}</td>
+          <td class="item-name">${escapeHtml(r.item_name)}</td>
+          <td class="num">
+            ${r.old_low ? `<span class="old-price">${r.old_low.toLocaleString()}원</span>` : ""}
+            <span class="price-drop">${r.new_price.toLocaleString()}원</span>
+          </td>
+          <td>${statusBadge(r.status)}</td>
+        </tr>
+      `).join("");
+    }
+
+    function applyFilter() {
+      const rows = currentStatus === "all"
+        ? currentRows
+        : currentRows.filter((r) => r.status === currentStatus);
+      renderRows(rows);
+    }
+
+    async function load() {
+      const tbody = document.getElementById("tbody");
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-text">불러오는 중...</td></tr>';
+
+      const res = await fetch("/api/admin/price-alerts");
+      const data = await res.json();
+      currentRows = data.rows || [];
+      applyFilter();
+    }
+
+    document.getElementById("filterRow").addEventListener("click", (e) => {
+      const btn = e.target.closest(".filter-btn");
+      if (!btn) return;
+      document.querySelectorAll(".filter-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      currentStatus = btn.dataset.status;
+      applyFilter();
+    });
+
+    load();
+  </script>
+</body>
+</html>

@@ -741,6 +741,26 @@ def get_price_history(pt: ProductType, item_key: str) -> list[dict]:
     return [{"price": r[0], "recorded_at": r[1]} for r in rows]
 
 
+def list_recent_price_alerts(limit: int = 200) -> list[dict]:
+    """관리자 페이지에서 최근 감지된 최저가 알림을 상태(대기/알림전송/전체발송/생략)
+    구분 없이 전부 최신순으로 보여줄 때 쓴다."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT id, product_type, item_key, item_name, old_low, new_price, created_at, status
+    FROM pending_price_alerts ORDER BY id DESC LIMIT ?
+    """, (limit,))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "id": r[0], "product_type": r[1], "item_key": r[2], "item_name": r[3],
+            "old_low": r[4], "new_price": r[5], "created_at": r[6], "status": r[7],
+        }
+        for r in rows
+    ]
+
+
 def claim_notifiable_alerts() -> list[dict]:
     """아직 대표님께 알리지 않은(status='pending') 최저가 알림을 전부 원자적으로
     'notified' 상태로 바꾸면서 동시에 가져온다. 음료/과자 가격 스캔 작업이 같은

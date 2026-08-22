@@ -2006,6 +2006,16 @@ def api_admin_usage_stats(period: str = Query("all"), _: bool = Depends(require_
     return {"rows": usage_stats.get_usage_summary(period)}
 
 
+@app.get("/admin/price-alerts", response_class=HTMLResponse)
+def admin_price_alerts_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("admin_price_alerts.html", {"request": request})
+
+
+@app.get("/api/admin/price-alerts")
+def api_admin_price_alerts(_: bool = Depends(require_admin)):
+    return {"rows": product_ranking.list_recent_price_alerts()}
+
+
 @app.get("/api/admin/web-users")
 def api_admin_web_users(_: bool = Depends(require_admin)):
     approved_stores = [s["store_name"] for s in telegram_store.list_stores() if s["approved"]]
