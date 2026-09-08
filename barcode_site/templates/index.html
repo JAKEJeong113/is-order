@@ -29,8 +29,12 @@
       width:100%; max-width:480px; background:var(--card); border:1px solid var(--line);
       border-radius:16px; padding:18px; box-shadow:0 10px 28px rgba(15,118,110,.08);
     }
-    .search-row{display:flex; gap:8px}
-    .search-input-wrap{position:relative; flex:1; min-width:0}
+    .search-row{display:flex; gap:8px; flex-wrap:wrap}
+    .search-input-wrap{position:relative; flex:1 1 100%; min-width:0}
+    /* 좁은 화면에서는 입력창+스캔+검색 3개가 한 줄에 끼면 입력한 글자가
+       버튼에 가려 잘려 보인다 - 입력창은 항상 한 줄 전체를 쓰고, 버튼
+       둘은 그 아래 줄에서 폭을 나눠 갖게 한다. */
+    .scan-btn, #searchBtn{flex:1}
     .search-input-wrap input{
       width:100%; padding:12px 34px 12px 14px; border:1px solid var(--line); border-radius:10px;
       font-size:15px; font-family:inherit;
