@@ -30,11 +30,19 @@
       border-radius:16px; padding:18px; box-shadow:0 10px 28px rgba(15,118,110,.08);
     }
     .search-row{display:flex; gap:8px}
-    .search-row input{
-      flex:1; padding:12px 14px; border:1px solid var(--line); border-radius:10px;
-      font-size:15px; font-family:inherit; min-width:0;
+    .search-input-wrap{position:relative; flex:1; min-width:0}
+    .search-input-wrap input{
+      width:100%; padding:12px 34px 12px 14px; border:1px solid var(--line); border-radius:10px;
+      font-size:15px; font-family:inherit;
     }
-    .search-row input:focus{outline:2px solid var(--mint); outline-offset:1px}
+    .search-input-wrap input:focus{outline:2px solid var(--mint); outline-offset:1px}
+    .clear-btn{
+      display:none; position:absolute; right:6px; top:50%; transform:translateY(-50%);
+      width:24px; height:24px; border:none; border-radius:999px; background:var(--line);
+      color:var(--muted); font-size:14px; line-height:1; cursor:pointer;
+      align-items:center; justify-content:center;
+    }
+    .clear-btn.show{display:flex}
     .search-row button{
       padding:0 20px; border:none; border-radius:10px; background:var(--mint);
       color:#fff; font-weight:800; font-size:14px; cursor:pointer; white-space:nowrap;
@@ -98,7 +106,10 @@
 
   <div class="search-card">
     <div class="search-row">
-      <input id="q" type="text" placeholder="바코드 또는 상품명 입력" autocomplete="off" />
+      <div class="search-input-wrap">
+        <input id="q" type="text" placeholder="바코드 또는 상품명 입력" autocomplete="off" />
+        <button class="clear-btn" id="clearBtn" type="button" aria-label="입력 지우기">✕</button>
+      </div>
       <button class="scan-btn" id="scanBtn" type="button">📷 스캔</button>
       <button id="searchBtn">검색</button>
     </div>
@@ -168,6 +179,21 @@
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") runSearch();
     });
+
+    // 입력창 지우기(X) 버튼 - 글자가 있을 때만 보이고, 누르면 입력값과
+    // 검색 결과를 함께 비운다.
+    const clearBtn = document.getElementById("clearBtn");
+    function updateClearBtn() {
+      clearBtn.classList.toggle("show", input.value.length > 0);
+    }
+    input.addEventListener("input", updateClearBtn);
+    clearBtn.addEventListener("click", () => {
+      input.value = "";
+      updateClearBtn();
+      resultsEl.innerHTML = "";
+      input.focus();
+    });
+    updateClearBtn();
 
     // 카메라로 바코드 스캔 - html5-qrcode가 EAN-13/UPC-A 등 실제 상품
     // 바코드 포맷과 QR코드를 모두 인식한다. 이 웹페이지 자체에 넣어둬서
@@ -284,6 +310,7 @@
               return;
             }
             input.value = decodedText;
+            updateClearBtn();
             stopScan();
             runSearch();
           },
