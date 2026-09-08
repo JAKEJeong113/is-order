@@ -1,0 +1,142 @@
+package kr.co.iscream.barcodesite
+
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Bundle
+import android.view.View
+import android.webkit.PermissionRequest
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+
+/**
+ * "무인매장 바코드 조회" 웹사이트를 그대로 감싸는 WebView 앱.
+ *
+ * 이 웹사이트 자체에 카메라 바코드 스캔 기능(html5-qrcode, getUserMedia)이
+ * 이미 들어있어서, 앱 쪽에서 따로 스캔 로직을 만들 필요가 없다 - WebView가
+ * 웹페이지의 카메라 요청을 실제 안드로이드 카메라 권한과 연결해주기만 하면
+ * 웹과 완전히 같은 스캔 기능이 앱에서도 그대로 동작한다.
+ */
+class MainActivity : AppCompatActivity() {
+
+    companion object {
+        // 지금은 Render의 임시 도메인 - 나중에 barcode.is-cream.co.kr 같은
+        // 정식 도메인을 연결하면 여기 주소만 바꿔주면 된다.
+        private const val BASE_URL = "https://barcod-site.onrender.com/"
+    }
+
+    private lateinit var webView: WebView
+    private lateinit var swipeRefresh: SwipeRefreshLayout
+    private lateinit var progressBar: android.widget.ProgressBar
+
+    // WebView가 카메라 사용 허락을 요청해오면(getUserMedia), 실제 안드로이드
+    // CAMERA 런타임 권한이 있는지부터 확인해야 한다 - 권한이 없으면 여기서
+    // 사용자에게 물어보고, 결과가 오면 보류해둔 PermissionRequest를
+    // 그때 그랜트/거부한다.
+    private var pendingPermissionRequest: PermissionRequest? = null
+
+    private val requestCameraPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val request = pendingPermissionRequest
+        pendingPermissionRequest = null
+        if (request == null) return@registerForActivityResult
+        if (granted) {
+            request.grant(request.resources)
+        } else {
+            request.deny()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        webView = findViewById(R.id.webView)
+        swipeRefresh = findViewById(R.id.swipeRefresh)
+        progressBar = findViewById(R.id.progressBar)
+
+        setupWebView()
+        webView.loadUrl(BASE_URL)
+
+        swipeRefresh.setOnRefreshListener { webView.reload() }
+
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (webView.canGoBack()) {
+                        webView.goBack()
+                    } else {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
+                }
+            },
+        )
+    }
+
+    private fun setupWebView() {
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            mediaPlaybackRequiresUserGesture = false
+        }
+
+        webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+                // 우리 사이트 안에서는 계속 앱(WebView) 안에서 이동하고,
+                // 그 외 도메인(예: i's ORDER 로그인 페이지 링크)은 사용자의
+                // 기본 브라우저로 넘긴다 - 로그인/회원가입처럼 민감한 화면은
+                // 신뢰된 브라우저에서 진행하는 게 더 안전하고 자연스럽다.
+                val uri = Uri.parse(url)
+                return if (uri.host?.contains("barcod-site.onrender.com") == true) {
+                    false
+                } else {
+                    startActivity(Intent(Intent.ACTION_VIEW, uri))
+                    true
+                }
+            }
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                swipeRefresh.isRefreshing = false
+            }
+        }
+
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView, newProgress: Int) {
+                progressBar.progress = newProgress
+                progressBar.visibility = if (newProgress >= 100) View.GONE else View.VISIBLE
+            }
+
+            // 웹페이지가 카메라(getUserMedia)를 요청할 때 호출됨 - 실제
+            // 안드로이드 CAMERA 권한이 있는지 확인 후에만 승인한다.
+            override fun onPermissionRequest(request: PermissionRequest) {
+                val needsVideo = request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                if (!needsVideo) {
+                    request.deny()
+                    return
+                }
+
+                val hasPermission = ContextCompat.checkSelfPermission(
+                    this@MainActivity,
+                    Manifest.permission.CAMERA,
+                ) == PackageManager.PERMISSION_GRANTED
+
+                if (hasPermission) {
+                    request.grant(request.resources)
+                } else {
+                    pendingPermissionRequest = request
+                    requestCameraPermission.launch(Manifest.permission.CAMERA)
+                }
+            }
+        }
+    }
+}

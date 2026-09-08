@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 앱 브랜드 컬러(민트)로 채운 단색 배경 - 실제 로고로 바꾸고 싶으면
+     Android Studio의 res 우클릭 > New > Image Asset로 다시 생성하면 됨. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#2FC5B3"
+        android:pathData="M0,0h108v108h-108z" />
+</vector>
