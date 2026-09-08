@@ -38,8 +38,12 @@ MAIN_SITE_URL = os.getenv("MAIN_SITE_URL", "https://www.is-cream.co.kr")
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
+    # Starlette/Jinja2 최신 버전 조합에서 예전 방식 TemplateResponse(name, {"request":
+    # request, ...})가 "TypeError: cannot use 'tuple' as a dict key"로 깨지는 걸
+    # Render 배포에서 실측 확인(로컬에 깔려있던 구버전 조합에서는 재현 안 됐음) -
+    # request를 첫 인자로 넘기는 현재 권장 방식으로 고정한다.
     return templates.TemplateResponse(
-        "index.html", {"request": request, "main_site_url": MAIN_SITE_URL},
+        request, "index.html", {"main_site_url": MAIN_SITE_URL},
     )
 
 
