@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>아이스크림 바코드 조회 | i's ORDER</title>
+  <meta name="description" content="아이스크림·과자 바코드나 상품명으로 추천판매가를 바로 조회하세요. 무인 아이스크림/과자 매장 발주 자동화 서비스 i's ORDER가 제공하는 무료 도구입니다." />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <style>
+    :root{
+      --mint:#2fc5b3; --mint-dark:#08796f; --mint-soft:#d9fbf5;
+      --ink:#16211f; --muted:#5c6a5e; --line:#e4e8e0; --bg:#fbfaf7; --card:#ffffff;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; min-height:100vh; background:var(--bg); color:var(--ink);
+      font-family:'Pretendard',-apple-system,"Malgun Gothic",sans-serif;
+      display:flex; flex-direction:column; align-items:center;
+      padding:48px 20px 32px;
+    }
+    .badge{
+      font-size:12px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+      color:var(--mint-dark); margin-bottom:10px;
+    }
+    h1{font-size:clamp(22px,5vw,28px); font-weight:800; margin:0 0 8px; letter-spacing:-.5px; text-align:center}
+    .sub{color:var(--muted); font-size:14px; margin:0 0 28px; text-align:center; max-width:38ch}
+
+    .search-card{
+      width:100%; max-width:480px; background:var(--card); border:1px solid var(--line);
+      border-radius:16px; padding:18px; box-shadow:0 10px 28px rgba(15,118,110,.08);
+    }
+    .search-row{display:flex; gap:8px}
+    .search-row input{
+      flex:1; padding:12px 14px; border:1px solid var(--line); border-radius:10px;
+      font-size:15px; font-family:inherit; min-width:0;
+    }
+    .search-row input:focus{outline:2px solid var(--mint); outline-offset:1px}
+    .search-row button{
+      padding:0 20px; border:none; border-radius:10px; background:var(--mint);
+      color:#fff; font-weight:800; font-size:14px; cursor:pointer; white-space:nowrap;
+    }
+    .search-row button:disabled{opacity:.6; cursor:default}
+
+    .results{width:100%; max-width:480px; margin-top:14px}
+    .result-row{
+      display:flex; justify-content:space-between; align-items:center; gap:10px;
+      background:var(--card); border:1px solid var(--line); border-radius:10px;
+      padding:12px 14px; margin-bottom:8px;
+    }
+    .result-name{font-size:14px; font-weight:700; margin:0}
+    .result-barcode{font-size:11.5px; color:var(--muted); margin:2px 0 0; font-variant-numeric:tabular-nums}
+    .result-price{font-size:15px; font-weight:800; color:var(--mint-dark); white-space:nowrap}
+    .empty, .hint{color:var(--muted); font-size:13.5px; text-align:center; padding:18px 4px}
+
+    .cta{
+      width:100%; max-width:480px; margin-top:32px; padding:16px 18px;
+      background:var(--mint-soft); border-radius:14px; text-align:center; font-size:13.5px;
+      color:var(--mint-dark);
+    }
+    .cta a{color:var(--mint-dark); font-weight:800; text-decoration:underline}
+  </style>
+</head>
+<body>
+  <div class="badge">i's ORDER · 무료 도구</div>
+  <h1>아이스크림 바코드 조회</h1>
+  <p class="sub">바코드나 상품명을 입력하면 추천판매가를 바로 확인할 수 있어요.</p>
+
+  <div class="search-card">
+    <div class="search-row">
+      <input id="q" type="text" placeholder="바코드 또는 상품명 입력" autocomplete="off" />
+      <button id="searchBtn">검색</button>
+    </div>
+  </div>
+
+  <div class="results" id="results"></div>
+
+  <div class="cta">
+    이 조회 기능은 무인 아이스크림·과자 매장을 위한 발주 자동화 서비스
+    <b>i's ORDER</b>의 일부입니다.<br>
+    <a href="{{ main_site_url }}" target="_blank" rel="noopener">i's ORDER 자세히 보기 →</a>
+  </div>
+
+  <script>
+    const input = document.getElementById("q");
+    const btn = document.getElementById("searchBtn");
+    const resultsEl = document.getElementById("results");
+
+    function formatPrice(n) {
+      return n ? Number(n).toLocaleString() + "원" : "가격 미등록";
+    }
+
+    async function runSearch() {
+      const query = input.value.trim();
+      if (!query) return;
+
+      btn.disabled = true;
+      resultsEl.innerHTML = '<p class="hint">검색 중...</p>';
+
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        const items = data.items || [];
+
+        if (items.length === 0) {
+          resultsEl.innerHTML = '<p class="empty">일치하는 상품을 찾지 못했습니다.</p>';
+          return;
+        }
+
+        resultsEl.innerHTML = items.map((item) => `
+          <div class="result-row">
+            <div>
+              <p class="result-name">${item.menu_name}</p>
+              <p class="result-barcode">${item.barcode}</p>
+            </div>
+            <span class="result-price">${formatPrice(item.recommended_price)}</span>
+          </div>
+        `).join("");
+      } catch (e) {
+        resultsEl.innerHTML = '<p class="empty">조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    btn.addEventListener("click", runSearch);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") runSearch();
+    });
+  </script>
+</body>
+</html>
