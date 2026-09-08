@@ -1,8 +1,9 @@
 # main.py
-"""아이스크림 바코드 조회 - is-order 본체에서 가장 자주 쓰이던 기능 하나만
-떼어내 별도 배포하는 가벼운 사이트. 로그인 없이 누구나 바코드/상품명으로
-추천판매가를 조회할 수 있다(무인매장 발주 자동화 서비스를 알리는 무료
-도구 역할도 겸함 - 결과 하단에 본 서비스(i's ORDER) 안내를 붙인다).
+"""무인매장 바코드 조회 - is-order 본체에서 가장 자주 쓰이던 기능 하나만
+떼어내 별도 배포하는 가벼운 사이트. 과자·음료·문구류 등 카탈로그에 있는
+모든 상품을 대상으로, 로그인 없이 누구나 바코드/상품명으로 추천판매가를
+조회할 수 있다(무인매장 발주 자동화 서비스를 알리는 무료 도구 역할도
+겸함 - 결과 하단에 본 서비스(i's ORDER) 안내를 붙인다).
 
 DB는 본체(is-order)와 같은 Postgres(DATABASE_URL)를 공유하되, 이 사이트는
 catalog_items 테이블을 읽기만 한다 - 테이블 생성/쓰기는 전혀 하지 않는다
@@ -29,7 +30,7 @@ from fastapi.templating import Jinja2Templates
 
 import db_conn
 
-app = FastAPI(title="아이스크림 바코드 조회")
+app = FastAPI(title="무인매장 바코드 조회")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 MAIN_SITE_URL = os.getenv("MAIN_SITE_URL", "https://www.is-cream.co.kr")
