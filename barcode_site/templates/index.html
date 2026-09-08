@@ -53,8 +53,10 @@
     .result-row{
       display:flex; justify-content:space-between; align-items:center; gap:10px;
       background:var(--card); border:1px solid var(--line); border-radius:10px;
-      padding:12px 14px; margin-bottom:8px;
+      padding:12px 14px; margin-bottom:8px; cursor:pointer; transition:background .15s;
     }
+    .result-row:active{background:var(--mint-soft)}
+    .result-row.copied{background:var(--mint-soft); border-color:var(--mint)}
     .result-name{font-size:14px; font-weight:700; margin:0}
     .result-barcode{font-size:11.5px; color:var(--muted); margin:2px 0 0; font-variant-numeric:tabular-nums}
     .result-price{font-size:15px; font-weight:800; color:var(--mint-dark); white-space:nowrap}
@@ -160,7 +162,7 @@
         }
 
         resultsEl.innerHTML = items.map((item) => `
-          <div class="result-row">
+          <div class="result-row" data-barcode="${item.barcode}">
             <div>
               <p class="result-name">${item.menu_name}</p>
               <p class="result-barcode">${item.barcode}</p>
@@ -178,6 +180,55 @@
     btn.addEventListener("click", runSearch);
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") runSearch();
+    });
+
+    // 검색 결과 목록을 탭하면 그 상품의 바코드를 클립보드에 복사한다 -
+    // 고도몰 등 도매몰 상품 등록 화면에 바로 붙여넣을 수 있게 하기 위함.
+    // 결과 목록은 매번 innerHTML로 새로 그려지므로, 각 행에 리스너를
+    // 다시 붙이는 대신 부모(resultsEl)에 한 번만 위임(delegate)한다.
+    function legacyCopy(text) {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      if (!ok) throw new Error("execCommand copy failed");
+    }
+
+    async function copyBarcode(barcode, rowEl) {
+      try {
+        // Clipboard API가 있어도 일부 웹뷰/권한 정책에서 조용히 거부될 수
+        // 있으므로, 실패하면 execCommand 방식으로 한 번 더 시도한다.
+        try {
+          if (!navigator.clipboard || !navigator.clipboard.writeText) {
+            throw new Error("clipboard API unavailable");
+          }
+          await navigator.clipboard.writeText(barcode);
+        } catch (clipboardErr) {
+          legacyCopy(barcode);
+        }
+        const priceEl = rowEl.querySelector(".result-price");
+        const original = priceEl.textContent;
+        rowEl.classList.add("copied");
+        priceEl.textContent = "복사됨 ✓";
+        setTimeout(() => {
+          rowEl.classList.remove("copied");
+          priceEl.textContent = original;
+        }, 1200);
+      } catch (e) {
+        // 두 방법 다 막힌 특수한 환경 정도만 해당 - 조용히 무시하고
+        // 사용자가 화면에 보이는 바코드 숫자를 직접 복사하면 된다.
+      }
+    }
+
+    resultsEl.addEventListener("click", (e) => {
+      const row = e.target.closest(".result-row");
+      if (!row || !row.dataset.barcode) return;
+      copyBarcode(row.dataset.barcode, row);
     });
 
     // 입력창 지우기(X) 버튼 - 글자가 있을 때만 보이고, 누르면 입력값과
