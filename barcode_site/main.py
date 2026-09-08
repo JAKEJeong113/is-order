@@ -47,6 +47,13 @@ def index(request: Request):
     )
 
 
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy(request: Request):
+    # 구글 플레이 스토어 등록 시 카메라 권한을 쓰는 앱은 개인정보처리방침
+    # URL 등록이 필수라서 만든 페이지 - 앱/웹 공용으로 쓴다.
+    return templates.TemplateResponse(request, "privacy.html", {})
+
+
 @app.get("/api/search")
 def api_search(q: str = Query(..., min_length=1, max_length=100), limit: int = Query(20, ge=1, le=50)):
     query = q.strip()

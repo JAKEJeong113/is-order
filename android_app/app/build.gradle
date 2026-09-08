@@ -5,12 +5,14 @@ plugins {
 
 android {
     namespace 'kr.co.iscream.barcodesite'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId "kr.co.iscream.barcodesite"
         minSdk 26
-        targetSdk 34
+        // 플레이스토어는 매년 8월경 앱이 타겟해야 하는 최소 API 레벨을
+        // 올린다 - 미리 최신으로 맞춰둔다.
+        targetSdk 35
         versionCode 1
         versionName "1.0"
     }
