@@ -411,6 +411,98 @@ def crawl_full_catalog(
     return list(all_products.values())
 
 
+_MODEL_LABEL_RE = re.compile(r"모델명\s*\n?\s*([0-9]{8,14})")
+
+
+def _validate_barcode_checksum(code: str) -> bool:
+    """EAN-8/12/13/14(GS1 계열) 체크섬 검증. 고도몰 스킨은 별도 "바코드" 필드가
+    없고 "모델명" 필드를 바코드 용도로 재활용하는 경우가 많다(실측: 과자생각
+    상품 다수에서 모델명이 유효한 EAN-13이었음) - 그런데 모델명에 진짜 자체
+    모델 코드(체크섬이 안 맞는 숫자)를 넣어둔 상품도 섞여 있을 수 있어, 체크섬
+    검증을 통과한 것만 바코드로 신뢰한다."""
+    if not code.isdigit() or len(code) not in (8, 12, 13, 14):
+        return False
+    digits = [int(c) for c in code]
+    check_digit = digits.pop()
+    total = sum(d * (3 if i % 2 == 0 else 1) for i, d in enumerate(reversed(digits)))
+    return (10 - total % 10) % 10 == check_digit
+
+
+def crawl_catalog_with_barcode(
+    base_url: str, login_id: str, login_pwd: str, category_codes: str | list[str],
+    max_pages: int = 100, detail_limit: int | None = None,
+) -> list[dict]:
+    """crawl_full_catalog(목록 페이지만 훑음)과 달리, 상품 상세페이지까지
+    하나씩 들어가서 "모델명"(=바코드) 필드까지 긁어온다. 카탈로그 자동등록
+    (catalog_auto_import.py)처럼 바코드가 꼭 있어야 하는 배치 작업 전용 -
+    상품 수만큼 페이지 이동이 늘어나 목록 크롤링보다 훨씬 느리다.
+
+    detail_limit을 주면 상세페이지 방문을 그 개수만큼만 하고 멈춘다(목록
+    크롤링 자체는 그대로 전부 돈다 - 페이지 이동만 하고 상세페이지는 안 여는
+    쪽이라 상대적으로 빠름). 파싱 로직을 실제 사이트로 빠르게 검증해볼 때 씀 -
+    운영 배치에서는 None(전체)으로 둔다."""
+    listing = crawl_full_catalog(base_url, login_id, login_pwd, category_codes, max_pages=max_pages)
+    products_by_url = {p["product_url"]: p for p in listing if p.get("product_url")}
+
+    results = []
+    with browser_limit.browser_semaphore, sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"],
+        )
+        try:
+            context = browser.new_context()
+            page = context.new_page()
+            _block_heavy_resources(page)
+            login_godomall(page, base_url, login_id, login_pwd)
+
+            for i, (product_url, listed) in enumerate(products_by_url.items(), start=1):
+                try:
+                    page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(400)
+                    body_text = page.inner_text("body")
+                except Exception as e:
+                    print(f"[GODOMALL] {product_url} 상세페이지 조회 실패:", e)
+                    continue
+
+                model_match = _MODEL_LABEL_RE.search(body_text)
+                barcode = model_match.group(1) if model_match else None
+                if not barcode or not _validate_barcode_checksum(barcode):
+                    continue
+
+                # 상세페이지 "판매가"는 로그인 세션이 살아있으면 실제 숫자가
+                # 보인다(목록 페이지와 동일한 표시 방식) - 못 찾으면 목록
+                # 크롤링 때 이미 읽어둔 값으로 대신한다.
+                sale_price_match = re.search(r"판매가\s*\n?\s*([\d,]+원)", body_text)
+                case_price = _parse_price(sale_price_match.group(1)) if sale_price_match else listed.get("price")
+
+                results.append({
+                    "barcode": barcode,
+                    "name": listed["name"],
+                    "case_price": case_price,
+                    "unit_qty": listed.get("unit_qty"),
+                    "goods_no": listed.get("goods_no"),
+                    "product_url": product_url,
+                })
+
+                if detail_limit is not None and len(results) >= detail_limit:
+                    break
+
+                # crawl_full_catalog와 같은 이유(메모리 누적 방지)로 주기적으로
+                # 페이지를 재생성한다. 여긴 페이지 이동 수가 훨씬 많아서
+                # (상품당 1회) 더 자주 재생성한다.
+                if i % 20 == 0:
+                    page.close()
+                    page = context.new_page()
+                    _block_heavy_resources(page)
+                if i % 100 == 0:
+                    print(f"[GODOMALL] {base_url} 상세페이지 {i}/{len(products_by_url)} 처리 중 (바코드 확인 {len(results)}건)")
+        finally:
+            browser.close()
+
+    return results
+
+
 def fetch_candidates(base_url: str, login_id: str, login_pwd: str, keywords: list[str], top_n: int = 3) -> dict[str, list[dict]]:
     """여러 키워드에 대해 로그인 1회 후 후보 목록을 조회. {keyword: [candidate, ...]} 반환."""
     results: dict[str, list[dict]] = {}
