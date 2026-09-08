@@ -206,11 +206,44 @@
       scanHint.textContent = "바코드를 화면 안에 맞춰주세요";
       scanHint.className = "scan-hint";
 
-      html5QrCode = new Html5Qrcode("reader");
+      html5QrCode = new Html5Qrcode("reader", {
+        // EAN-13/UPC-A 등 실제 상품 바코드 포맷을 우선순위로 - 포맷을
+        // 좁혀주면 프레임마다 시도하는 디코더 수가 줄어서 인식이 더
+        // 빠르고 정확해진다.
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.CODABAR,
+          Html5QrcodeSupportedFormats.ITF,
+          Html5QrcodeSupportedFormats.QR_CODE,
+        ],
+        // 기기가 지원하면 브라우저 내장 바코드 인식기를 쓴다 - 안드로이드
+        // WebView처럼 카메라 스트림 화질이 떨어지는 환경에서 JS 디코더보다
+        // 훨씬 안정적으로 인식한다.
+        useBarCodeDetectorIfSupported: true,
+        verbose: false,
+      });
       try {
         await html5QrCode.start(
           { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 260, height: 160 } },
+          {
+            fps: 10,
+            qrbox: { width: 280, height: 140 },
+            // 안드로이드 WebView는 getUserMedia로 카메라를 잡을 때
+            // 기본적으로 자동 초점이 꺼진 채로 저해상도 스트림을 주는
+            // 경우가 많다 - 화면은 뜨는데 계속 흐릿해서 바코드 인식이
+            // 안 되는 원인이 대부분 이것. 초점/해상도를 명시해서 고친다.
+            videoConstraints: {
+              facingMode: "environment",
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              advanced: [{ focusMode: "continuous" }],
+            },
+          },
           (decodedText) => {
             // 한 번 인식되면 바로 멈추고 결과를 검색창에 채워 자동 검색 -
             // 계속 스캔 상태로 두면 같은 바코드가 여러 번 잡혀 혼란스럽다.
