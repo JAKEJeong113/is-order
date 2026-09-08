@@ -88,4 +88,21 @@ def api_search(q: str = Query(..., min_length=1, max_length=100), limit: int = Q
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True}
+    """DB 연결/데이터 상태를 바로 확인하기 위한 진단용 엔드포인트 - "검색은
+    되는데 결과가 항상 없음/오류남" 같은 증상이 나올 때, 이 사이트가 실제로
+    바라보고 있는 DATABASE_URL이 본체와 같은 DB(같은 catalog_items 데이터)를
+    가리키는지부터 확인할 수 있게 한다."""
+    try:
+        conn = db_conn.get_conn()
+    except Exception as e:
+        return {"db_connected": False, "error_type": type(e).__name__, "error": str(e)[:300]}
+
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM catalog_items")
+        count = cur.fetchone()[0]
+        return {"db_connected": True, "catalog_items_count": count}
+    except Exception as e:
+        return {"db_connected": True, "query_ok": False, "error_type": type(e).__name__, "error": str(e)[:300]}
+    finally:
+        conn.close()
