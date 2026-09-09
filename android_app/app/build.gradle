@@ -3,6 +3,17 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// 배포용(release) 서명 키 정보 - keystore.properties(git에 안 올라감,
+// .gitignore 처리됨)에서 읽는다. 이 파일이 없는 환경(예: 이 레포를 처음
+// 받은 다른 컴퓨터)에서는 release 서명 없이도 debug 빌드는 그대로 되게
+// 해서, keystore가 아직 없다고 전체 빌드가 깨지지 않게 한다.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasKeystoreProperties = keystorePropertiesFile.exists()
+if (hasKeystoreProperties) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace 'kr.co.iscream.barcodesite'
     compileSdk 35
@@ -17,10 +28,24 @@ android {
         versionName "1.0"
     }
 
+    signingConfigs {
+        if (hasKeystoreProperties) {
+            release {
+                storeFile rootProject.file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasKeystoreProperties) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
