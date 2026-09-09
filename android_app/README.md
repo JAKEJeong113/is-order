@@ -28,11 +28,12 @@ Android Studio로 열어서 처음 빌드하실 때 사소한 버전 충돌(Grad
 
 ## 도메인이 바뀌면
 
-지금은 Render의 임시 주소(`barcod-site.onrender.com`)를 보고 있습니다.
-나중에 정식 도메인(예: `barcode.is-cream.co.kr`)을 연결하면
+정식 도메인 `barcode.is-cream.co.kr`을 연결해서 지금은 이 주소를 씁니다
+(예전엔 Render의 임시 주소 `barcod-site.onrender.com`를 썼음). 도메인을
+또 바꾸게 되면
 [`MainActivity.kt`](app/src/main/java/kr/co/iscream/barcodesite/MainActivity.kt)의
-`BASE_URL` 상수랑, `shouldOverrideUrlLoading`의 도메인 체크 부분 두 곳을
-새 도메인으로 바꿔주세요.
+`BASE_URL` 상수랑, `shouldOverrideUrlLoading`의 도메인 체크(`uri.host ==`)
+부분 두 곳을 새 도메인으로 바꿔주세요.
 
 ## 앱 아이콘
 

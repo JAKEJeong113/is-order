@@ -27,9 +27,10 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        // 지금은 Render의 임시 도메인 - 나중에 barcode.is-cream.co.kr 같은
-        // 정식 도메인을 연결하면 여기 주소만 바꿔주면 된다.
-        private const val BASE_URL = "https://barcod-site.onrender.com/"
+        // 정식 도메인(barcode.is-cream.co.kr) 연결 완료 - Render의 임시
+        // onrender.com 주소(barcod-site.onrender.com, "barcode"에서 e가
+        // 빠진 오타성 이름이었음) 대신 이 도메인을 쓴다.
+        private const val BASE_URL = "https://barcode.is-cream.co.kr/"
     }
 
     private lateinit var webView: WebView
@@ -96,8 +97,12 @@ class MainActivity : AppCompatActivity() {
                 // 그 외 도메인(예: i's ORDER 로그인 페이지 링크)은 사용자의
                 // 기본 브라우저로 넘긴다 - 로그인/회원가입처럼 민감한 화면은
                 // 신뢰된 브라우저에서 진행하는 게 더 안전하고 자연스럽다.
+                // 정확히 이 서브도메인일 때만 WebView 안에 머무른다 - "is-cream.co.kr"
+                // 전체를 느슨하게 매칭하면 본체 사이트(www.is-cream.co.kr)의 로그인
+                // 페이지 링크까지 WebView 안에 붙잡아버려서, 원래 의도(로그인처럼
+                // 민감한 화면은 신뢰된 외부 브라우저로 보냄)가 깨진다.
                 val uri = Uri.parse(url)
-                return if (uri.host?.contains("barcod-site.onrender.com") == true) {
+                return if (uri.host == "barcode.is-cream.co.kr") {
                     false
                 } else {
                     startActivity(Intent(Intent.ACTION_VIEW, uri))
