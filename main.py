@@ -988,6 +988,9 @@ def api_oq_app_register_item(req: OqAppRegisterRequest):
             account["login_id"], account["login_pwd"],
             barcode=req.barcode, menu_name=req.menu_name,
             sale_price=req.sale_price, class_cd=req.class_cd,
+            # store_id를 넘기면 로그인 세션을 캐싱해서 두 번째 등록부터는
+            # 로그인을 건너뛴다(속도 개선) - 다른 도매처 add_to_cart와 동일한 방식.
+            store_id=_oq_app_store_id(req.device_id),
         )
     except Exception as e:
         return {"ok": False, "message": f"오더퀸 등록 중 오류가 발생했습니다: {e}"}
