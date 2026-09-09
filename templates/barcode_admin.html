@@ -80,13 +80,17 @@
       padding: 7px 14px; border: none; border-radius: 6px; font-size: 12px;
       font-weight: 700; cursor: pointer; background: #f3f4f6; color: var(--muted);
     }
+    #queueList.collapsed { display: none; }
   </style>
 </head>
 <body>
   <h1>바코드 카탈로그 관리</h1>
   <div class="hint-text" id="totalCountText"></div>
 
-  <h2>미분류 대기목록</h2>
+  <div class="top-row" style="justify-content: space-between; margin-top: 24px;">
+    <h2 style="margin:0;" id="queueHeading">미분류 대기목록</h2>
+    <button class="add-btn secondary" id="queueToggleBtn" style="padding:6px 12px; font-size:12px;">펼치기</button>
+  </div>
   <div class="hint-text" id="queueCountText">
     각 지점에서 수동/자동 발주표를 만들 때 카탈로그에 없는 바코드를 만나면
     여기 쌓입니다. "분류하기"를 누르면 아래 추가 폼에 바로 채워집니다.
@@ -125,6 +129,17 @@
     <button class="add-btn" id="lookupBtn">기존 상품 불러오기</button>
   </div>
   <div id="lookupStatus" class="status-text" style="margin: -10px 0 10px;"></div>
+  <div class="top-row">
+    <label for="categoryFilter" style="font-size:12px; color:var(--muted);">구분 필터</label>
+    <select id="categoryFilter" style="padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px;">
+      <option value="">전체 (최근 수정 20개)</option>
+      <option value="0">아이스크림</option>
+      <option value="1">쿠팡</option>
+      <option value="2">도매몰</option>
+      <option value="3">문구완구</option>
+      <option value="99">미분류</option>
+    </select>
+  </div>
   <div id="list"></div>
 
   <script>
@@ -145,10 +160,45 @@
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
+    // 미분류 대기목록은 지점이 많아지면 수십~수백 건씩 쌓여서 페이지 맨
+    // 위를 계속 차지하고 있으면 그 아래 실제로 자주 쓰는 기능(검색/필터)의
+    // 시인성이 떨어진다 - 접어둔 상태를 기본으로 하고, 펼침 여부는 브라우저에
+    // 기억해둔다(관리자 개인 편의 설정이라 서버에 저장할 필요 없음).
+    const QUEUE_COLLAPSE_KEY = "barcodeAdmin.queueExpanded";
+
+    function setQueueExpanded(expanded) {
+      const listEl = document.getElementById("queueList");
+      const btn = document.getElementById("queueToggleBtn");
+      listEl.classList.toggle("collapsed", !expanded);
+      btn.textContent = expanded ? "접기" : "펼치기";
+      try {
+        localStorage.setItem(QUEUE_COLLAPSE_KEY, expanded ? "1" : "0");
+      } catch (e) {
+        // 프라이빗 브라우징 등으로 localStorage를 못 쓰면 그냥 기억만 안 될 뿐,
+        // 접기/펼치기 자체는 계속 동작하므로 조용히 무시한다.
+      }
+    }
+
+    document.getElementById("queueToggleBtn").addEventListener("click", () => {
+      const isExpanded = !document.getElementById("queueList").classList.contains("collapsed");
+      setQueueExpanded(!isExpanded);
+    });
+
+    let queueExpandedInitial = false;
+    try {
+      queueExpandedInitial = localStorage.getItem(QUEUE_COLLAPSE_KEY) === "1";
+    } catch (e) {
+      // 위와 동일 - 기본값(접힘)으로 진행
+    }
+    setQueueExpanded(queueExpandedInitial);
+
     async function loadQueue() {
       const res = await fetch("/admin/api/unclassified-queue");
       const data = await res.json();
       const listEl = document.getElementById("queueList");
+      const heading = document.getElementById("queueHeading");
+      const count = data.ok && data.items ? data.items.length : 0;
+      heading.textContent = `미분류 대기목록 (${count})`;
       if (!data.ok || !data.items || data.items.length === 0) {
         listEl.innerHTML = '<div class="empty-text">대기 중인 미분류 상품이 없습니다.</div>';
         return;
@@ -200,8 +250,14 @@
       }
     });
 
+    const CATEGORY_LABELS = { "0": "아이스크림", "1": "쿠팡", "2": "도매몰", "3": "문구완구", "99": "미분류" };
+
     async function loadItems() {
-      const res = await fetch("/admin/api/barcode-catalog");
+      const categoryValue = document.getElementById("categoryFilter").value;
+      const url = categoryValue
+        ? `/admin/api/barcode-catalog?is_coupang=${encodeURIComponent(categoryValue)}`
+        : "/admin/api/barcode-catalog";
+      const res = await fetch(url);
       const data = await res.json();
       if (!data.ok) {
         document.getElementById("list").innerHTML = `<div class="empty-text">${escapeHtml(data.error || "불러오기 실패")}</div>`;
@@ -209,10 +265,13 @@
       }
       allItems = data.items;
       newItems = [];
-      document.getElementById("totalCountText").textContent =
-        `전체 카탈로그 ${data.total_count}개 중 최근 수정된 20개를 표시합니다. 특정 상품은 아래 검색으로 찾으세요.`;
+      document.getElementById("totalCountText").textContent = categoryValue
+        ? `구분 "${CATEGORY_LABELS[categoryValue]}" ${data.total_count}개 중 최근 수정된 ${data.items.length}개를 표시합니다.`
+        : `전체 카탈로그 ${data.total_count}개 중 최근 수정된 20개를 표시합니다. 특정 상품은 아래 검색으로 찾으세요.`;
       render();
     }
+
+    document.getElementById("categoryFilter").addEventListener("change", loadItems);
 
     function isCoupangOptionsHtml(selected) {
       return IS_COUPANG_OPTIONS.map(

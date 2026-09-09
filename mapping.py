@@ -302,24 +302,36 @@ def delete_catalog_item(barcode: str) -> bool:
     return deleted
 
 
-def list_catalog_items(limit: int = 20) -> list[dict]:
+def list_catalog_items(limit: int = 20, is_coupang: int | None = None) -> list[dict]:
     """관리 페이지 기본 목록용 - 최근 수정된 순으로 일부만(전체 카탈로그가
-    1000개 넘게 쌓여도 목록이 무거워지지 않게)."""
+    1000개 넘게 쌓여도 목록이 무거워지지 않게). is_coupang을 주면 그 구분
+    (0=아이스크림,1=쿠팡,2=도매몰,3=문구완구,99=미분류)만 걸러서 준다 - 관리
+    페이지의 "구분" 필터용."""
     conn = db_conn.get_conn()
     cur = conn.cursor()
-    cur.execute(f"""
-    SELECT {", ".join(_CATALOG_DB_COLUMNS)} FROM catalog_items
-    ORDER BY updated_at DESC LIMIT ?
-    """, (limit,))
+    if is_coupang is None:
+        cur.execute(f"""
+        SELECT {", ".join(_CATALOG_DB_COLUMNS)} FROM catalog_items
+        ORDER BY updated_at DESC LIMIT ?
+        """, (limit,))
+    else:
+        cur.execute(f"""
+        SELECT {", ".join(_CATALOG_DB_COLUMNS)} FROM catalog_items
+        WHERE is_coupang = ?
+        ORDER BY updated_at DESC LIMIT ?
+        """, (is_coupang, limit))
     rows = cur.fetchall()
     conn.close()
     return [dict(zip(_CATALOG_DB_COLUMNS, r)) for r in rows]
 
 
-def catalog_item_count() -> int:
+def catalog_item_count(is_coupang: int | None = None) -> int:
     conn = db_conn.get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM catalog_items")
+    if is_coupang is None:
+        cur.execute("SELECT COUNT(*) FROM catalog_items")
+    else:
+        cur.execute("SELECT COUNT(*) FROM catalog_items WHERE is_coupang = ?", (is_coupang,))
     count = cur.fetchone()[0]
     conn.close()
     return count

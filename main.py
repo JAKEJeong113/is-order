@@ -1520,10 +1520,21 @@ def admin_barcode_catalog_page(request: Request, _: bool = Depends(require_admin
 
 
 @app.get("/admin/api/barcode-catalog")
-def admin_api_barcode_catalog_list(_: bool = Depends(require_admin)):
+def admin_api_barcode_catalog_list(
+    is_coupang: int | None = Query(None, ge=0, le=99, description="구분으로 필터링 (0=아이스크림,1=쿠팡,2=도매몰,3=문구완구,99=미분류)"),
+    _: bool = Depends(require_admin),
+):
     """전체 카탈로그(현재 1000개 이상)를 다 내려주면 목록이 무거워지므로,
-    기본으로는 최근 수정된 20개만 준다 - 특정 상품을 찾으려면 검색을 쓴다."""
-    return {"ok": True, "items": mapping.list_catalog_items(limit=20), "total_count": mapping.catalog_item_count()}
+    기본으로는 최근 수정된 20개만 준다 - 특정 상품을 찾으려면 검색을 쓴다.
+    is_coupang을 주면 그 구분만 최근 수정순 최대 200개까지 보여준다(관리
+    페이지의 "구분" 필터 - 필터를 걸었다는 건 이미 대상을 좁힌 상태라
+    20개보다 넉넉히 보여줘도 무겁지 않다)."""
+    limit = 20 if is_coupang is None else 200
+    return {
+        "ok": True,
+        "items": mapping.list_catalog_items(limit=limit, is_coupang=is_coupang),
+        "total_count": mapping.catalog_item_count(is_coupang=is_coupang),
+    }
 
 
 @app.get("/admin/api/barcode-catalog/search")
