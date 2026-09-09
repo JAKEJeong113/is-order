@@ -73,11 +73,35 @@ class MainActivity : AppCompatActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    if (webView.canGoBack()) {
-                        webView.goBack()
-                    } else {
-                        isEnabled = false
-                        onBackPressedDispatcher.onBackPressed()
+                    // 카메라 스캔 오버레이는 페이지 이동이 아니라 JS로 화면 위에
+                    // 띄우는 레이어라 webView.canGoBack()으로는 존재를 알 수
+                    // 없다 - 그 상태에서 뒤로가기를 누르면 오버레이는 그대로 둔
+                    // 채 앱이 최소화돼버리는 문제가 있었다(실사용 확인). 뒤로가기
+                    // 시 먼저 JS에게 오버레이가 열려있는지 물어보고, 열려있으면
+                    // 페이지의 stopScan()(카메라 정지까지 포함)을 호출해 오버레이만
+                    // 닫고 끝낸다. 안 열려있을 때만 기존 동작(웹뷰 히스토리 뒤로가기
+                    // -> 없으면 앱 종료)으로 넘어간다.
+                    webView.evaluateJavascript(
+                        """
+                        (function() {
+                          var overlay = document.getElementById('scanOverlay');
+                          if (overlay && overlay.classList.contains('open') && typeof stopScan === 'function') {
+                            stopScan();
+                            return true;
+                          }
+                          return false;
+                        })();
+                        """.trimIndent(),
+                    ) { result ->
+                        val overlayWasOpen = result == "true"
+                        if (!overlayWasOpen) {
+                            if (webView.canGoBack()) {
+                                webView.goBack()
+                            } else {
+                                isEnabled = false
+                                onBackPressedDispatcher.onBackPressed()
+                            }
+                        }
                     }
                 }
             },
