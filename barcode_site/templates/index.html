@@ -92,6 +92,21 @@
     }
     .cta a{color:var(--mint-dark); font-weight:800; text-decoration:underline}
 
+    .new-products-btn{
+      width:100%; max-width:480px; margin-top:20px; padding:13px 18px;
+      border:1px solid var(--mint); border-radius:12px; background:#fff;
+      color:var(--mint-dark); font-weight:800; font-size:14px; cursor:pointer;
+    }
+    .new-products-btn:active{background:var(--mint-soft)}
+    .new-products-panel{width:100%; max-width:480px; margin-top:12px; display:none}
+    .new-products-panel.open{display:block}
+    .np-filter-row{display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap}
+    .np-filter-btn{
+      padding:7px 14px; border:1px solid var(--line); border-radius:999px; background:#fff;
+      color:var(--muted); font-weight:700; font-size:12.5px; cursor:pointer;
+    }
+    .np-filter-btn.active{background:var(--mint); border-color:var(--mint); color:#fff}
+
     .scan-btn{
       padding:14px 16px; border:1px solid var(--mint); border-radius:10px; background:#fff;
       color:var(--mint-dark); font-weight:800; font-size:14px; cursor:pointer; white-space:nowrap;
@@ -174,6 +189,19 @@
     입력하거나 카메라로 스캔하면 등록된 가격 정보를 즉시 보여드립니다.
   </p>
 
+  <!-- 신제품 안내 - 도매몰 자동 크롤링이나 관리자 수동 등록으로 최근(4주
+       이내) 새로 들어온 상품을 카테고리별로 훑어볼 수 있게 한다. -->
+  <button type="button" class="new-products-btn" id="newProductsBtn">🆕 신제품 안내</button>
+
+  <div class="new-products-panel" id="newProductsPanel">
+    <div class="np-filter-row" id="npFilterRow">
+      <button type="button" class="np-filter-btn active" data-category="">전체</button>
+      <button type="button" class="np-filter-btn" data-category="0">아이스크림</button>
+      <button type="button" class="np-filter-btn" data-category="2">도매몰</button>
+    </div>
+    <div class="results" id="newProductsList"></div>
+  </div>
+
   <div class="scan-overlay" id="scanOverlay">
     <div class="scan-overlay-header">
       <span>바코드 스캔</span>
@@ -201,6 +229,32 @@
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
+    // 검색 결과와 "신제품 안내" 목록이 같은 형태(바코드/상품명/추천판매가)라
+    // 행 하나 그리는 로직과 바코드 복사·오더퀸 등록 버튼을 그대로 재사용한다.
+    function renderRows(items) {
+      if (items.length === 0) {
+        return '<p class="empty">표시할 상품이 없습니다.</p>';
+      }
+      // 오더퀸 자동등록 버튼은 안드로이드 앱에서 그 기능을 켜뒀을 때만
+      // 보인다(window.AndroidOrderQueen은 앱이 심어주는 JS 인터페이스 -
+      // 일반 브라우저에는 아예 없음). 본체 사이트 로그인과 무관하게 앱
+      // 자체 설정으로 동작한다.
+      const oqAvailable = !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
+
+      return items.map((item) => `
+        <div class="result-row" data-barcode="${item.barcode}">
+          <div>
+            <p class="result-name">${item.menu_name}</p>
+            <p class="result-barcode">${item.barcode}</p>
+          </div>
+          <div class="result-side">
+            <span class="result-price">${formatPrice(item.recommended_price)}</span>
+            ${oqAvailable ? `<button type="button" class="oq-register-btn" data-barcode="${item.barcode}" data-name="${escapeHtml(item.menu_name)}" data-price="${item.recommended_price || 0}">오더퀸 등록</button>` : ""}
+          </div>
+        </div>
+      `).join("");
+    }
+
     async function runSearch() {
       const query = input.value.trim();
       if (!query) return;
@@ -211,31 +265,7 @@
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
         const data = await res.json();
-        const items = data.items || [];
-
-        if (items.length === 0) {
-          resultsEl.innerHTML = '<p class="empty">일치하는 상품을 찾지 못했습니다.</p>';
-          return;
-        }
-
-        // 오더퀸 자동등록 버튼은 안드로이드 앱에서 그 기능을 켜뒀을 때만
-        // 보인다(window.AndroidOrderQueen은 앱이 심어주는 JS 인터페이스 -
-        // 일반 브라우저에는 아예 없음). 본체 사이트 로그인과 무관하게 앱
-        // 자체 설정으로 동작한다.
-        const oqAvailable = !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
-
-        resultsEl.innerHTML = items.map((item) => `
-          <div class="result-row" data-barcode="${item.barcode}">
-            <div>
-              <p class="result-name">${item.menu_name}</p>
-              <p class="result-barcode">${item.barcode}</p>
-            </div>
-            <div class="result-side">
-              <span class="result-price">${formatPrice(item.recommended_price)}</span>
-              ${oqAvailable ? `<button type="button" class="oq-register-btn" data-barcode="${item.barcode}" data-name="${escapeHtml(item.menu_name)}" data-price="${item.recommended_price || 0}">오더퀸 등록</button>` : ""}
-            </div>
-          </div>
-        `).join("");
+        resultsEl.innerHTML = renderRows(data.items || []);
       } catch (e) {
         resultsEl.innerHTML = '<p class="empty">조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>';
       } finally {
@@ -291,7 +321,10 @@
       }
     }
 
-    resultsEl.addEventListener("click", (e) => {
+    // 검색 결과(#results)와 신제품 안내 목록(#newProductsList) 둘 다 같은
+    // 방식으로 클릭을 처리한다 - 매번 innerHTML로 새로 그려지므로 각 행에
+    // 리스너를 다시 붙이는 대신 두 부모 컨테이너에 한 번씩만 위임(delegate)한다.
+    function handleResultClick(e) {
       const oqBtn = e.target.closest(".oq-register-btn");
       if (oqBtn) {
         // 행 전체 클릭(바코드 복사)으로 이어지지 않게 여기서 끝낸다.
@@ -304,7 +337,9 @@
       const row = e.target.closest(".result-row");
       if (!row || !row.dataset.barcode) return;
       copyBarcode(row.dataset.barcode, row);
-    });
+    }
+
+    resultsEl.addEventListener("click", handleResultClick);
 
     // 입력창 지우기(X) 버튼 - 글자가 있을 때만 보이고, 누르면 입력값과
     // 검색 결과를 함께 비운다.
@@ -513,6 +548,49 @@
           scanHint.textContent = "바코드를 화면 안에 맞춰주세요 (흐리면 화면을 탭하세요)";
         }
       });
+    });
+
+    // 신제품 안내 - 도매몰 자동 크롤링/관리자 수동 등록으로 최근(4주 이내)
+    // 새로 들어온 상품을 카테고리 필터로 훑어본다.
+    const newProductsBtn = document.getElementById("newProductsBtn");
+    const newProductsPanel = document.getElementById("newProductsPanel");
+    const newProductsList = document.getElementById("newProductsList");
+    const npFilterRow = document.getElementById("npFilterRow");
+    let npLoaded = false;
+    let npCurrentCategory = "";
+
+    newProductsList.addEventListener("click", handleResultClick);
+
+    async function loadNewProducts(category) {
+      npCurrentCategory = category;
+      newProductsList.innerHTML = '<p class="hint">불러오는 중...</p>';
+      try {
+        const url = category
+          ? `/api/new-products?category=${encodeURIComponent(category)}`
+          : "/api/new-products";
+        const res = await fetch(url);
+        const data = await res.json();
+        newProductsList.innerHTML = renderRows(data.items || []);
+      } catch (e) {
+        newProductsList.innerHTML = '<p class="empty">불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>';
+      }
+    }
+
+    newProductsBtn.addEventListener("click", () => {
+      const willOpen = !newProductsPanel.classList.contains("open");
+      newProductsPanel.classList.toggle("open", willOpen);
+      if (willOpen && !npLoaded) {
+        npLoaded = true;
+        loadNewProducts(npCurrentCategory);
+      }
+    });
+
+    npFilterRow.addEventListener("click", (e) => {
+      const filterBtn = e.target.closest(".np-filter-btn");
+      if (!filterBtn) return;
+      npFilterRow.querySelectorAll(".np-filter-btn").forEach((b) => b.classList.remove("active"));
+      filterBtn.classList.add("active");
+      loadNewProducts(filterBtn.dataset.category);
     });
   </script>
 </body>
