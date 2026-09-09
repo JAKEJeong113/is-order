@@ -109,12 +109,6 @@
       color:#fff; font-size:13px; padding:0 20px;
     }
     .scan-error{color:#ffb4a8; font-size:13px; text-align:center; padding:0 24px}
-    /* 카메라 초점 문제 원인 진단용 임시 표시 - 원인 파악되면 지운다. */
-    .scan-debug{
-      position:absolute; top:52px; left:0; right:0; text-align:center;
-      color:#7dffb0; font-size:10.5px; padding:0 12px; word-break:break-all;
-      background:rgba(0,0,0,.55);
-    }
     .seo-text{
       width:100%; max-width:480px; margin-top:20px; color:var(--muted);
       font-size:12.5px; line-height:1.6; text-align:center;
@@ -174,7 +168,6 @@
     </div>
     <div id="reader"></div>
     <p class="scan-hint" id="scanHint">바코드를 화면 안에 맞춰주세요</p>
-    <p class="scan-debug" id="scanDebug"></p>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -333,7 +326,26 @@
       scanOverlay.classList.remove("open");
     }
 
+    // 안드로이드 앱(WebView)에서는 MainActivity가 이 이름으로 JS 인터페이스를
+    // 심어준다 - 있으면 브라우저 표준 카메라 API(html5-qrcode) 대신 앱의
+    // 네이티브 카메라(CameraX+ML Kit)를 쓴다. 일부 기기는 브라우저가 노출하는
+    // 초점 제어 자체가 고장나 있어(실측: capabilities.focusMode가
+    // "continuous"를 지원 목록에 없다고 하면서 현재값은 "continuous"라고
+    // 말하는 등 모순 - 웹 표준 API로는 손쓸 수 없는 기기/브라우저 버그) 이
+    // 경로로 우회해야 초점이 제대로 맞는다. 일반 브라우저로 접속했을 때는
+    // window.AndroidScanner가 없으니 원래 방식(아래) 그대로 동작한다.
+    window.receiveNativeScanResult = function (decodedText) {
+      input.value = decodedText;
+      updateClearBtn();
+      runSearch();
+    };
+
     async function startScan() {
+      if (window.AndroidScanner && typeof window.AndroidScanner.openNativeScanner === "function") {
+        window.AndroidScanner.openNativeScanner();
+        return;
+      }
+
       if (typeof Html5Qrcode === "undefined") {
         scanHint.textContent = "스캔 기능을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.";
         scanHint.className = "scan-error";
@@ -416,27 +428,12 @@
         // 시작 시 넣은 focusMode:continuous만으로는 기기에 따라 첫 초점이
         // 안 맞은 채로 멈춰있는 경우가 있다(실사용 확인) - 카메라가 완전히
         // 켜진 뒤(짧은 지연 후) 한 번 더 강제로 재요청해서 "깨워준다".
+        // (참고: 일부 기기는 브라우저가 노출하는 초점 제어 능력치 자체가
+        // 고장나 있어(capabilities.focusMode에 "continuous"가 없다고 하면서
+        // settings는 "continuous"라고 말하는 등 모순) 이 재시도로도 안 될 수
+        // 있음 - 그런 기기는 앱에서 네이티브 스캐너(AndroidScanner)를 대신
+        // 쓰도록 아래에서 우회한다.)
         setTimeout(refocus, 700);
-
-        // 임시 진단용: 탭해도 반응이 없다는 게 재초점 로직 자체가 안 먹히는
-        // 건지, 이 기기/브라우저가 애초에 초점 제어를 지원 안 하는 건지
-        // 구분하기 위해 실제 카메라 능력치를 화면에 잠깐 띄운다. 원인
-        // 파악되면 이 블록은 지운다.
-        setTimeout(() => {
-          try {
-            const caps = typeof html5QrCode.getRunningTrackCapabilities === "function"
-              ? html5QrCode.getRunningTrackCapabilities() : null;
-            const settings = typeof html5QrCode.getRunningTrackSettings === "function"
-              ? html5QrCode.getRunningTrackSettings() : null;
-            const debugEl = document.getElementById("scanDebug");
-            if (debugEl) {
-              debugEl.textContent = "능력: " + JSON.stringify(caps) + " / 현재: " + JSON.stringify(settings);
-            }
-          } catch (e) {
-            const debugEl = document.getElementById("scanDebug");
-            if (debugEl) debugEl.textContent = "진단 실패: " + e.message;
-          }
-        }, 1000);
       } catch (e) {
         scanHint.textContent = "카메라를 사용할 수 없습니다. 브라우저의 카메라 권한을 확인해주세요.";
         scanHint.className = "scan-error";
