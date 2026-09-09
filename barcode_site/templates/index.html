@@ -23,6 +23,9 @@
       font-family:'Pretendard',-apple-system,"Malgun Gothic",sans-serif;
       display:flex; flex-direction:column; align-items:center;
       padding:48px 20px 32px;
+      /* 한글은 기본 줄바꿈 규칙상 "바코드"/"즉시"처럼 한 단어 중간에서도
+         잘릴 수 있다 - keep-all로 띄어쓰기 단위로만 줄바꿈되게 한다. */
+      word-break:keep-all; overflow-wrap:break-word;
     }
     .badge{
       font-size:12px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
