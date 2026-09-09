@@ -107,6 +107,22 @@
     }
     .np-filter-btn.active{background:var(--mint); border-color:var(--mint); color:#fff}
 
+    /* 광고 배너 자리 - 지금은 빈 자리만 예약해두고, 실제 광고 코드(애드센스
+       등)는 나중에 이 컨테이너 안에 채워 넣는다. */
+    .ad-banner{
+      width:100%; max-width:480px; margin-top:16px; min-height:90px;
+      border:1px dashed var(--line); border-radius:12px; background:#fff;
+      display:flex; align-items:center; justify-content:center;
+      color:var(--muted); font-size:12.5px;
+    }
+
+    .site-footer{
+      width:100%; max-width:480px; margin-top:24px; padding-top:16px;
+      border-top:1px solid var(--line); text-align:center;
+      color:var(--muted); font-size:12.5px;
+    }
+    .site-footer a{color:var(--mint-dark); font-weight:700; text-decoration:underline}
+
     .scan-btn{
       padding:14px 16px; border:1px solid var(--mint); border-radius:10px; background:#fff;
       color:var(--mint-dark); font-weight:800; font-size:14px; cursor:pointer; white-space:nowrap;
@@ -201,6 +217,13 @@
     </div>
     <div class="results" id="newProductsList"></div>
   </div>
+
+  <!-- 광고 배너 자리 - 신제품 안내 아래에 배치. 지금은 자리만 예약. -->
+  <div class="ad-banner" id="adBanner">광고 영역</div>
+
+  <footer class="site-footer">
+    문의사항이 있으신가요? <a href="mailto:lottotto0404@naver.com">lottotto0404@naver.com</a>
+  </footer>
 
   <div class="scan-overlay" id="scanOverlay">
     <div class="scan-overlay-header">
