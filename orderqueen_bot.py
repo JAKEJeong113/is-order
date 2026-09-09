@@ -407,7 +407,7 @@ def register_menu_item(
             # dialog 메시지는 참고만 하고, 방금 넣은 바코드로 목록을 다시
             # 검색해서 실제로 등록됐는지 직접 확인한 결과만 신뢰한다.
             combined = " ".join(dialog_messages)
-            failure_keywords = ("실패", "중복", "오류", "이미", "다시")
+            failure_keywords = ("실패", "중복", "오류", "이미", "다시", "존재")
             dialog_says_fail = any(kw in combined for kw in failure_keywords)
 
             page.goto(MENU_LIST_URL, wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
@@ -416,7 +416,15 @@ def register_menu_item(
             search_box.fill(barcode)
             search_box.press("Enter")
             page.wait_for_timeout(1200)
-            verified = barcode in page.inner_text("body")
+            list_text = page.inner_text("body")
+            # 바코드만 확인하면 부족하다(실측으로 발견한 심각한 오탐 사례:
+            # 이미 다른 상품이 그 바코드로 등록돼 있으면 오더퀸이 "해당
+            # 바코드로 등록된 메뉴가 존재합니다"라며 저장을 거부하는데, 이
+            # 문구는 실패 키워드에 안 걸리고 검색 결과엔 그 "기존" 상품이
+            # 그대로 나오니 verified가 True가 돼버려서 우리가 새로 등록한
+            # 것처럼 잘못 보고했었다) - 우리가 넣은 상품명까지 같이 나와야만
+            # 진짜 우리 등록이 반영된 것으로 인정한다.
+            verified = barcode in list_text and menu_name[:40] in list_text
 
             if store_id and verified:
                 # 세션이 그대로 유효했던 경우(cached_state가 None으로 안 바뀜)도
