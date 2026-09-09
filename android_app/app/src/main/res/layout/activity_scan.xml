@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/previewView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 스캔 가이드 박스 - 웹 버전(index.html)의 qrbox(280x140)와 같은 비율.
+         실제 인식 로직은 프레임 전체를 보지만, 사용자에게 어디를 맞춰야
+         하는지 알려주는 시각적 가이드 역할만 한다. -->
+    <View
+        android:layout_width="280dp"
+        android:layout_height="140dp"
+        android:layout_gravity="center"
+        android:background="@drawable/scan_box_border" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:background="#4D000000"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="바코드 스캔"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/closeBtn"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="@drawable/scan_close_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="✕"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/hintText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="36dp"
+        android:gravity="center"
+        android:paddingHorizontal="20dp"
+        android:text="바코드를 화면 안에 맞춰주세요"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp" />
+
+</FrameLayout>

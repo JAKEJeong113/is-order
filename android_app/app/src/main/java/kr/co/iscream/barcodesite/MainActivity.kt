@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -20,9 +21,15 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
  * "무인매장 바코드 조회" 웹사이트를 그대로 감싸는 WebView 앱.
  *
  * 이 웹사이트 자체에 카메라 바코드 스캔 기능(html5-qrcode, getUserMedia)이
- * 이미 들어있어서, 앱 쪽에서 따로 스캔 로직을 만들 필요가 없다 - WebView가
- * 웹페이지의 카메라 요청을 실제 안드로이드 카메라 권한과 연결해주기만 하면
- * 웹과 완전히 같은 스캔 기능이 앱에서도 그대로 동작한다.
+ * 들어있어서 원래는 앱 쪽에 따로 스캔 로직을 안 만들어도 됐다. 그런데 일부
+ * 기기는 브라우저 표준 카메라 API가 노출하는 초점 제어 능력치 자체가 고장나
+ * 있어(실측: capabilities.focusMode가 "continuous"를 지원 안 한다면서 현재
+ * settings는 "continuous"라고 답하는 모순된 값 - 웹 표준 API 레벨의
+ * 기기/브라우저 버그라 JS로는 손쓸 수 없음) 초점이 전혀 안 맞는 문제가
+ * 있었다. 이걸 우회하기 위해 앱에서만 네이티브 카메라(ScanActivity,
+ * CameraX+ML Kit)를 대신 쓰도록 JS 인터페이스(AndroidScanner)를 심어준다 -
+ * 웹페이지는 이 인터페이스가 있으면 자동으로 그쪽을 쓰고, 없는(=일반
+ * 브라우저) 환경에서는 기존 html5-qrcode 방식 그대로 동작한다.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -53,6 +60,35 @@ class MainActivity : AppCompatActivity() {
             request.grant(request.resources)
         } else {
             request.deny()
+        }
+    }
+
+    // ScanActivity(네이티브 스캐너)가 인식한 바코드를 결과로 받아서, 웹페이지의
+    // window.receiveNativeScanResult(...)를 직접 호출해 검색창에 채워 넣는다 -
+    // 웹의 startScan() 성공 콜백과 똑같은 경로를 타므로 UI 동작이 일관된다.
+    private val scanActivityLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val barcode = result.data?.getStringExtra(ScanActivity.RESULT_BARCODE) ?: return@registerForActivityResult
+        // JS 문자열 리터럴 안에 그대로 넣을 거라 백슬래시/작은따옴표만 이스케이프하면
+        // 충분하다 - 바코드는 항상 숫자/영문 조합이라 다른 특수문자가 나올 일이 없다.
+        val escaped = barcode.replace("\\", "\\\\").replace("'", "\\'")
+        webView.evaluateJavascript(
+            "window.receiveNativeScanResult && window.receiveNativeScanResult('$escaped');",
+            null,
+        )
+    }
+
+    // 웹페이지에서 "window.AndroidScanner.openNativeScanner()"로 호출하는
+    // 다리 역할 - addJavascriptInterface로 노출된 메서드는 UI 스레드가 아닌
+    // 별도 스레드에서 실행되므로 액티비티 실행은 runOnUiThread로 감싼다.
+    private inner class WebAppInterface {
+        @JavascriptInterface
+        fun openNativeScanner() {
+            runOnUiThread {
+                scanActivityLauncher.launch(Intent(this@MainActivity, ScanActivity::class.java))
+            }
         }
     }
 
@@ -114,6 +150,12 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
             mediaPlaybackRequiresUserGesture = false
         }
+
+        // shouldOverrideUrlLoading이 우리 도메인(barcode.is-cream.co.kr) 외의
+        // 모든 이동을 외부 브라우저로 돌려보내므로, 이 WebView 안에는 항상
+        // 우리 자신이 만든 신뢰된 콘텐츠만 로드된다 - addJavascriptInterface로
+        // 노출한 네이티브 브리지를 제3자 콘텐츠가 악용할 여지가 없다.
+        webView.addJavascriptInterface(WebAppInterface(), "AndroidScanner")
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {

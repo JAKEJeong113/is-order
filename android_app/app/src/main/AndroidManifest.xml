@@ -29,5 +29,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 네이티브 카메라(CameraX+ML Kit) 바코드 스캐너 - MainActivity가
+             웹페이지의 JS 인터페이스(AndroidScanner) 호출로만 띄운다. -->
+        <activity
+            android:name=".ScanActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.BarcodeSite" />
     </application>
 </manifest>

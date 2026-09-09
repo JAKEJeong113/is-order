@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 닫기(✕) 버튼 배경 - 웹 버전의 .scan-close(rgba(255,255,255,.15))와
+     동일한 룩앤필을 맞춘다. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#26FFFFFF" />
+</shape>
