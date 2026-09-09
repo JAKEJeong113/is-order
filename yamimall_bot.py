@@ -444,6 +444,98 @@ def crawl_full_catalog(
     return list(products.values())
 
 
+_BARCODE_LABEL_RE = re.compile(r"바코드\s*\n?\s*(\d{8,14})")
+_SALE_PRICE_LABEL_RE = re.compile(r"판매가\s*\n?\s*([\d,]+)원?")
+_RECOMMENDED_PRICE_LABEL_RE = re.compile(r"권장소비자가\s*\n?\s*([\d,]+)원?")
+
+
+def _validate_barcode_checksum(code: str) -> bool:
+    """EAN-8/12/13/14(GS1 계열) 체크섬 검증 - godomall_bot의 동일 함수와 같은
+    알고리즘. 이 플랫폼은 "바코드"라는 전용 필드가 따로 있어(고도몰 계열의
+    "모델명" 재활용보다 신뢰도가 높음) 오탐 가능성은 낮지만, 그래도 형식이
+    깨진 값(빈칸/오타)을 걸러내기 위해 검증한다."""
+    if not code.isdigit() or len(code) not in (8, 12, 13, 14):
+        return False
+    digits = [int(c) for c in code]
+    check_digit = digits.pop()
+    total = sum(d * (3 if i % 2 == 0 else 1) for i, d in enumerate(reversed(digits)))
+    return (10 - total % 10) % 10 == check_digit
+
+
+def crawl_catalog_with_barcode(
+    username: str, password: str, base_url: str = YAMIMALL_URL,
+    category_codes: list[str] | None = None, max_pages: int = 60, detail_limit: int | None = None,
+) -> list[dict]:
+    """crawl_full_catalog(목록 페이지만 훑음)과 달리 상품 상세페이지까지
+    들어가서 "바코드" 필드와, 있으면 "권장소비자가"(공급사가 이미 제시한
+    추천 판매가 - 실측: 또요몰 상품 상당수에 이미 채워져 있음, 없는 상품도
+    있어 그때는 호출부에서 판매가÷낱개수 마진 계산으로 대체해야 함)까지
+    긁어온다. 카탈로그 자동등록(catalog_auto_import.py) 전용 - 상품 수만큼
+    페이지 이동이 늘어나 목록 크롤링보다 훨씬 느리다.
+
+    detail_limit을 주면 상세페이지 방문을 그 개수만큼만 하고 멈춘다(파싱
+    로직을 실제 사이트로 빠르게 검증해볼 때 씀 - 운영 배치에서는 None)."""
+    listing = crawl_full_catalog(username, password, base_url=base_url, category_codes=category_codes, max_pages=max_pages)
+    products_by_url = {p["product_url"]: p for p in listing if p.get("product_url")}
+
+    results = []
+    with browser_limit.browser_semaphore, sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"],
+        )
+        try:
+            context = browser.new_context()
+            page = context.new_page()
+            _block_heavy_resources(page)
+            login_yamimall(page, username, password, base_url=base_url)
+
+            for i, (product_url, listed) in enumerate(products_by_url.items(), start=1):
+                try:
+                    page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(500)
+                    body_text = page.inner_text("body")
+                except Exception as e:
+                    print(f"[YAMIMALL] {product_url} 상세페이지 조회 실패:", e)
+                    continue
+
+                barcode_match = _BARCODE_LABEL_RE.search(body_text)
+                barcode = barcode_match.group(1) if barcode_match else None
+                if not barcode or not _validate_barcode_checksum(barcode):
+                    continue
+
+                sale_price_match = _SALE_PRICE_LABEL_RE.search(body_text)
+                case_price = _parse_price(sale_price_match.group(1)) if sale_price_match else listed.get("price")
+
+                unit_qty = listed.get("unit_qty") or extract_wholesale_unit_qty(body_text)
+
+                recommended_match = _RECOMMENDED_PRICE_LABEL_RE.search(body_text)
+                recommended_price = _parse_price(recommended_match.group(1)) if recommended_match else None
+
+                results.append({
+                    "barcode": barcode,
+                    "name": listed["name"],
+                    "case_price": case_price,
+                    "unit_qty": unit_qty,
+                    "recommended_price": recommended_price or None,
+                    "product_url": product_url,
+                })
+
+                if detail_limit is not None and len(results) >= detail_limit:
+                    break
+
+                if i % 20 == 0:
+                    page.close()
+                    page = context.new_page()
+                    _block_heavy_resources(page)
+                if i % 100 == 0:
+                    print(f"[YAMIMALL] {base_url} 상세페이지 {i}/{len(products_by_url)} 처리 중 (바코드 확인 {len(results)}건)")
+        finally:
+            browser.close()
+
+    return results
+
+
 def calc_yamimall_cart_qty(sold_qty: int, unit_qty: int) -> int:
     """
     판매수량 / 1타수량을 50% 기준 반올림.

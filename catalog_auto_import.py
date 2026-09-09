@@ -1,11 +1,17 @@
 # catalog_auto_import.py
-"""도매몰(현재는 과자생각/ccdome - 다른 고도몰 계열 도매처도 같은 방식으로
-확장 가능) 전체 상품을 바코드까지 크롤링해서 catalog_items에 자동 등록한다.
+"""도매몰 전체 상품을 바코드까지 크롤링해서 catalog_items에 자동 등록한다.
+현재 지원: 고도몰 계열(과자생각/ccdome, 삼봉몰/3bong, 현동몰/hdinter -
+godomall_bot 사용), 자체제작 플랫폼(야미몰/yamimall, 또요몰/douyou -
+yamimall_bot 사용). 플랫폼마다 바코드가 저장된 필드명과 크롤러 시그니처가
+달라서 _crawl_vendor_products에서 vendor_id로 분기한다.
 
-추천판매가 결정 규칙:
-  1) 야미몰처럼 상품명 맨 앞에 "(1500)상품명" 식으로 판매가가 이미 박혀있으면
-     그 값을 그대로 쓴다.
-  2) 없으면 "총판매가(구매 단위 가격) ÷ 1타 개수"로 낱개 원가를 구하고,
+추천판매가 결정 규칙(우선순위 순):
+  1) 상품명 맨 앞에 "(1500)상품명" 식으로 판매가가 이미 박혀있으면 그 값을
+     그대로 쓴다(야미몰 계열 상품명 관례).
+  2) 도매처가 상세페이지에 이미 "권장소비자가"를 제공하면 그 값을 그대로
+     쓴다(실측: 또요몰 상품 상당수에 이미 채워져 있음 - 우리가 추정하는
+     것보다 신뢰도 높은 실제 값이라 최우선으로 대접해야 함).
+  3) 둘 다 없으면 "총판매가(구매 단위 가격) ÷ 1타 개수"로 낱개 원가를 구하고,
      catalog_margin.compute_recommended_price로 40~50% 마진 범위에서 가장
      깔끔하게 반올림되는 값을 추천판매가로 쓴다.
 
@@ -28,10 +34,27 @@ load_dotenv()
 import db_conn
 import godomall_bot
 import vendors
+import yamimall_bot
 from catalog_margin import compute_recommended_price
 
 ROUND_UNIT = 100
 MARGIN_RANGE = (40, 50)
+
+_GODOMALL_VENDORS = ("ccdome", "3bong", "hdinter")
+_CUSTOM_PLATFORM_VENDORS = ("yamimall", "douyou")
+
+
+def _crawl_vendor_products(vendor_id: str, meta: dict, login_id: str, login_pwd: str, limit: int | None) -> list[dict]:
+    if vendor_id in _GODOMALL_VENDORS:
+        return godomall_bot.crawl_catalog_with_barcode(
+            meta["base_url"], login_id, login_pwd, meta["catalog_category_code"], detail_limit=limit,
+        )
+    if vendor_id in _CUSTOM_PLATFORM_VENDORS:
+        return yamimall_bot.crawl_catalog_with_barcode(
+            login_id, login_pwd, base_url=meta["base_url"],
+            category_codes=meta.get("catalog_category_code"), detail_limit=limit,
+        )
+    raise ValueError(f"{vendor_id}는 아직 바코드 자동등록을 지원하지 않습니다")
 
 # 야미몰 스타일 "(1500)상품명" - 상품명 맨 앞에 이미 판매가가 박혀있는 경우.
 _EXPLICIT_PRICE_RE = re.compile(r"^\((\d{3,6})\)")
@@ -111,9 +134,7 @@ def import_vendor_catalog(vendor_id: str, limit: int | None = None) -> dict:
     login_id, login_pwd = creds
 
     print(f"[CATALOG_IMPORT] {meta['name']} 크롤링 시작 - 상품마다 상세페이지를 열어야 해서 오래 걸립니다.")
-    products = godomall_bot.crawl_catalog_with_barcode(
-        meta["base_url"], login_id, login_pwd, meta["catalog_category_code"], detail_limit=limit,
-    )
+    products = _crawl_vendor_products(vendor_id, meta, login_id, login_pwd, limit)
     print(f"[CATALOG_IMPORT] {meta['name']} 유효한 바코드가 확인된 상품 {len(products)}개 수집 완료")
 
     summary: dict[str, list[dict]] = {
@@ -126,10 +147,14 @@ def import_vendor_catalog(vendor_id: str, limit: int | None = None) -> dict:
         case_price = p.get("case_price")
         unit_qty = p.get("unit_qty")
 
+        vendor_recommended = p.get("recommended_price")
         explicit = _EXPLICIT_PRICE_RE.match(name.strip())
         if explicit:
             recommended_price = int(explicit.group(1))
             margin_note = "상품명에 명시된 판매가 사용"
+        elif vendor_recommended:
+            recommended_price = int(vendor_recommended)
+            margin_note = "도매처가 제공한 권장소비자가 사용"
         elif case_price and unit_qty and unit_qty > 0:
             unit_cost = case_price / unit_qty
             try:
