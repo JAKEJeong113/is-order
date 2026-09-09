@@ -25,4 +25,21 @@
         android:max="100"
         android:progressTint="#2FC5B3" />
 
+    <!-- 오더퀸 자동등록 설정 진입점 - 앱 전용 기능이라 웹페이지 쪽이 아니라
+         네이티브 화면 한쪽에 고정 버튼으로 둔다. -->
+    <TextView
+        android:id="@+id/settingsBtn"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="14dp"
+        android:layout_marginEnd="10dp"
+        android:background="@drawable/settings_btn_bg"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:text="⚙"
+        android:textColor="#08796F"
+        android:textSize="18sp" />
+
 </FrameLayout>

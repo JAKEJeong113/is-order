@@ -69,6 +69,12 @@
     .result-row.copied{background:var(--mint-soft); border-color:var(--mint)}
     .result-name{font-size:14px; font-weight:700; margin:0}
     .result-barcode{font-size:11.5px; color:var(--muted); margin:2px 0 0; font-variant-numeric:tabular-nums}
+    .result-side{display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex-shrink:0}
+    .oq-register-btn{
+      padding:4px 10px; border:1px solid var(--mint); border-radius:999px; background:#fff;
+      color:var(--mint-dark); font-weight:700; font-size:11px; cursor:pointer; white-space:nowrap;
+    }
+    .oq-register-btn:active{background:var(--mint-soft)}
     .result-price{font-size:15px; font-weight:800; color:var(--mint-dark); white-space:nowrap}
     .empty, .hint{color:var(--muted); font-size:13.5px; text-align:center; padding:18px 4px}
 
@@ -180,6 +186,14 @@
       return n ? Number(n).toLocaleString() + "원" : "가격 미등록";
     }
 
+    // 상품명을 data-* 속성 안에 그대로 넣을 때 따옴표 등으로 마크업이
+    // 깨지지 않게 이스케이프한다(오더퀸 등록 버튼의 data-name에 사용).
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
     async function runSearch() {
       const query = input.value.trim();
       if (!query) return;
@@ -197,13 +211,22 @@
           return;
         }
 
+        // 오더퀸 자동등록 버튼은 안드로이드 앱에서 그 기능을 켜뒀을 때만
+        // 보인다(window.AndroidOrderQueen은 앱이 심어주는 JS 인터페이스 -
+        // 일반 브라우저에는 아예 없음). 본체 사이트 로그인과 무관하게 앱
+        // 자체 설정으로 동작한다.
+        const oqAvailable = !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
+
         resultsEl.innerHTML = items.map((item) => `
           <div class="result-row" data-barcode="${item.barcode}">
             <div>
               <p class="result-name">${item.menu_name}</p>
               <p class="result-barcode">${item.barcode}</p>
             </div>
-            <span class="result-price">${formatPrice(item.recommended_price)}</span>
+            <div class="result-side">
+              <span class="result-price">${formatPrice(item.recommended_price)}</span>
+              ${oqAvailable ? `<button type="button" class="oq-register-btn" data-barcode="${item.barcode}" data-name="${escapeHtml(item.menu_name)}" data-price="${item.recommended_price || 0}">오더퀸 등록</button>` : ""}
+            </div>
           </div>
         `).join("");
       } catch (e) {
@@ -262,6 +285,15 @@
     }
 
     resultsEl.addEventListener("click", (e) => {
+      const oqBtn = e.target.closest(".oq-register-btn");
+      if (oqBtn) {
+        // 행 전체 클릭(바코드 복사)으로 이어지지 않게 여기서 끝낸다.
+        if (window.AndroidOrderQueen && typeof window.AndroidOrderQueen.registerItem === "function") {
+          window.AndroidOrderQueen.registerItem(oqBtn.dataset.barcode, oqBtn.dataset.name, oqBtn.dataset.price);
+        }
+        return;
+      }
+
       const row = e.target.closest(".result-row");
       if (!row || !row.dataset.barcode) return;
       copyBarcode(row.dataset.barcode, row);

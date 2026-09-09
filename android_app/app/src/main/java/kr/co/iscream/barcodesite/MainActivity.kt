@@ -92,6 +92,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // 오더퀸 자동등록 기능(설정에서 켠 경우에만) - 웹페이지가 검색결과마다
+    // "오더퀸에 등록" 버튼을 보여줄지 판단하는 데 isAvailable()을 쓰고,
+    // 버튼을 누르면 registerItem(...)으로 네이티브 등록 다이얼로그를 띄운다.
+    // 본체 사이트 로그인과는 무관하게 이 기기 자체(device_id)로 동작한다.
+    private inner class OrderQueenJsInterface {
+        @JavascriptInterface
+        fun isAvailable(): Boolean = OrderQueenManager.isEnabledLocally(this@MainActivity)
+
+        @JavascriptInterface
+        fun registerItem(barcode: String, name: String, price: String) {
+            runOnUiThread {
+                OrderQueenDialogs.showRegisterDialog(this@MainActivity, barcode, name, price)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -104,6 +120,10 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl(BASE_URL)
 
         swipeRefresh.setOnRefreshListener { webView.reload() }
+
+        findViewById<View>(R.id.settingsBtn).setOnClickListener {
+            OrderQueenDialogs.showSettingsDialog(this)
+        }
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -156,6 +176,7 @@ class MainActivity : AppCompatActivity() {
         // 우리 자신이 만든 신뢰된 콘텐츠만 로드된다 - addJavascriptInterface로
         // 노출한 네이티브 브리지를 제3자 콘텐츠가 악용할 여지가 없다.
         webView.addJavascriptInterface(WebAppInterface(), "AndroidScanner")
+        webView.addJavascriptInterface(OrderQueenJsInterface(), "AndroidOrderQueen")
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
