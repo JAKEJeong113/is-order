@@ -59,6 +59,7 @@ import db_conn
 import godomall_bot
 import board
 import mailer
+import orderqueen_bot
 import patch_notes
 import popularity
 import product_ranking
@@ -909,6 +910,97 @@ def api_cart_job_status(job_id: int, user: dict = Depends(require_web_user)):
     if not job or job["store_id"] != store_id:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
     return {"status": job["status"], "result": job["result"]}
+
+
+# --- 무인 바코드 검색기 앱 전용 "오더퀸 자동등록" 기능. 본체 사이트
+# 로그인/웹 계정과는 완전히 별개로 동작한다(사용자 요청) - 앱이 최초 실행
+# 시 스스로 만든 임의의 device_id 하나로 자신의 오더퀸 계정을 식별한다.
+# 로그인 세션이 없는 만큼, device_id는 앱만 알고 있는 사실상의 비밀값
+# 역할도 겸한다(추측 불가능한 랜덤값이어야 함 - 앱 쪽에서 UUID로 생성).
+_OQ_APP_VENDOR_ID = "orderqueen"
+_OQ_APP_NICKNAME = "바코드앱"
+
+
+def _oq_app_store_id(device_id: str) -> str:
+    return f"oqapp:{device_id}"
+
+
+class OqAppCredentialsRequest(BaseModel):
+    device_id: str = Field(..., min_length=8, max_length=200)
+    login_id: str = Field(..., min_length=1, max_length=100)
+    login_pwd: str = Field(..., min_length=1, max_length=100)
+
+
+@app.post("/api/oq-app/credentials")
+def api_oq_app_save_credentials(req: OqAppCredentialsRequest):
+    """앱에서 "오더퀸 자동등록" 토글을 켤 때 입력한 아이디/비밀번호를
+    저장한다(암호화 저장 - vendors.py의 기존 지점별 도매처 계정 저장
+    방식을 그대로 재사용). 이미 저장된 게 있으면 덮어쓴다(재로그인/비번
+    변경 대응)."""
+    vendors.add_store_vendor_account(
+        _oq_app_store_id(req.device_id), _OQ_APP_VENDOR_ID, _OQ_APP_NICKNAME,
+        req.login_id, req.login_pwd,
+    )
+    return {"ok": True}
+
+
+@app.get("/api/oq-app/credentials/status")
+def api_oq_app_credentials_status(device_id: str = Query(..., min_length=8, max_length=200)):
+    """앱이 재실행됐을 때 토글을 다시 켜진 상태로 보여줄지 판단하는 용도."""
+    account = vendors.resolve_store_vendor_account(_oq_app_store_id(device_id), _OQ_APP_VENDOR_ID)
+    return {"ok": True, "registered": account is not None}
+
+
+@app.delete("/api/oq-app/credentials")
+def api_oq_app_delete_credentials(device_id: str = Query(..., min_length=8, max_length=200)):
+    """토글을 끌 때 저장된 계정 정보를 아예 지운다."""
+    store_id = _oq_app_store_id(device_id)
+    accounts = vendors.list_store_vendor_accounts(store_id, _OQ_APP_VENDOR_ID)
+    for acc in accounts:
+        vendors.delete_store_vendor_account(store_id, _OQ_APP_VENDOR_ID, acc["id"])
+    return {"ok": True}
+
+
+class OqAppRegisterRequest(BaseModel):
+    device_id: str = Field(..., min_length=8, max_length=200)
+    barcode: str = Field(..., min_length=4, max_length=32)
+    menu_name: str = Field(..., min_length=1, max_length=200)
+    sale_price: int = Field(..., ge=0, le=10_000_000)
+    class_cd: str = Field(..., min_length=1, max_length=10)
+
+
+@app.post("/api/oq-app/register-item")
+def api_oq_app_register_item(req: OqAppRegisterRequest):
+    """바코드 앱에서 "오더퀸에 등록" 버튼을 눌렀을 때 호출된다 - 저장된
+    계정으로 실제 오더퀸 "메뉴관리"에 상품을 등록하는, 매장 POS에 직접
+    반영되는 쓰기 작업이다. (sync def라 FastAPI/Starlette가 별도 스레드
+    풀에서 실행하므로, 여기서 Playwright의 동기 API를 그대로 블로킹
+    호출해도 서버의 다른 요청 처리를 막지 않는다.)"""
+    if req.class_cd not in orderqueen_bot.CLASS_CODES.values():
+        return {"ok": False, "message": "알 수 없는 분류입니다."}
+
+    account = vendors.resolve_store_vendor_account(_oq_app_store_id(req.device_id), _OQ_APP_VENDOR_ID)
+    if not account:
+        return {"ok": False, "message": "오더퀸 계정이 등록되어 있지 않습니다. 앱에서 자동등록 기능을 다시 켜주세요."}
+
+    try:
+        result = orderqueen_bot.register_menu_item(
+            account["login_id"], account["login_pwd"],
+            barcode=req.barcode, menu_name=req.menu_name,
+            sale_price=req.sale_price, class_cd=req.class_cd,
+        )
+    except Exception as e:
+        return {"ok": False, "message": f"오더퀸 등록 중 오류가 발생했습니다: {e}"}
+
+    return result
+
+
+@app.get("/api/oq-app/class-codes")
+def api_oq_app_class_codes():
+    """앱의 분류 선택 드롭다운을 채우는 용도 - 서버에 하드코딩된 값을
+    그대로 내려주면, 나중에 분류가 바뀌어도 앱을 다시 빌드하지 않고
+    서버만 고치면 반영된다."""
+    return {"ok": True, "classes": orderqueen_bot.CLASS_CODES}
 
 
 class IsorderCartAddRequest(BaseModel):

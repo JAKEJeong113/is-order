@@ -31,6 +31,52 @@ DATE_TO_SELECTOR = os.getenv("OQ_DATE_TO_SELECTOR", "#schEDate")
 SEARCH_BUTTON_SELECTOR = os.getenv("OQ_SEARCH_SELECTOR", "#btn-search button")
 DOWNLOAD_BUTTON_SELECTOR = os.getenv("OQ_DOWNLOAD_SELECTOR", "#btn-excel button")
 
+MENU_LIST_URL = "https://www.orderqueen.kr/backoffice_admin/MNU01020.itp"
+
+# 상품 등록 화면(MNU01021.itp)의 "분류" 드롭다운 - 실측으로 확인한 매장의
+# 실제 분류 코드값(매장마다 다를 수 있음 - 이 매장 기준). 앱에서 사용자가
+# 직접 고르는 드롭다운을 채우는 데 쓴다.
+CLASS_CODES = {
+    "아이스크림": "003",
+    "음료수": "004",
+    "간식": "006",
+    "완구,문구": "007",
+    "과자": "015",
+}
+
+
+def _login(page, login_id: str, login_pw: str) -> None:
+    """로그인 페이지에서 아이디/비번을 입력해 로그인한다. 실패하면
+    RuntimeError를 던진다(디버그 스크린샷 없이 - 호출부에서 필요하면 남긴다)."""
+    page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+
+    id_box = page.locator('input[type="text"]').first
+    pw_box = page.locator('input[type="password"]').first
+    id_box.fill(login_id)
+    pw_box.fill(login_pw)
+    pw_box.press("Enter")
+    page.wait_for_load_state("networkidle", timeout=NETWORKIDLE_TIMEOUT_MS)
+
+    if "login.itp" in page.url:
+        candidates = [
+            'button:has-text("로그인")',
+            'button:has-text("Login")',
+            'button:has-text("확인")',
+            'input[type="submit"]',
+            'button[type="submit"]',
+            'a:has-text("로그인")',
+            'a:has-text("Login")',
+        ]
+        for sel in candidates:
+            loc = page.locator(sel)
+            if loc.count() > 0:
+                loc.first.click()
+                page.wait_for_load_state("networkidle", timeout=NETWORKIDLE_TIMEOUT_MS)
+                break
+
+    if "login.itp" in page.url:
+        raise RuntimeError("오더퀸 로그인에 실패했습니다 - 아이디/비밀번호를 확인해주세요.")
+
 
 def download_orderqueen_xlsx(
     login_id: str,
@@ -182,3 +228,76 @@ def download_orderqueen_xlsx_with_retry(
             if attempt < DOWNLOAD_MAX_ATTEMPTS:
                 time.sleep(DOWNLOAD_RETRY_DELAY_SECONDS)
     raise last_error
+
+
+def register_menu_item(
+    login_id: str, login_pw: str, barcode: str, menu_name: str, sale_price: int, class_cd: str,
+) -> dict:
+    """오더퀸 "메뉴관리"(MNU01020.itp)에 상품 하나를 새로 등록한다. 신제품
+    입고 시 바코드 앱에서 스캔한 값을 오더퀸에도 바로 등록해, 점주가 앱과
+    오더퀸을 오가며 바코드를 두 번 입력하지 않게 하기 위함이다 - 매장 POS에
+    직접 반영되는 쓰기 작업이므로 호출부(app)에서 사용자가 명시적으로 누른
+    "등록" 버튼에서만 불러야 한다.
+
+    분류(classCd)/상품명(menuNm, menuFullNm)/판매가(salePrice)/바코드
+    (barcodeNo)만 채우고, 나머지 필드(사용여부/진열구분 등)는 오더퀸
+    등록 폼 자체의 기본값(실측 확인: 전부 정상적으로 미리 채워져 있음)을
+    그대로 둔다.
+
+    반환값: {"ok": True} 또는 {"ok": False, "message": "..."} - 오더퀸이
+    자체적으로 띄우는 안내/오류 메시지(예: 바코드 중복)를 그대로 담아
+    돌려줘서 앱에서 사용자에게 정확한 이유를 보여줄 수 있게 한다."""
+    if class_cd not in CLASS_CODES.values():
+        raise ValueError(f"알 수 없는 분류 코드: {class_cd}")
+
+    with browser_limit.browser_semaphore, sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        )
+        try:
+            context = browser.new_context()
+            page = context.new_page()
+
+            # 저장 시 오더퀸이 confirm/alert 다이얼로그로 결과를 알려준다
+            # (실측: "저장하시겠습니까?" 확인창 뒤 "저장되었습니다"/오류 안내) -
+            # 전부 자동으로 수락하면서 메시지를 모아둔다.
+            dialog_messages: list[str] = []
+
+            def _on_dialog(dialog):
+                dialog_messages.append(dialog.message)
+                dialog.accept()
+
+            page.on("dialog", _on_dialog)
+
+            _login(page, login_id, login_pw)
+
+            page.goto(MENU_LIST_URL, wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+            page.wait_for_load_state("networkidle", timeout=NETWORKIDLE_TIMEOUT_MS)
+
+            page.locator('button:has-text("등록"), a:has-text("등록")').first.click()
+            page.wait_for_timeout(1000)
+
+            page.select_option("#classCd", class_cd)
+            # menuNm(짧은 이름)은 POS 화면 표시용이라 길이 제한이 있을 수 있어
+            # 안전하게 40자로 자르고, menuFullNm(전체 상품명)에는 원본을 그대로 둔다.
+            page.fill("#menuNm", menu_name[:40])
+            page.fill("#menuFullNm", menu_name)
+            page.fill("#salePrice", str(int(sale_price)))
+            page.fill("#barcodeNo", barcode)
+
+            dialog_messages.clear()
+            # 페이지 전체에는 "저장" 버튼이 여러 개(다른 숨겨진 패널 것까지)
+            # 있어서 그냥 .first를 쓰면 안 보이는 엉뚱한 버튼을 눌러 타임아웃
+            # 난다(실측 확인) - 지금 열려 있는 등록 폼을 감싸는 컨테이너
+            # 범위로 좁혀서 그 안의(보이는) 저장 버튼만 클릭한다.
+            page.locator('.content_in_in.detail_in button:has-text("저장")').first.click()
+            page.wait_for_timeout(2500)
+
+            combined = " ".join(dialog_messages)
+            failure_keywords = ("실패", "중복", "오류", "이미", "다시")
+            if any(kw in combined for kw in failure_keywords):
+                return {"ok": False, "message": combined or "등록에 실패했습니다."}
+            return {"ok": True, "message": combined}
+        finally:
+            browser.close()
