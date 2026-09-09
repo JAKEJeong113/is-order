@@ -109,6 +109,12 @@
       color:#fff; font-size:13px; padding:0 20px;
     }
     .scan-error{color:#ffb4a8; font-size:13px; text-align:center; padding:0 24px}
+    /* 카메라 초점 문제 원인 진단용 임시 표시 - 원인 파악되면 지운다. */
+    .scan-debug{
+      position:absolute; top:52px; left:0; right:0; text-align:center;
+      color:#7dffb0; font-size:10.5px; padding:0 12px; word-break:break-all;
+      background:rgba(0,0,0,.55);
+    }
     .seo-text{
       width:100%; max-width:480px; margin-top:20px; color:var(--muted);
       font-size:12.5px; line-height:1.6; text-align:center;
@@ -168,6 +174,7 @@
     </div>
     <div id="reader"></div>
     <p class="scan-hint" id="scanHint">바코드를 화면 안에 맞춰주세요</p>
+    <p class="scan-debug" id="scanDebug"></p>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -410,6 +417,26 @@
         // 안 맞은 채로 멈춰있는 경우가 있다(실사용 확인) - 카메라가 완전히
         // 켜진 뒤(짧은 지연 후) 한 번 더 강제로 재요청해서 "깨워준다".
         setTimeout(refocus, 700);
+
+        // 임시 진단용: 탭해도 반응이 없다는 게 재초점 로직 자체가 안 먹히는
+        // 건지, 이 기기/브라우저가 애초에 초점 제어를 지원 안 하는 건지
+        // 구분하기 위해 실제 카메라 능력치를 화면에 잠깐 띄운다. 원인
+        // 파악되면 이 블록은 지운다.
+        setTimeout(() => {
+          try {
+            const caps = typeof html5QrCode.getRunningTrackCapabilities === "function"
+              ? html5QrCode.getRunningTrackCapabilities() : null;
+            const settings = typeof html5QrCode.getRunningTrackSettings === "function"
+              ? html5QrCode.getRunningTrackSettings() : null;
+            const debugEl = document.getElementById("scanDebug");
+            if (debugEl) {
+              debugEl.textContent = "능력: " + JSON.stringify(caps) + " / 현재: " + JSON.stringify(settings);
+            }
+          } catch (e) {
+            const debugEl = document.getElementById("scanDebug");
+            if (debugEl) debugEl.textContent = "진단 실패: " + e.message;
+          }
+        }, 1000);
       } catch (e) {
         scanHint.textContent = "카메라를 사용할 수 없습니다. 브라우저의 카메라 권한을 확인해주세요.";
         scanHint.className = "scan-error";
