@@ -393,7 +393,7 @@ def crawl_full_catalog(
         try:
             login_yamimall(page, username, password, base_url=base_url)
 
-            for code in codes:
+            for code_idx, code in enumerate(codes, start=1):
                 # 정렬 기준이 실시간 인기도 등으로 안정적이지 않으면, 크롤링 도중 상품
                 # 순서가 바뀌어 인접한 두 페이지가 우연히 같은 상품들을 보여줄 수 있다
                 # (고도몰 계열에서 이 때문에 일부 상품이 통째로 누락되던 문제가 실제로
@@ -438,6 +438,10 @@ def crawl_full_catalog(
                 page.close()
                 page = context.new_page()
                 _block_heavy_resources(page)
+                print(
+                    f"[YAMIMALL] {base_url} 카테고리 {code_idx}/{len(codes)}({code}) 완료 "
+                    f"(페이지 {page_no}개, 누적 상품 {len(products)}개)"
+                )
         finally:
             browser.close()
 

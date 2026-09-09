@@ -408,6 +408,7 @@ def crawl_full_catalog(
                 page.close()
                 page = context.new_page()
                 _block_heavy_resources(page)
+                print(f"[GODOMALL] {base_url} 카테고리 {category_code} 완료 (페이지 {page_no}개, 누적 상품 {len(all_products)}개)")
         finally:
             browser.close()
 

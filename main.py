@@ -52,6 +52,7 @@ import browser_limit
 import cafe24_bot
 import cart_add_logic
 import cart_jobs
+import catalog_auto_import
 import catalog_cache
 import catalog_crawler
 import consumables
@@ -183,6 +184,31 @@ scheduler.add_job(
     functools.partial(product_ranking.refresh_products, product_ranking.SNACK),
     trigger=CronTrigger(hour=4, minute=10, timezone=KST),
     id="daily_snack_product_backfill",
+    replace_existing=True,
+)
+
+
+# 도매몰(삼봉몰/씨씨돔/또요몰) 카탈로그 자동등록: 주 1회(사용자 확인됨) 실행.
+# 매일 돌리기엔 크롤링 대상이 많고(도매몰 전체 상품 목록 순회) 신제품이
+# 그렇게 자주 나오는 게 아니라서 과하다 - 월요일 새벽으로 잡아 다른 새벽
+# 배치(4시대)와 겹치지 않게 5시로 둔다. 로그인/크롤링이 실패해도(도매몰
+# 사이트 구조 변경, 계정 문제 등) 조용히 죽지 않도록 관리자에게 텔레그램
+# 알림을 보낸다(다른 배치 작업들과 동일한 패턴).
+def _run_weekly_catalog_auto_import() -> None:
+    try:
+        summary = catalog_auto_import.import_all_vendors()
+        added = len(summary["added"])
+        updated = len(summary["updated"])
+        print(f"[CATALOG_AUTO_IMPORT] 주간 도매몰 카탈로그 자동등록 완료: 신규 {added}개, 빈 값 채움 {updated}개")
+    except Exception as e:
+        telegram_bot.alert_admin(f"도매몰 카탈로그 자동등록(주간) 실패: {e}")
+        raise
+
+
+scheduler.add_job(
+    _run_weekly_catalog_auto_import,
+    trigger=CronTrigger(day_of_week="mon", hour=5, minute=0, timezone=KST),
+    id="weekly_wholesale_catalog_auto_import",
     replace_existing=True,
 )
 
