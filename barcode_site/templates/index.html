@@ -335,7 +335,7 @@
       }
 
       scanOverlay.classList.add("open");
-      scanHint.textContent = "바코드를 화면 안에 맞춰주세요";
+      scanHint.textContent = "바코드를 화면 안에 맞춰주세요 (흐리면 화면을 탭하세요)";
       scanHint.className = "scan-hint";
       lastDecoded = null;
       matchStreak = 0;
@@ -406,14 +406,51 @@
           },
         );
         scanning = true;
+        // 시작 시 넣은 focusMode:continuous만으로는 기기에 따라 첫 초점이
+        // 안 맞은 채로 멈춰있는 경우가 있다(실사용 확인) - 카메라가 완전히
+        // 켜진 뒤(짧은 지연 후) 한 번 더 강제로 재요청해서 "깨워준다".
+        setTimeout(refocus, 700);
       } catch (e) {
         scanHint.textContent = "카메라를 사용할 수 없습니다. 브라우저의 카메라 권한을 확인해주세요.";
         scanHint.className = "scan-error";
       }
     }
 
+    // 자동 초점이 흐릿한 채로 멈춰있을 때, 화면을 탭하면 강제로 다시 초점을
+    // 맞추게 한다 - 실제 바코드 스캐너 앱들이 흔히 쓰는 방식. html5-qrcode가
+    // 지원 여부와 무관하게 시도하고, 지원 안 하는 기기/브라우저면 조용히
+    // 무시한다(에러로 사용자에게 보여줄 필요 없는 상황).
+    async function refocus() {
+      if (!html5QrCode || !scanning) return;
+      try {
+        if (typeof html5QrCode.applyVideoConstraints !== "function") return;
+        const caps = typeof html5QrCode.getRunningTrackCapabilities === "function"
+          ? html5QrCode.getRunningTrackCapabilities()
+          : null;
+        const focusModes = caps && caps.focusMode;
+        // 연속 초점(continuous)을 그대로 다시 적용하면 아무 변화가 없다고
+        // 보고 무시하는 기기가 있어서, 지원하면 single-shot으로 한 번
+        // "리셋"한 뒤 다시 continuous로 돌려 재탐색을 유도한다.
+        if (Array.isArray(focusModes) && focusModes.includes("single-shot")) {
+          await html5QrCode.applyVideoConstraints({ advanced: [{ focusMode: "single-shot" }] });
+        }
+        await html5QrCode.applyVideoConstraints({ advanced: [{ focusMode: "continuous" }] });
+      } catch (e) {
+        // 초점 제어를 지원하지 않는 기기 - 무시
+      }
+    }
+
     scanBtn.addEventListener("click", startScan);
     scanCloseBtn.addEventListener("click", stopScan);
+    document.getElementById("reader").addEventListener("click", () => {
+      scanHint.textContent = "초점을 다시 맞추는 중...";
+      scanHint.className = "scan-hint";
+      refocus().then(() => {
+        if (scanning) {
+          scanHint.textContent = "바코드를 화면 안에 맞춰주세요 (흐리면 화면을 탭하세요)";
+        }
+      });
+    });
   </script>
 </body>
 </html>
