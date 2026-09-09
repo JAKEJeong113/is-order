@@ -3,8 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>무인매장 바코드 조회 | i's ORDER</title>
-  <meta name="description" content="과자·음료·문구류 등 무인매장 상품 바코드나 상품명으로 추천판매가를 바로 조회하세요. 무인매장 발주 자동화 서비스 i's ORDER가 제공하는 무료 도구입니다." />
+  <title>바코드 검색 - 무인 아이스크림·무인매장 바코드 조회 | i's ORDER</title>
+  <meta name="description" content="무인 아이스크림, 과자·음료·문구류 등 무인매장 상품을 바코드 검색으로 추천판매가까지 바로 확인하세요. 카메라 스캔도 지원하는 무료 바코드 조회 도구입니다." />
+  <meta name="keywords" content="바코드 검색, 무인 아이스크림 바코드, 무인매장 바코드 조회, 바코드 조회, 아이스크림 바코드 검색" />
+  <link rel="canonical" href="https://barcode.is-cream.co.kr/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://barcode.is-cream.co.kr/" />
+  <meta property="og:title" content="바코드 검색 - 무인 아이스크림·무인매장 바코드 조회" />
+  <meta property="og:description" content="무인 아이스크림, 과자·음료·문구류 등 무인매장 상품을 바코드 검색으로 추천판매가까지 바로 확인하세요." />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <style>
     :root{
@@ -103,12 +109,32 @@
       color:#fff; font-size:13px; padding:0 20px;
     }
     .scan-error{color:#ffb4a8; font-size:13px; text-align:center; padding:0 24px}
+    .seo-text{
+      width:100%; max-width:480px; margin-top:20px; color:var(--muted);
+      font-size:12.5px; line-height:1.6; text-align:center;
+    }
   </style>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "무인매장 바코드 조회",
+    "url": "https://barcode.is-cream.co.kr/",
+    "description": "무인 아이스크림, 과자·음료·문구류 등 무인매장 상품을 바코드 검색으로 추천판매가까지 바로 확인하는 무료 도구",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web, Android",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "KRW"
+    }
+  }
+  </script>
 </head>
 <body>
   <div class="badge">i's ORDER · 무료 도구</div>
   <h1>무인매장 바코드 조회</h1>
-  <p class="sub">과자·음료·문구류 등 바코드나 상품명을 입력하면 추천판매가를 바로 확인할 수 있어요.</p>
+  <p class="sub">무인 아이스크림, 과자·음료·문구류 등 바코드 검색만으로 추천판매가를 바로 확인할 수 있어요.</p>
 
   <div class="search-card">
     <div class="search-row">
@@ -128,6 +154,12 @@
     <b>i's ORDER</b>의 일부입니다.<br>
     <a href="{{ main_site_url }}/login" target="_blank" rel="noopener">i's ORDER 자세히 보기 →</a>
   </div>
+
+  <p class="seo-text">
+    무인 아이스크림 할인점, 무인 과자점, 스낵 자판기 등 무인매장을 운영하신다면
+    상품 바코드 검색만으로 추천판매가를 바로 확인해보세요. 바코드 번호를 직접
+    입력하거나 카메라로 스캔하면 등록된 가격 정보를 즉시 보여드립니다.
+  </p>
 
   <div class="scan-overlay" id="scanOverlay">
     <div class="scan-overlay-header">
