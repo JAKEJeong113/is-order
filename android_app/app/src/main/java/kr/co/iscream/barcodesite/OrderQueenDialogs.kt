@@ -26,7 +26,7 @@ object OrderQueenDialogs {
     private fun dp(activity: AppCompatActivity, value: Int): Int =
         (value * activity.resources.displayMetrics.density).toInt()
 
-    fun showSettingsDialog(activity: AppCompatActivity) {
+    fun showSettingsDialog(activity: AppCompatActivity, onChanged: () -> Unit = {}) {
         val padding = dp(activity, 20)
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -94,6 +94,7 @@ object OrderQueenDialogs {
                     activity.runOnUiThread {
                         Toast.makeText(activity, "오더퀸 자동등록을 껐습니다.", Toast.LENGTH_SHORT).show()
                         dialog.dismiss()
+                        onChanged()
                     }
                 }
                 return@setOnClickListener
@@ -114,6 +115,7 @@ object OrderQueenDialogs {
                         OrderQueenManager.setEnabledLocally(activity, true)
                         Toast.makeText(activity, "오더퀸 자동등록을 켰습니다.", Toast.LENGTH_SHORT).show()
                         dialog.dismiss()
+                        onChanged()
                     }.onFailure { e ->
                         dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
                         Toast.makeText(activity, "저장 실패: ${e.message}", Toast.LENGTH_LONG).show()

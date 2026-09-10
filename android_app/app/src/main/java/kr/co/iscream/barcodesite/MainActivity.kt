@@ -122,7 +122,7 @@ class MainActivity : AppCompatActivity() {
         swipeRefresh.setOnRefreshListener { webView.reload() }
 
         findViewById<View>(R.id.settingsBtn).setOnClickListener {
-            OrderQueenDialogs.showSettingsDialog(this)
+            OrderQueenDialogs.showSettingsDialog(this) { refreshVisibleListsForOqAvailability() }
         }
         findViewById<View>(R.id.helpBtn).setOnClickListener {
             HelpDialogs.showUsageGuide(this)
@@ -164,6 +164,29 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             },
+        )
+    }
+
+    // 설정에서 오더퀸 자동등록을 켜거나 끈 직후 호출된다. isAvailable()은
+    // 매번 새로 그릴 때만 다시 확인하는 값이라, 설정을 바꾸기 전에 이미
+    // 화면에 떠 있던 검색결과/신제품 목록은 그대로 두면 "오더퀸 등록"
+    // 버튼이 안 보이거나(꺼도 남아있는 건 아니고, 켠 직후 안 보이는 쪽이
+    // 실사용 확인된 문제) 새로고침 전까지 나타나지 않는다 - 지금 열려있는
+    // 목록만 같은 조건으로 다시 그려서 즉시 반영되게 한다.
+    private fun refreshVisibleListsForOqAvailability() {
+        webView.evaluateJavascript(
+            """
+            (function() {
+              var q = document.getElementById('q');
+              if (q && q.value && typeof runSearch === 'function') { runSearch(); }
+              var panel = document.getElementById('newProductsPanel');
+              if (panel && panel.classList.contains('open') &&
+                  typeof loadNewProducts === 'function' && typeof npCurrentCategory !== 'undefined') {
+                loadNewProducts(npCurrentCategory);
+              }
+            })();
+            """.trimIndent(),
+            null,
         )
     }
 
