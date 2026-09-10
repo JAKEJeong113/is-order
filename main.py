@@ -19,6 +19,7 @@ import uuid
 import hmac
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -1028,15 +1029,17 @@ def api_oq_app_register_item(req: OqAppRegisterRequest):
         return {"ok": False, "message": "알 수 없는 분류입니다."}
 
     store_id = _oq_app_store_id(req.device_id)
-    results = []
-    for account_id in req.account_ids:
-        account = vendors.resolve_store_vendor_account(store_id, _OQ_APP_VENDOR_ID, account_id)
+    resolved = [
+        (aid, vendors.resolve_store_vendor_account(store_id, _OQ_APP_VENDOR_ID, aid))
+        for aid in req.account_ids
+    ]
+
+    def _register_one(account_id: int, account: dict | None) -> dict:
         if not account:
-            results.append({
+            return {
                 "account_id": account_id, "nickname": None,
                 "ok": False, "message": "삭제되었거나 존재하지 않는 계정입니다.",
-            })
-            continue
+            }
         try:
             result = orderqueen_bot.register_menu_item(
                 account["login_id"], account["login_pwd"],
@@ -1053,7 +1056,23 @@ def api_oq_app_register_item(req: OqAppRegisterRequest):
             result = {"ok": False, "message": f"오더퀸 등록 중 오류가 발생했습니다: {e}"}
         result["account_id"] = account_id
         result["nickname"] = account["nickname"]
-        results.append(result)
+        return result
+
+    if len(resolved) <= 1:
+        results = [_register_one(aid, acc) for aid, acc in resolved]
+    else:
+        # "모든 계정에 추가" - 계정마다 별도 Chromium 로그인이 필요한 무거운
+        # 작업이라 순차로 하면 (계정 수 x 20~30초)로 길어진다. 전역 브라우저
+        # 동시 실행 제한(browser_limit, 기본 4개) 안에서 최대 3개까지 병렬로
+        # 돌려 체감 시간을 줄인다(남는 1자리는 다른 트래픽용). 반환 순서는
+        # 요청받은 account_ids 순서를 그대로 유지한다.
+        max_workers = min(len(resolved), 3)
+        by_id: dict[int, dict] = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = {ex.submit(_register_one, aid, acc): aid for aid, acc in resolved}
+            for fut in as_completed(futures):
+                by_id[futures[fut]] = fut.result()
+        results = [by_id[aid] for aid in req.account_ids]
 
     overall_ok = all(r.get("ok") for r in results)
     return {"ok": overall_ok, "results": results}
