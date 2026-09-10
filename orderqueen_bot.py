@@ -259,10 +259,10 @@ def register_menu_item(
     분류/상품명(menuNm, menuFullNm)/판매가(salePrice)/바코드(barcodeNo)만
     채우고, 나머지 필드(사용여부/진열구분 등)는 오더퀸 등록 폼 자체의
     기본값(실측 확인: 전부 정상적으로 미리 채워져 있음)을 그대로 둔다.
-    분류는 class_name(분류 이름)이 있으면 그 이름으로 이 매장 드롭다운에서
-    같은 항목을 찾아 고르고, 없으면 class_cd(코드값)로 폴백한다 - 코드값은
-    매장마다 다를 수 있어서("모든 계정에 추가" 시 매장별로 분류 구성이
-    제각각) 이름 매칭을 우선한다.
+    분류는 class_name(분류 이름) → class_cd(코드값) → "미분류"류 항목
+    순서로 이 매장 드롭다운에서 찾아 고른다 - 코드값은 매장마다 다를 수
+    있어서("모든 계정에 추가" 시 매장별로 분류 구성이 제각각) 이름 매칭을
+    우선하고, 적당한 분류가 없으면 "미분류"에 넣는다.
 
     store_id를 주면(앱에서는 항상 준다) 다른 도매처 봇들(godomall_bot의
     add_to_cart 등)과 같은 방식으로 로그인 세션(쿠키)을 vendors.py에
@@ -389,9 +389,10 @@ def register_menu_item(
 
             # 분류 선택: 코드값(class_cd)은 매장마다 다를 수 있으므로, 우선
             # 분류 "이름"(class_name)으로 이 매장 드롭다운에서 같은 이름을
-            # 찾아 고른다. 이름이 안 넘어왔거나 못 찾으면 코드값으로,
-            # 그것도 없으면 등록을 포기하고 어느 매장에서 왜 실패했는지
-            # 알려준다("모든 계정에 추가" 시 매장별로 결과가 갈릴 수 있음).
+            # 찾아 고른다. 이름이 안 넘어왔거나 못 찾으면 코드값으로, 그것도
+            # 없으면 "미분류"류 항목으로 넣는다(사용자 요청). "미분류"조차
+            # 없으면 그 매장만 실패로 돌려주고 이유를 알려준다("모든 계정에
+            # 추가" 시 매장별로 결과가 갈릴 수 있음).
             class_select = form.locator("#classCd").first
             _opts = class_select.locator("option")
             _entries: list[tuple[str, str]] = []
@@ -411,10 +412,15 @@ def register_menu_item(
             if not _chosen and class_cd:
                 _chosen = next((v for v, t in _entries if v == class_cd), None)
             if not _chosen:
+                _uncat_kw = ("미분류", "미지정", "분류없음", "분류 없음", "기타")
+                _chosen = next(
+                    (v for v, t in _entries if any(_k in t for _k in _uncat_kw)), None,
+                )
+            if not _chosen:
                 return {
                     "ok": False,
-                    "message": f"이 매장 오더퀸에 '{class_name or class_cd}' 분류가 없어 등록하지 못했습니다. "
-                    "오더퀸에서 분류를 먼저 만들어주세요.",
+                    "message": f"이 매장 오더퀸에 '{class_name or class_cd}' 분류도, '미분류' 분류도 없어 "
+                    "등록하지 못했습니다. 오더퀸에서 '미분류' 분류를 만들어두면 다음부터 자동으로 들어갑니다.",
                 }
             class_select.select_option(_chosen)
             # menuNm(짧은 이름)은 POS 화면 표시용이라 길이 제한이 있을 수 있어
