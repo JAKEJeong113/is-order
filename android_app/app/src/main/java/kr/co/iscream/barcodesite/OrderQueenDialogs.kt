@@ -309,7 +309,8 @@ object OrderQueenDialogs {
                 Toast.makeText(activity, "판매가를 숫자로 입력해주세요.", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            val classCd = classCodes[classNames[spinner.selectedItemPosition]] ?: classNames.firstOrNull() ?: ""
+            val className = classNames[spinner.selectedItemPosition]
+            val classCd = classCodes[className] ?: classCodes.values.firstOrNull() ?: ""
 
             val accountIds = when {
                 loadedAccounts.isEmpty() -> emptyList()
@@ -327,7 +328,9 @@ object OrderQueenDialogs {
             progress.visibility = View.VISIBLE
 
             thread {
-                val result = OrderQueenManager.registerItem(activity, barcode, menuName, salePrice, classCd, accountIds)
+                val result = OrderQueenManager.registerItem(
+                    activity, barcode, menuName, salePrice, classCd, className, accountIds,
+                )
                 activity.runOnUiThread {
                     progress.visibility = View.GONE
                     result.onSuccess { results ->

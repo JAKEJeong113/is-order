@@ -165,8 +165,8 @@ object OrderQueenManager {
      * 수만큼 시간이 늘어나므로(계정당 실측 20~30초) 읽기 타임아웃도 계정
      * 수에 비례해서 넉넉히 둔다. */
     fun registerItem(
-        context: Context, barcode: String, menuName: String, salePrice: Int, classCd: String,
-        accountIds: List<Int>,
+        context: Context, barcode: String, menuName: String, salePrice: Int,
+        classCd: String, className: String, accountIds: List<Int>,
     ): Result<List<OqRegisterResult>> {
         val body = JSONObject()
             .put("device_id", getDeviceId(context))
@@ -175,6 +175,7 @@ object OrderQueenManager {
             .put("menu_name", menuName)
             .put("sale_price", salePrice)
             .put("class_cd", classCd)
+            .put("class_name", className)
         return try {
             val timeoutMs = 60000 * accountIds.size.coerceAtLeast(1)
             val res = request("/api/oq-app/register-item", "POST", body, readTimeoutMs = timeoutMs)

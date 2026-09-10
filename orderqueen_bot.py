@@ -45,9 +45,13 @@ DOWNLOAD_BUTTON_SELECTOR = os.getenv("OQ_DOWNLOAD_SELECTOR", "#btn-excel button"
 
 MENU_LIST_URL = "https://www.orderqueen.kr/backoffice_admin/MNU01020.itp"
 
-# 상품 등록 화면(MNU01021.itp)의 "분류" 드롭다운 - 실측으로 확인한 매장의
-# 실제 분류 코드값(매장마다 다를 수 있음 - 이 매장 기준). 앱에서 사용자가
-# 직접 고르는 드롭다운을 채우는 데 쓴다.
+# 상품 등록 화면(MNU01021.itp)의 "분류" 드롭다운 - 실측으로 확인한 한 매장의
+# 실제 분류 코드값. 앱에서 사용자가 직접 고르는 드롭다운을 채우는 데 쓴다.
+# 주의: 이 숫자 코드는 매장마다 다르다(점주가 오더퀸에서 분류를 추가/삭제/
+# 순서변경하면 코드가 바뀜). 그래서 실제 등록 시에는 이 코드값이 아니라
+# 분류 "이름"으로 각 매장 드롭다운에서 같은 이름을 찾아 고른다
+# (register_menu_item 참고) - 코드로만 고르면 "모든 계정에 추가" 시 일부
+# 매장에서 엉뚱한 분류에 들어가거나 등록 자체가 실패한다.
 CLASS_CODES = {
     "아이스크림": "003",
     "음료수": "004",
@@ -244,7 +248,7 @@ def download_orderqueen_xlsx_with_retry(
 
 def register_menu_item(
     login_id: str, login_pw: str, barcode: str, menu_name: str, sale_price: int, class_cd: str,
-    store_id: str | None = None,
+    store_id: str | None = None, class_name: str | None = None,
 ) -> dict:
     """오더퀸 "메뉴관리"(MNU01020.itp)에 상품 하나를 새로 등록한다. 신제품
     입고 시 바코드 앱에서 스캔한 값을 오더퀸에도 바로 등록해, 점주가 앱과
@@ -252,10 +256,13 @@ def register_menu_item(
     직접 반영되는 쓰기 작업이므로 호출부(app)에서 사용자가 명시적으로 누른
     "등록" 버튼에서만 불러야 한다.
 
-    분류(classCd)/상품명(menuNm, menuFullNm)/판매가(salePrice)/바코드
-    (barcodeNo)만 채우고, 나머지 필드(사용여부/진열구분 등)는 오더퀸
-    등록 폼 자체의 기본값(실측 확인: 전부 정상적으로 미리 채워져 있음)을
-    그대로 둔다.
+    분류/상품명(menuNm, menuFullNm)/판매가(salePrice)/바코드(barcodeNo)만
+    채우고, 나머지 필드(사용여부/진열구분 등)는 오더퀸 등록 폼 자체의
+    기본값(실측 확인: 전부 정상적으로 미리 채워져 있음)을 그대로 둔다.
+    분류는 class_name(분류 이름)이 있으면 그 이름으로 이 매장 드롭다운에서
+    같은 항목을 찾아 고르고, 없으면 class_cd(코드값)로 폴백한다 - 코드값은
+    매장마다 다를 수 있어서("모든 계정에 추가" 시 매장별로 분류 구성이
+    제각각) 이름 매칭을 우선한다.
 
     store_id를 주면(앱에서는 항상 준다) 다른 도매처 봇들(godomall_bot의
     add_to_cart 등)과 같은 방식으로 로그인 세션(쿠키)을 vendors.py에
@@ -380,7 +387,36 @@ def register_menu_item(
             if not modal_opened:
                 return {"ok": False, "message": "등록 화면을 열지 못했습니다. 잠시 후 다시 시도해주세요."}
 
-            form.locator("#classCd").first.select_option(class_cd)
+            # 분류 선택: 코드값(class_cd)은 매장마다 다를 수 있으므로, 우선
+            # 분류 "이름"(class_name)으로 이 매장 드롭다운에서 같은 이름을
+            # 찾아 고른다. 이름이 안 넘어왔거나 못 찾으면 코드값으로,
+            # 그것도 없으면 등록을 포기하고 어느 매장에서 왜 실패했는지
+            # 알려준다("모든 계정에 추가" 시 매장별로 결과가 갈릴 수 있음).
+            class_select = form.locator("#classCd").first
+            _opts = class_select.locator("option")
+            _entries: list[tuple[str, str]] = []
+            for _i in range(_opts.count()):
+                _o = _opts.nth(_i)
+                _val = (_o.get_attribute("value") or "").strip()
+                _txt = (_o.text_content() or "").strip()
+                if _val:  # 맨 앞 "선택하세요" 같은 빈 값 항목은 건너뛴다
+                    _entries.append((_val, _txt))
+
+            _chosen = None
+            if class_name:
+                _nm = class_name.strip()
+                _chosen = next((v for v, t in _entries if t == _nm), None)
+                if not _chosen:
+                    _chosen = next((v for v, t in _entries if _nm and (_nm in t or t in _nm)), None)
+            if not _chosen and class_cd:
+                _chosen = next((v for v, t in _entries if v == class_cd), None)
+            if not _chosen:
+                return {
+                    "ok": False,
+                    "message": f"이 매장 오더퀸에 '{class_name or class_cd}' 분류가 없어 등록하지 못했습니다. "
+                    "오더퀸에서 분류를 먼저 만들어주세요.",
+                }
+            class_select.select_option(_chosen)
             # menuNm(짧은 이름)은 POS 화면 표시용이라 길이 제한이 있을 수 있어
             # 안전하게 40자로 자르고, menuFullNm(전체 상품명)에는 원본을 그대로 둔다.
             form.locator("#menuNm").first.fill(menu_name[:40])

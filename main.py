@@ -1014,6 +1014,9 @@ class OqAppRegisterRequest(BaseModel):
     menu_name: str = Field(..., min_length=1, max_length=200)
     sale_price: int = Field(..., ge=0, le=10_000_000)
     class_cd: str = Field(..., min_length=1, max_length=10)
+    # 분류 코드는 매장마다 다를 수 있어서, 매장별 드롭다운에서 같은 "이름"을
+    # 찾아 고르기 위해 분류 이름도 같이 받는다(코드는 폴백/검증용).
+    class_name: str = Field(..., min_length=1, max_length=50)
 
 
 @app.post("/api/oq-app/register-item")
@@ -1044,7 +1047,7 @@ def api_oq_app_register_item(req: OqAppRegisterRequest):
             result = orderqueen_bot.register_menu_item(
                 account["login_id"], account["login_pwd"],
                 barcode=req.barcode, menu_name=req.menu_name,
-                sale_price=req.sale_price, class_cd=req.class_cd,
+                sale_price=req.sale_price, class_cd=req.class_cd, class_name=req.class_name,
                 # 로그인 세션 캐시 키에 계정 id까지 넣어야 한다 - 안 그러면
                 # 같은 기기(device_id)에 등록된 서로 다른 오더퀸 계정의 캐시된
                 # 로그인 쿠키가 뒤섞여서 엉뚱한 계정으로 로그인된 채 등록될 수
