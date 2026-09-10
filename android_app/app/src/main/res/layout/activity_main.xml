@@ -61,4 +61,13 @@
         android:padding="9dp"
         android:src="@drawable/ic_settings_gear" />
 
+    <!-- 코치마크 튜토리얼("?" 버튼)이 뜰 자리 - 평소엔 숨겨져 있다가
+         CoachMarkTutorial이 이 프레임 안에 스포트라이트/선/설명 텍스트를
+         직접 그려 넣는다. 항상 마지막 자식이어야 다른 모든 뷰 위에 그려진다. -->
+    <FrameLayout
+        android:id="@+id/coachMarkRoot"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
 </FrameLayout>

@@ -43,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var progressBar: android.widget.ProgressBar
+    private lateinit var coachMarkRoot: android.widget.FrameLayout
 
     // WebView가 카메라 사용 허락을 요청해오면(getUserMedia), 실제 안드로이드
     // CAMERA 런타임 권한이 있는지부터 확인해야 한다 - 권한이 없으면 여기서
@@ -115,23 +116,31 @@ class MainActivity : AppCompatActivity() {
         webView = findViewById(R.id.webView)
         swipeRefresh = findViewById(R.id.swipeRefresh)
         progressBar = findViewById(R.id.progressBar)
+        coachMarkRoot = findViewById(R.id.coachMarkRoot)
 
         setupWebView()
         webView.loadUrl(BASE_URL)
 
         swipeRefresh.setOnRefreshListener { webView.reload() }
 
-        findViewById<View>(R.id.settingsBtn).setOnClickListener {
+        val settingsBtn = findViewById<View>(R.id.settingsBtn)
+        settingsBtn.setOnClickListener {
             OrderQueenDialogs.showSettingsDialog(this) { refreshVisibleListsForOqAvailability() }
         }
         findViewById<View>(R.id.helpBtn).setOnClickListener {
-            HelpDialogs.showUsageGuide(this)
+            CoachMarkTutorial.start(this, webView, coachMarkRoot, settingsBtn)
         }
 
         onBackPressedDispatcher.addCallback(
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    // 코치마크 튜토리얼이 떠 있으면 뒤로가기는 튜토리얼만 닫는다
+                    // (웹뷰 페이지 이동/앱 종료로 이어지면 안 됨).
+                    if (coachMarkRoot.visibility == View.VISIBLE) {
+                        CoachMarkTutorial.forceClose(webView, coachMarkRoot)
+                        return
+                    }
                     // 카메라 스캔 오버레이는 페이지 이동이 아니라 JS로 화면 위에
                     // 띄우는 레이어라 webView.canGoBack()으로는 존재를 알 수
                     // 없다 - 그 상태에서 뒤로가기를 누르면 오버레이는 그대로 둔
