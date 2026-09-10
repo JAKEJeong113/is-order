@@ -1702,6 +1702,14 @@ def admin_barcode_catalog_page(request: Request, _: bool = Depends(require_admin
     return templates.TemplateResponse("barcode_admin.html", {"request": request})
 
 
+@app.get("/admin/quick-catalog", response_class=HTMLResponse)
+def admin_quick_catalog_page(request: Request, _: bool = Depends(require_admin)):
+    """모바일 관리자 앱(카탈로그 빠른 등록) 전용 - 바코드 스캔/입력 후
+    상품명·분류·추천판매가만 넣고 저장하면 catalog_items에 upsert 한다.
+    저장 처리는 기존 /admin/api/barcode-catalog(POST)를 그대로 쓴다."""
+    return templates.TemplateResponse("quick_catalog_admin.html", {"request": request})
+
+
 @app.get("/admin/api/barcode-catalog")
 def admin_api_barcode_catalog_list(
     is_coupang: int | None = Query(None, ge=0, le=99, description="구분으로 필터링 (0=아이스크림,1=쿠팡,2=도매몰,3=문구완구,99=미분류)"),

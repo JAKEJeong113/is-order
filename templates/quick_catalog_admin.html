@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>카탈로그 빠른 등록</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <style>
+    :root{
+      --bg:#f8faf9; --card:#fff; --ink:#111827; --muted:#6b7280; --line:#e5e7eb;
+      --mint:#2fc5b3; --mint-dark:#0f766e; --mint-soft:#ccfbf1;
+      --warn:#b45309; --warn-soft:#fef3c7;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; background:var(--bg); color:var(--ink);
+      font-family:-apple-system,"Pretendard","Malgun Gothic",sans-serif;
+      padding:20px 16px 60px;
+    }
+    h1{font-size:19px; margin:0 0 4px}
+    .sub{font-size:12.5px; color:var(--muted); margin:0 0 20px}
+    .card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px}
+    label{display:block; font-size:12.5px; font-weight:700; color:var(--muted); margin:14px 0 5px}
+    label:first-child{margin-top:0}
+    input, select{
+      width:100%; padding:12px 12px; border:1px solid var(--line); border-radius:10px;
+      font-size:16px; font-family:inherit; background:#fff; color:var(--ink);
+    }
+    input:focus, select:focus{outline:2px solid var(--mint); outline-offset:1px}
+    .bc-row{display:flex; gap:8px}
+    .bc-row input{flex:1}
+    .scan-btn{
+      flex-shrink:0; padding:0 16px; border:1px solid var(--mint); border-radius:10px;
+      background:#fff; color:var(--mint-dark); font-weight:800; font-size:14px; cursor:pointer;
+      white-space:nowrap;
+    }
+    .banner{
+      margin-top:10px; padding:10px 12px; border-radius:10px; font-size:12.5px; line-height:1.5;
+      display:none;
+    }
+    .banner.exists{display:block; background:var(--warn-soft); color:var(--warn)}
+    .banner.new{display:block; background:var(--mint-soft); color:var(--mint-dark)}
+    .adv-toggle{
+      margin-top:14px; font-size:12.5px; color:var(--mint-dark); font-weight:700;
+      background:none; border:none; padding:0; cursor:pointer;
+    }
+    .adv{display:none}
+    .adv.open{display:block}
+    .save-btn{
+      width:100%; margin-top:20px; padding:15px; border:none; border-radius:12px;
+      background:var(--mint); color:#fff; font-weight:800; font-size:16px; cursor:pointer;
+    }
+    .save-btn:disabled{opacity:.55}
+    #toast{
+      position:fixed; left:50%; bottom:26px; transform:translateX(-50%);
+      background:#111827; color:#fff; padding:12px 20px; border-radius:999px; font-size:13.5px;
+      font-weight:700; opacity:0; transition:opacity .2s; pointer-events:none; max-width:90vw; text-align:center;
+    }
+    #toast.show{opacity:1}
+    .recent{margin-top:26px}
+    .recent h2{font-size:13px; color:var(--muted); margin:0 0 8px}
+    .recent-item{
+      background:var(--card); border:1px solid var(--line); border-radius:10px;
+      padding:9px 12px; margin-bottom:7px; font-size:12.5px; display:flex; justify-content:space-between; gap:8px;
+    }
+    .recent-item b{font-weight:700}
+    .recent-item .rp{color:var(--mint-dark); font-weight:800; white-space:nowrap}
+    .empty{color:var(--muted); font-size:12.5px}
+  </style>
+</head>
+<body>
+  <h1>카탈로그 빠른 등록</h1>
+  <p class="sub">바코드를 스캔하거나 입력하고 정보를 채운 뒤 저장하면 카탈로그(catalog_items)에 바로 반영됩니다.</p>
+
+  <div class="card">
+    <label for="barcode">바코드</label>
+    <div class="bc-row">
+      <input id="barcode" type="text" inputmode="numeric" placeholder="숫자 입력 또는 스캔" autocomplete="off" />
+      <button type="button" class="scan-btn" id="scanBtn">📷 스캔</button>
+    </div>
+    <div class="banner" id="banner"></div>
+
+    <label for="menuName">상품명</label>
+    <input id="menuName" type="text" placeholder="예: 메로나 코코넛" autocomplete="off" />
+
+    <label for="category">분류</label>
+    <select id="category">
+      <option value="0">아이스크림</option>
+      <option value="2">도매몰(과자·음료·문구 등)</option>
+      <option value="1">쿠팡</option>
+      <option value="3">문구·완구</option>
+      <option value="99">미분류</option>
+    </select>
+
+    <label for="price">추천판매가 (원)</label>
+    <input id="price" type="number" inputmode="numeric" placeholder="예: 1200" min="0" />
+
+    <button type="button" class="adv-toggle" id="advToggle">+ 세부 항목 (1타 개수 / 박스당 개수)</button>
+    <div class="adv" id="adv">
+      <label for="packQty">도매몰 1타 개수</label>
+      <input id="packQty" type="number" inputmode="numeric" value="1" min="1" />
+      <label for="boxQty">아이스크림 박스당 개수</label>
+      <input id="boxQty" type="number" inputmode="numeric" value="0" min="0" />
+    </div>
+
+    <button type="button" class="save-btn" id="saveBtn">저장</button>
+  </div>
+
+  <div class="recent">
+    <h2>이번 세션에서 등록한 상품</h2>
+    <div id="recentList"><p class="empty">아직 없습니다.</p></div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const barcodeEl = $("barcode"), nameEl = $("menuName"), catEl = $("category"),
+          priceEl = $("price"), packEl = $("packQty"), boxEl = $("boxQty"),
+          bannerEl = $("banner"), saveBtn = $("saveBtn"), recentEl = $("recentList");
+    const recent = [];
+
+    function toast(msg) {
+      const t = $("toast");
+      t.textContent = msg; t.classList.add("show");
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => t.classList.remove("show"), 1800);
+    }
+
+    $("advToggle").addEventListener("click", () => $("adv").classList.toggle("open"));
+
+    // 스캔 - 관리자 앱(WebView)이 window.AndroidScanner를 심어주면 네이티브
+    // 카메라 스캐너를 쓰고, 결과는 window.receiveNativeScanResult로 돌아온다.
+    // 일반 브라우저에서는 그냥 바코드 칸에 직접 입력하면 된다.
+    $("scanBtn").addEventListener("click", () => {
+      if (window.AndroidScanner && typeof window.AndroidScanner.openNativeScanner === "function") {
+        window.AndroidScanner.openNativeScanner();
+      } else {
+        barcodeEl.focus();
+        toast("이 화면에서는 바코드를 직접 입력하세요");
+      }
+    });
+    window.receiveNativeScanResult = function (code) {
+      barcodeEl.value = (code || "").replace(/\D/g, "");
+      lookupBarcode();
+    };
+
+    // 바코드가 이미 카탈로그에 있으면 현재 값을 폼에 불러와서 "수정" 모드로.
+    async function lookupBarcode() {
+      const bc = barcodeEl.value.trim();
+      bannerEl.className = "banner";
+      if (bc.length < 4) return;
+      try {
+        const res = await fetch("/admin/api/barcode-catalog/search?q=" + encodeURIComponent(bc));
+        const data = await res.json();
+        const hit = (data.items || []).find((it) => String(it.barcode) === bc);
+        if (hit) {
+          nameEl.value = hit.menu_name || "";
+          catEl.value = String(hit.is_coupang ?? 99);
+          priceEl.value = hit.recommended_price || "";
+          packEl.value = hit.pack_qty || 1;
+          boxEl.value = hit.icecream_box_qty || 0;
+          bannerEl.className = "banner exists";
+          bannerEl.textContent =
+            "이미 등록된 바코드입니다. 아래 값을 고쳐 저장하면 덮어씁니다. (현재: " +
+            (hit.menu_name || "-") + " / " + (hit.recommended_price || 0) + "원)";
+        } else {
+          bannerEl.className = "banner new";
+          bannerEl.textContent = "새 바코드입니다. 정보를 채워 저장하세요.";
+        }
+      } catch (e) {
+        /* 검색 실패는 조용히 무시 - 저장은 그대로 시도 가능 */
+      }
+    }
+    barcodeEl.addEventListener("change", lookupBarcode);
+    barcodeEl.addEventListener("blur", lookupBarcode);
+
+    async function save() {
+      const barcode = barcodeEl.value.replace(/\D/g, "");
+      const menu_name = nameEl.value.trim();
+      if (barcode.length < 4) { toast("바코드를 확인해주세요"); return; }
+      if (!menu_name) { toast("상품명을 입력해주세요"); return; }
+
+      const body = {
+        barcode,
+        menu_name,
+        is_coupang: parseInt(catEl.value, 10),
+        pack_qty: Math.max(1, parseInt(packEl.value || "1", 10)),
+        icecream_box_qty: Math.max(0, parseInt(boxEl.value || "0", 10)),
+        search_keyword: "",
+        recommended_price: priceEl.value === "" ? null : parseInt(priceEl.value, 10),
+      };
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = "저장 중...";
+      try {
+        const res = await fetch("/admin/api/barcode-catalog", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.detail || "저장 실패");
+
+        recent.unshift({ barcode, name: menu_name, price: body.recommended_price || 0 });
+        renderRecent();
+        toast("저장됐습니다");
+        // 다음 상품 입력을 위해 바코드/상품명/가격만 비우고 분류는 유지
+        barcodeEl.value = ""; nameEl.value = ""; priceEl.value = "";
+        boxEl.value = "0"; packEl.value = "1";
+        bannerEl.className = "banner";
+        barcodeEl.focus();
+      } catch (e) {
+        toast("저장 실패: " + (e.message || e));
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "저장";
+      }
+    }
+    saveBtn.addEventListener("click", save);
+
+    function renderRecent() {
+      if (recent.length === 0) {
+        recentEl.innerHTML = '<p class="empty">아직 없습니다.</p>';
+        return;
+      }
+      recentEl.innerHTML = recent
+        .slice(0, 15)
+        .map(
+          (r) =>
+            '<div class="recent-item"><span><b>' +
+            r.name.replace(/</g, "&lt;") +
+            "</b><br><span style=\"color:#6b7280\">" +
+            r.barcode +
+            '</span></span><span class="rp">' +
+            (r.price ? r.price.toLocaleString() + "원" : "가격 미입력") +
+            "</span></div>"
+        )
+        .join("");
+    }
+  </script>
+</body>
+</html>
