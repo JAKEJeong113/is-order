@@ -7,13 +7,22 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
 
+/** 등록된 오더퀸 계정 하나(계정명만 - 아이디/비밀번호는 목록 조회에 안 실림). */
+data class OqAccount(val id: Int, val nickname: String, val isDefault: Boolean)
+
+/** 계정 하나에 대한 등록 시도 결과 - "모든 계정에 추가"로 여러 계정을
+ * 골랐을 때 계정별로 성공/실패가 다를 수 있어 따로 담는다. */
+data class OqRegisterResult(val accountId: Int, val nickname: String?, val ok: Boolean, val message: String)
+
 /**
  * 오더퀸 자동등록 기능의 로컬 상태(기기 식별자/사용 여부)와 서버 API 호출을
  * 담당한다. 본체 사이트(is-cream.co.kr) 로그인과는 완전히 별개로 동작한다
  * (사용자 요청) - 이 기기가 스스로 만든 임의의 device_id 하나로,
- * main.py의 /api/oq-app 이하 엔드포인트에 저장된 자신의 오더퀸 계정을
- * 식별한다. 여기 있는 함수는 전부 네트워크 호출을 포함해 블로킹되므로,
- * 반드시 백그라운드 스레드에서 불러야 한다(UI 스레드에서 부르면 안 됨).
+ * main.py의 /api/oq-app 이하 엔드포인트에 저장된 자신의 오더퀸 계정(들)을
+ * 식별한다. 다매장 점주는 매장마다 오더퀸 계정이 달라서 계정을 여러 개
+ * 등록할 수 있다(각 계정은 "계정명"으로 구분). 여기 있는 함수는 전부
+ * 네트워크 호출을 포함해 블로킹되므로, 반드시 백그라운드 스레드에서
+ * 불러야 한다(UI 스레드에서 부르면 안 됨).
  */
 object OrderQueenManager {
     private const val PREFS_NAME = "oq_prefs"
@@ -85,23 +94,55 @@ object OrderQueenManager {
         }
     }
 
-    fun saveCredentials(context: Context, loginId: String, loginPwd: String): Result<Unit> {
+    /** 등록된 계정 목록을 가져오면서, 하나라도 있으면 로컬 사용 여부 플래그도
+     * 같이 맞춰둔다(isAvailable()이 매번 네트워크를 타지 않고 이 캐시된
+     * 값을 쓰기 때문에, 계정 목록이 바뀔 때마다 항상 최신으로 유지해야 함). */
+    fun fetchAccounts(context: Context): List<OqAccount> {
+        val accounts = try {
+            val res = request("/api/oq-app/accounts?device_id=${getDeviceId(context)}", "GET")
+            val arr = res.optJSONArray("accounts") ?: org.json.JSONArray()
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                OqAccount(o.getInt("id"), o.getString("nickname"), o.optBoolean("is_default", false))
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+        setEnabledLocally(context, accounts.isNotEmpty())
+        return accounts
+    }
+
+    fun saveAccount(context: Context, nickname: String, loginId: String, loginPwd: String): Result<Int> {
         val body = JSONObject()
             .put("device_id", getDeviceId(context))
+            .put("nickname", nickname)
             .put("login_id", loginId)
             .put("login_pwd", loginPwd)
         return try {
             val res = request("/api/oq-app/credentials", "POST", body)
-            if (res.optBoolean("ok", false)) Result.success(Unit)
-            else Result.failure(Exception(res.optString("message", "저장에 실패했습니다.")))
+            if (res.optBoolean("ok", false)) {
+                setEnabledLocally(context, true)
+                Result.success(res.optInt("account_id"))
+            } else {
+                Result.failure(Exception(res.optString("message", "저장에 실패했습니다.")))
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    fun deleteCredentials(context: Context) {
+    /** account_id를 주면 그 계정 하나만, 안 주면(기능을 완전히 끌 때) 등록된
+     * 계정을 전부 지운다. 어느 쪽이든 서버 삭제가 실패해도 조용히 무시한다
+     * (로컬 사용 여부는 호출부가 최신 목록으로 다시 맞춘다). */
+    fun deleteAccount(context: Context, accountId: Int? = null) {
         try {
-            request("/api/oq-app/credentials?device_id=${getDeviceId(context)}", "DELETE")
+            val deviceId = getDeviceId(context)
+            val path = if (accountId != null) {
+                "/api/oq-app/credentials?device_id=$deviceId&account_id=$accountId"
+            } else {
+                "/api/oq-app/credentials?device_id=$deviceId"
+            }
+            request(path, "DELETE")
         } catch (e: Exception) {
             // 서버 삭제가 실패해도 로컬에서는 어차피 기능을 끄므로 조용히 무시한다.
         }
@@ -119,19 +160,34 @@ object OrderQueenManager {
         }
     }
 
-    fun registerItem(context: Context, barcode: String, menuName: String, salePrice: Int, classCd: String): Result<String> {
+    /** accountIds에 담긴 계정 각각에 순서대로 로그인+등록을 시도한다(서버가
+     * 순차 처리) - "모든 계정에 추가"를 고르면 여러 개가 담겨온다. 계정
+     * 수만큼 시간이 늘어나므로(계정당 실측 20~30초) 읽기 타임아웃도 계정
+     * 수에 비례해서 넉넉히 둔다. */
+    fun registerItem(
+        context: Context, barcode: String, menuName: String, salePrice: Int, classCd: String,
+        accountIds: List<Int>,
+    ): Result<List<OqRegisterResult>> {
         val body = JSONObject()
             .put("device_id", getDeviceId(context))
+            .put("account_ids", org.json.JSONArray(accountIds))
             .put("barcode", barcode)
             .put("menu_name", menuName)
             .put("sale_price", salePrice)
             .put("class_cd", classCd)
         return try {
-            // 실제 로그인+폼입력+저장까지 하는 동작이라 시간이 좀 걸린다(실측
-            // 20~30초) - 읽기 타임아웃을 넉넉히 둔다.
-            val res = request("/api/oq-app/register-item", "POST", body, readTimeoutMs = 60000)
-            if (res.optBoolean("ok", false)) Result.success(res.optString("message", "등록 완료"))
-            else Result.failure(Exception(res.optString("message", "등록에 실패했습니다.")))
+            val timeoutMs = 60000 * accountIds.size.coerceAtLeast(1)
+            val res = request("/api/oq-app/register-item", "POST", body, readTimeoutMs = timeoutMs)
+            val arr = res.optJSONArray("results")
+            if (arr == null) {
+                return Result.failure(Exception(res.optString("message", "등록에 실패했습니다.")))
+            }
+            val results = (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                val nickname = if (o.isNull("nickname")) null else o.optString("nickname")
+                OqRegisterResult(o.optInt("account_id"), nickname, o.optBoolean("ok", false), o.optString("message", ""))
+            }
+            Result.success(results)
         } catch (e: Exception) {
             Result.failure(e)
         }

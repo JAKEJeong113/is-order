@@ -943,8 +943,13 @@ def api_cart_job_status(job_id: int, user: dict = Depends(require_web_user)):
 # 시 스스로 만든 임의의 device_id 하나로 자신의 오더퀸 계정을 식별한다.
 # 로그인 세션이 없는 만큼, device_id는 앱만 알고 있는 사실상의 비밀값
 # 역할도 겸한다(추측 불가능한 랜덤값이어야 함 - 앱 쪽에서 UUID로 생성).
+#
+# 다매장 점주는 매장마다 오더퀸 계정이 따로 있어서 계정을 여러 개 등록해야
+# 한다 - vendors.py의 store_vendor_credentials가 원래 (store_id, vendor_id)
+# 아래 "별명(nickname)"으로 계정을 여러 개 저장하도록 이미 만들어져 있어서
+# (지점별 다른 도매처 계정 여러 개를 등록하던 것과 동일한 구조), 새 테이블/
+# 마이그레이션 없이 그 함수들을 그대로 재사용한다.
 _OQ_APP_VENDOR_ID = "orderqueen"
-_OQ_APP_NICKNAME = "바코드앱"
 
 
 def _oq_app_store_id(device_id: str) -> str:
@@ -953,42 +958,57 @@ def _oq_app_store_id(device_id: str) -> str:
 
 class OqAppCredentialsRequest(BaseModel):
     device_id: str = Field(..., min_length=8, max_length=200)
+    nickname: str = Field(..., min_length=1, max_length=50)
     login_id: str = Field(..., min_length=1, max_length=100)
     login_pwd: str = Field(..., min_length=1, max_length=100)
 
 
 @app.post("/api/oq-app/credentials")
 def api_oq_app_save_credentials(req: OqAppCredentialsRequest):
-    """앱에서 "오더퀸 자동등록" 토글을 켤 때 입력한 아이디/비밀번호를
-    저장한다(암호화 저장 - vendors.py의 기존 지점별 도매처 계정 저장
-    방식을 그대로 재사용). 이미 저장된 게 있으면 덮어쓴다(재로그인/비번
-    변경 대응)."""
-    vendors.add_store_vendor_account(
-        _oq_app_store_id(req.device_id), _OQ_APP_VENDOR_ID, _OQ_APP_NICKNAME,
+    """앱에서 오더퀸 계정을 하나 추가한다(암호화 저장 - vendors.py의 기존
+    지점별 도매처 계정 저장 방식을 그대로 재사용). 이미 같은 계정명(별명)이
+    있으면 그 계정의 아이디/비밀번호만 갱신한다."""
+    account_id = vendors.add_store_vendor_account(
+        _oq_app_store_id(req.device_id), _OQ_APP_VENDOR_ID, req.nickname,
         req.login_id, req.login_pwd,
     )
-    return {"ok": True}
+    return {"ok": True, "account_id": account_id}
+
+
+@app.get("/api/oq-app/accounts")
+def api_oq_app_list_accounts(device_id: str = Query(..., min_length=8, max_length=200)):
+    """설정 화면에 등록된 계정 목록(계정명만, 비밀번호는 절대 내려주지 않음)을
+    보여주는 용도 - "오더퀸에 등록" 버튼을 눌렀을 때 어느 계정에 등록할지
+    고르는 목록에도 이 응답을 그대로 쓴다."""
+    accounts = vendors.list_store_vendor_accounts(_oq_app_store_id(device_id), _OQ_APP_VENDOR_ID)
+    return {"ok": True, "accounts": accounts}
 
 
 @app.get("/api/oq-app/credentials/status")
 def api_oq_app_credentials_status(device_id: str = Query(..., min_length=8, max_length=200)):
-    """앱이 재실행됐을 때 토글을 다시 켜진 상태로 보여줄지 판단하는 용도."""
-    account = vendors.resolve_store_vendor_account(_oq_app_store_id(device_id), _OQ_APP_VENDOR_ID)
-    return {"ok": True, "registered": account is not None}
+    """앱이 재실행됐을 때 토글을 다시 켜진 상태로 보여줄지 판단하는 용도 -
+    계정이 하나라도 등록돼 있으면 켜진 것으로 본다."""
+    accounts = vendors.list_store_vendor_accounts(_oq_app_store_id(device_id), _OQ_APP_VENDOR_ID)
+    return {"ok": True, "registered": len(accounts) > 0}
 
 
 @app.delete("/api/oq-app/credentials")
-def api_oq_app_delete_credentials(device_id: str = Query(..., min_length=8, max_length=200)):
-    """토글을 끌 때 저장된 계정 정보를 아예 지운다."""
+def api_oq_app_delete_credentials(
+    device_id: str = Query(..., min_length=8, max_length=200),
+    account_id: int | None = Query(None, description="주면 이 계정 하나만 삭제, 안 주면(토글을 완전히 끌 때) 전부 삭제"),
+):
     store_id = _oq_app_store_id(device_id)
-    accounts = vendors.list_store_vendor_accounts(store_id, _OQ_APP_VENDOR_ID)
-    for acc in accounts:
+    if account_id is not None:
+        vendors.delete_store_vendor_account(store_id, _OQ_APP_VENDOR_ID, account_id)
+        return {"ok": True}
+    for acc in vendors.list_store_vendor_accounts(store_id, _OQ_APP_VENDOR_ID):
         vendors.delete_store_vendor_account(store_id, _OQ_APP_VENDOR_ID, acc["id"])
     return {"ok": True}
 
 
 class OqAppRegisterRequest(BaseModel):
     device_id: str = Field(..., min_length=8, max_length=200)
+    account_ids: list[int] = Field(..., min_length=1, max_length=20)
     barcode: str = Field(..., min_length=4, max_length=32)
     menu_name: str = Field(..., min_length=1, max_length=200)
     sale_price: int = Field(..., ge=0, le=10_000_000)
@@ -997,31 +1017,46 @@ class OqAppRegisterRequest(BaseModel):
 
 @app.post("/api/oq-app/register-item")
 def api_oq_app_register_item(req: OqAppRegisterRequest):
-    """바코드 앱에서 "오더퀸에 등록" 버튼을 눌렀을 때 호출된다 - 저장된
-    계정으로 실제 오더퀸 "메뉴관리"에 상품을 등록하는, 매장 POS에 직접
-    반영되는 쓰기 작업이다. (sync def라 FastAPI/Starlette가 별도 스레드
-    풀에서 실행하므로, 여기서 Playwright의 동기 API를 그대로 블로킹
-    호출해도 서버의 다른 요청 처리를 막지 않는다.)"""
+    """바코드 앱에서 "오더퀸에 등록" 버튼을 눌렀을 때 호출된다 - 선택된
+    계정(들)으로 실제 오더퀸 "메뉴관리"에 상품을 등록하는, 매장 POS에
+    직접 반영되는 쓰기 작업이다. 다매장 점주가 "모든 계정에 추가"를
+    선택하면 account_ids에 여러 개가 담겨오고, 계정마다 순서대로 로그인+
+    등록을 반복해서 각각 결과를 따로 담아 반환한다. (sync def라 FastAPI/
+    Starlette가 별도 스레드 풀에서 실행하므로, 여기서 Playwright의 동기
+    API를 그대로 블로킹 호출해도 서버의 다른 요청 처리를 막지 않는다.)"""
     if req.class_cd not in orderqueen_bot.CLASS_CODES.values():
         return {"ok": False, "message": "알 수 없는 분류입니다."}
 
-    account = vendors.resolve_store_vendor_account(_oq_app_store_id(req.device_id), _OQ_APP_VENDOR_ID)
-    if not account:
-        return {"ok": False, "message": "오더퀸 계정이 등록되어 있지 않습니다. 앱에서 자동등록 기능을 다시 켜주세요."}
+    store_id = _oq_app_store_id(req.device_id)
+    results = []
+    for account_id in req.account_ids:
+        account = vendors.resolve_store_vendor_account(store_id, _OQ_APP_VENDOR_ID, account_id)
+        if not account:
+            results.append({
+                "account_id": account_id, "nickname": None,
+                "ok": False, "message": "삭제되었거나 존재하지 않는 계정입니다.",
+            })
+            continue
+        try:
+            result = orderqueen_bot.register_menu_item(
+                account["login_id"], account["login_pwd"],
+                barcode=req.barcode, menu_name=req.menu_name,
+                sale_price=req.sale_price, class_cd=req.class_cd,
+                # 로그인 세션 캐시 키에 계정 id까지 넣어야 한다 - 안 그러면
+                # 같은 기기(device_id)에 등록된 서로 다른 오더퀸 계정의 캐시된
+                # 로그인 쿠키가 뒤섞여서 엉뚱한 계정으로 로그인된 채 등록될 수
+                # 있다(다른 도매처 add_to_cart 캐시와 달리 한 store_id 안에
+                # 여러 계정이 존재하는 첫 케이스라 이 구분이 꼭 필요함).
+                store_id=f"{store_id}:{account_id}",
+            )
+        except Exception as e:
+            result = {"ok": False, "message": f"오더퀸 등록 중 오류가 발생했습니다: {e}"}
+        result["account_id"] = account_id
+        result["nickname"] = account["nickname"]
+        results.append(result)
 
-    try:
-        result = orderqueen_bot.register_menu_item(
-            account["login_id"], account["login_pwd"],
-            barcode=req.barcode, menu_name=req.menu_name,
-            sale_price=req.sale_price, class_cd=req.class_cd,
-            # store_id를 넘기면 로그인 세션을 캐싱해서 두 번째 등록부터는
-            # 로그인을 건너뛴다(속도 개선) - 다른 도매처 add_to_cart와 동일한 방식.
-            store_id=_oq_app_store_id(req.device_id),
-        )
-    except Exception as e:
-        return {"ok": False, "message": f"오더퀸 등록 중 오류가 발생했습니다: {e}"}
-
-    return result
+    overall_ok = all(r.get("ok") for r in results)
+    return {"ok": overall_ok, "results": results}
 
 
 @app.get("/api/oq-app/class-codes")
