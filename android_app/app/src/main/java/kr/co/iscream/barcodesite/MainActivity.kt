@@ -124,6 +124,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.settingsBtn).setOnClickListener {
             OrderQueenDialogs.showSettingsDialog(this)
         }
+        findViewById<View>(R.id.helpBtn).setOnClickListener {
+            HelpDialogs.showUsageGuide(this)
+        }
 
         onBackPressedDispatcher.addCallback(
             this,

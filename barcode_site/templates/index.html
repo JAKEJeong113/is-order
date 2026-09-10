@@ -22,7 +22,10 @@
       margin:0; min-height:100vh; background:var(--bg); color:var(--ink);
       font-family:'Pretendard',-apple-system,"Malgun Gothic",sans-serif;
       display:flex; flex-direction:column; align-items:center;
-      padding:48px 20px 32px;
+      /* 안드로이드 앱에서는 상단에 네이티브 설정/도움말 버튼이 웹뷰 위에
+         겹쳐 떠 있어서, 여백이 너무 좁으면 배지 텍스트와 부딪혀 보인다 -
+         위쪽 여백을 넉넉히 줘서 그 버튼들 아래로 내용이 시작되게 한다. */
+      padding:72px 20px 32px;
       /* 한글은 기본 줄바꿈 규칙상 "바코드"/"즉시"처럼 한 단어 중간에서도
          잘릴 수 있다 - keep-all로 띄어쓰기 단위로만 줄바꿈되게 한다.
          (overflow-wrap:break-word를 같이 두면 크롬이 keep-all을 무시하고

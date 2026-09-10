@@ -25,9 +25,28 @@
         android:max="100"
         android:progressTint="#2FC5B3" />
 
-    <!-- 오더퀸 자동등록 설정 진입점 - 앱 전용 기능이라 웹페이지 쪽이 아니라
-         네이티브 화면 한쪽에 고정 버튼으로 둔다. -->
+    <!-- 사용법 안내 진입점 - 톱니(설정) 버튼 바로 왼쪽에 둔다. -->
     <TextView
+        android:id="@+id/helpBtn"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="14dp"
+        android:layout_marginEnd="58dp"
+        android:background="@drawable/settings_btn_bg"
+        android:clickable="true"
+        android:elevation="2dp"
+        android:focusable="true"
+        android:gravity="center"
+        android:text="?"
+        android:textColor="#08796F"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+
+    <!-- 오더퀸 자동등록 설정 진입점 - 앱 전용 기능이라 웹페이지 쪽이 아니라
+         네이티브 화면 한쪽에 고정 버튼으로 둔다. 이모지 대신 벡터 톱니
+         아이콘을 써서 기기에 따라 흐리게/얇게 보이던 문제를 없앤다. -->
+    <ImageView
         android:id="@+id/settingsBtn"
         android:layout_width="40dp"
         android:layout_height="40dp"
@@ -36,10 +55,10 @@
         android:layout_marginEnd="10dp"
         android:background="@drawable/settings_btn_bg"
         android:clickable="true"
+        android:contentDescription="@string/settings_button_description"
+        android:elevation="2dp"
         android:focusable="true"
-        android:gravity="center"
-        android:text="⚙"
-        android:textColor="#08796F"
-        android:textSize="18sp" />
+        android:padding="9dp"
+        android:src="@drawable/ic_settings_gear" />
 
 </FrameLayout>

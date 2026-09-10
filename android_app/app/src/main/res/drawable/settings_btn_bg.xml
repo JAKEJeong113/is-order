@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 설정(⚙) 버튼 배경 - 웹 배경(#FBFAF7) 위에서 살짝 도드라지는 흰 원. -->
+<!-- 설정/도움말 버튼 배경 - 웹 배경(#FBFAF7) 위에서 또렷하게 도드라지도록
+     흰 원 + 살짝 진한 테두리 + 은은한 그림자(elevation은 View 쪽에서 줌). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
     <solid android:color="#FFFFFF" />
-    <stroke android:width="1dp" android:color="#E4E8E0" />
+    <stroke android:width="1.5dp" android:color="#CFE8E3" />
 </shape>

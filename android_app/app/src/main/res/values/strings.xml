@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">무인 바코드 검색기</string>
+    <string name="settings_button_description">오더퀸 자동등록 설정</string>
 </resources>
