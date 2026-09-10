@@ -241,17 +241,37 @@ object OrderQueenDialogs {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
         }
+        val timeNote = TextView(activity).apply {
+            text = "계정이 많을수록 등록 시간이 늘어납니다(3개마다 약 30초씩)."
+            textSize = 12f
+            alpha = 0.65f
+            setPadding(0, dp(activity, 6), 0, 0)
+            visibility = View.GONE
+        }
         root.addView(accountsLabel)
         root.addView(allAccountsCheck)
         root.addView(accountsListContainer)
+        root.addView(timeNote)
 
-        val progress = ProgressBar(activity).apply {
+        // 등록은 계정마다 로그인+폼입력이 이어져서 시간이 걸린다 - 정확한
+        // 서버 진행률을 실시간으로 받으려면 스트리밍이 필요하지만, 소요
+        // 시간이 어느 정도 예측 가능해서(서버가 3개씩 병렬 처리) 예상 시간
+        // 기반으로 막대를 채우고 응답이 오면 100%로 스냅한다.
+        val progress = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
             visibility = View.GONE
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { gravity = Gravity.CENTER; topMargin = dp(activity, 12) }
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(activity, 14) }
+        }
+        val progressLabel = TextView(activity).apply {
+            textSize = 12f
+            alpha = 0.75f
+            setPadding(0, dp(activity, 6), 0, 0)
+            visibility = View.GONE
         }
         root.addView(progress)
+        root.addView(progressLabel)
 
         val dialog = AlertDialog.Builder(activity)
             .setTitle("오더퀸에 등록")
@@ -291,11 +311,42 @@ object OrderQueenDialogs {
                 acc to cb
             }
             allAccountsCheck.isChecked = true
+            timeNote.visibility = View.VISIBLE
         }
 
         thread {
             val accounts = OrderQueenManager.fetchAccounts(activity)
             activity.runOnUiThread { renderAccountsUi(accounts) }
+        }
+
+        // 등록 소요 시간 예상치(ms) - 서버가 계정을 3개씩 병렬 처리하므로
+        // 3개 묶음마다 약 28초. 응답이 오기 전까지 이 값 기준으로 막대를
+        // 채운다(실제 서버 진행률이 아니라 어림치).
+        fun estimateMs(n: Int): Long = ((n + 2) / 3).coerceAtLeast(1) * 28_000L
+        var progressAnim: android.animation.ValueAnimator? = null
+        fun startProgress(n: Int) {
+            val total = estimateMs(n)
+            progress.progress = 0
+            progress.visibility = View.VISIBLE
+            progressLabel.visibility = View.VISIBLE
+            progressLabel.text = "오더퀸에 등록 중… 예상 약 ${total / 1000}초"
+            progressAnim = android.animation.ValueAnimator.ofInt(0, 95).apply {
+                duration = total
+                interpolator = android.view.animation.LinearInterpolator()
+                addUpdateListener { a ->
+                    progress.progress = a.animatedValue as Int
+                    val remain = ((total * (1f - a.animatedFraction)) / 1000f).toInt()
+                    progressLabel.text = if (remain > 1) "오더퀸에 등록 중… 약 ${remain}초 남음" else "거의 다 됐어요…"
+                }
+                start()
+            }
+        }
+        fun stopProgress() {
+            progressAnim?.cancel()
+            progressAnim = null
+            progress.progress = 100
+            progress.visibility = View.GONE
+            progressLabel.visibility = View.GONE
         }
 
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -325,14 +376,14 @@ object OrderQueenDialogs {
 
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = false
-            progress.visibility = View.VISIBLE
+            startProgress(accountIds.size)
 
             thread {
                 val result = OrderQueenManager.registerItem(
                     activity, barcode, menuName, salePrice, classCd, className, accountIds,
                 )
                 activity.runOnUiThread {
-                    progress.visibility = View.GONE
+                    stopProgress()
                     result.onSuccess { results ->
                         val successCount = results.count { it.ok }
                         if (successCount == results.size) {
