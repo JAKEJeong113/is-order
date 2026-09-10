@@ -29,7 +29,13 @@ yamimall_bot 사용). 플랫폼마다 바코드가 저장된 필드명과 크롤
   - DB에 아예 없는 바코드 -> 새로 추가 (is_coupang=2 "도매몰" 카테고리)
   - 이미 있는데 recommended_price가 비어있음(0/NULL) -> 그 값만 채움
     (상품명/카테고리 등 관리자가 이미 손댔을 수 있는 다른 필드는 안 건드림)
-  - 이미 있고 recommended_price가 채워져 있음 -> 절대 건드리지 않고 건너뜀
+  - 이미 있고 값이 채워져 있는데, 이번 크롤링 결과가 도매처가 "명시"한
+    추천판매가(권장소비자가/상품명에 박힌 가격)라면 -> 그 명시가로 덮어쓴다.
+    도매처가 직접 준 값이 우리 계산값보다 신뢰도가 높다는 판단(사용자
+    요청). 기존 값이 우리 계산 로직으로 과다하게 들어간 경우를 바로잡기
+    위함이다. 명시가끼리 여러 개면 위 규칙대로 최고가를 쓴다.
+  - 이미 있고 값이 채워져 있는데, 이번 결과가 "계산값"뿐이라면 -> 안 건드리고
+    건너뛴다(관리자가 손댔을 수 있는 값을 추정치로 덮지 않는다).
 
 실행:
   python catalog_auto_import.py ccdome [--limit 20]   # 도매처 하나만
@@ -56,10 +62,10 @@ _GODOMALL_VENDORS = ("ccdome", "3bong", "hdinter")
 _CUSTOM_PLATFORM_VENDORS = ("yamimall", "douyou")
 
 # 주기적(예: 주 1회) 자동등록 대상 - 바코드를 확인할 수 있는 도매처만.
-# moomarket은 바코드 정보 자체가 없어서 제외(위 모듈 설명 참고). yamimall/
-# hdinter는 아직 요청받지 않아 기본 목록엔 안 넣되, CLI로 개별 실행은 계속
-# 가능하게 둔다.
-DEFAULT_VENDORS = ("ccdome", "3bong", "douyou")
+# 과자생각(ccdome)/삼봉몰(3bong)/또요몰(douyou)/야미몰(yamimall).
+# moomarket은 바코드 정보 자체가 없어서 제외(위 모듈 설명 참고). hdinter
+# (현동몰)는 아직 요청받지 않아 기본 목록엔 안 넣되 CLI 개별 실행은 가능.
+DEFAULT_VENDORS = ("ccdome", "3bong", "douyou", "yamimall")
 
 # 야미몰 스타일 "(1500)상품명" - 상품명 맨 앞에 이미 판매가가 박혀있는 경우.
 _EXPLICIT_PRICE_RE = re.compile(r"^\((\d{3,6})\)")
@@ -187,6 +193,23 @@ def _fill_empty_price(barcode: str, pack_qty: int, recommended_price: int, notes
         conn.close()
 
 
+def _overwrite_price(barcode: str, recommended_price: int, notes: str) -> None:
+    """이미 값이 있는 바코드를, 도매처가 "명시"한 추천판매가로 덮어쓴다.
+    recommended_price와 notes만 갱신하고 pack_qty/상품명 등 관리자가 손댔을
+    수 있는 다른 필드는 건드리지 않는다."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE catalog_items SET recommended_price = ?, notes = ?, updated_at = ? WHERE barcode = ?",
+            (recommended_price, notes, now, barcode),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _collect_vendor_candidates(vendor_id: str, limit: int | None) -> list[dict]:
     """도매처 하나를 크롤링해서, 바코드별 후보 dict 리스트를 반환한다(아직 DB에
     쓰지 않음 - 다른 도매처 결과와 합쳐서 비교해야 하므로)."""
@@ -225,7 +248,8 @@ def _collect_vendor_candidates(vendor_id: str, limit: int | None) -> list[dict]:
 
 def _write_winners(by_barcode: dict[str, list[dict]]) -> dict:
     summary: dict[str, list[dict]] = {
-        "added": [], "updated": [], "skipped_existing_price": [], "skipped_parse_fail": [],
+        "added": [], "updated": [], "overwritten": [],
+        "skipped_existing_price": [], "skipped_parse_fail": [],
     }
 
     for barcode, candidates in by_barcode.items():
@@ -264,9 +288,24 @@ def _write_winners(by_barcode: dict[str, list[dict]]) -> dict:
         elif existing_price == 0:
             _fill_empty_price(barcode, winner.get("unit_qty", 1), winner["price"], notes)
             summary["updated"].append({"barcode": barcode, "name": clean_name, "recommended_price": winner["price"]})
+        elif winner["is_explicit"] and winner["price"] != existing_price:
+            # 이미 값이 있어도, 도매처가 "명시"한 추천판매가면 그 값으로 덮어쓴다
+            # (계산값이면 아래 else로 빠져서 건너뜀).
+            overwrite_notes = (
+                f"{winner['vendor_name']} 도매 명시 추천판매가로 갱신"
+                f"(기존 {existing_price}원 → {winner['price']}원) · {winner['reason']}"
+                f"{compare_note} · {datetime.now().date().isoformat()}"
+            )
+            _overwrite_price(barcode, winner["price"], overwrite_notes)
+            summary["overwritten"].append({
+                "barcode": barcode, "name": clean_name,
+                "old_price": existing_price, "recommended_price": winner["price"],
+                "vendor": winner["vendor_name"],
+            })
         else:
             summary["skipped_existing_price"].append({
                 "barcode": barcode, "name": clean_name, "existing_price": existing_price,
+                "would_be": winner["price"], "is_explicit": winner["is_explicit"],
             })
 
     return summary
@@ -308,5 +347,8 @@ if __name__ == "__main__":
     print(f"\n=== {label} 카탈로그 자동 등록 결과 ===")
     print(f"신규 추가: {len(result['added'])}개")
     print(f"빈 값 채움: {len(result['updated'])}개")
-    print(f"기존 값 있어 건너뜀: {len(result['skipped_existing_price'])}개")
+    print(f"도매 명시가로 덮어씀: {len(result['overwritten'])}개")
+    for o in result["overwritten"]:
+        print(f"   {o['barcode']} {o['name']}: {o['old_price']}원 -> {o['recommended_price']}원 ({o['vendor']})")
+    print(f"기존 값 있어 건너뜀(계산값): {len(result['skipped_existing_price'])}개")
     print(f"파싱 실패로 건너뜀: {len(result['skipped_parse_fail'])}개")

@@ -200,7 +200,11 @@ def _run_weekly_catalog_auto_import() -> None:
         summary = catalog_auto_import.import_all_vendors()
         added = len(summary["added"])
         updated = len(summary["updated"])
-        print(f"[CATALOG_AUTO_IMPORT] 주간 도매몰 카탈로그 자동등록 완료: 신규 {added}개, 빈 값 채움 {updated}개")
+        overwritten = len(summary.get("overwritten", []))
+        print(
+            f"[CATALOG_AUTO_IMPORT] 주간 도매몰 카탈로그 자동등록 완료: "
+            f"신규 {added}개, 빈 값 채움 {updated}개, 도매 명시가로 덮어씀 {overwritten}개"
+        )
     except Exception as e:
         telegram_bot.alert_admin(f"도매몰 카탈로그 자동등록(주간) 실패: {e}")
         raise
