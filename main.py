@@ -1065,11 +1065,12 @@ def api_oq_app_register_item(req: OqAppRegisterRequest):
         results = [_register_one(aid, acc) for aid, acc in resolved]
     else:
         # "모든 계정에 추가" - 계정마다 별도 Chromium 로그인이 필요한 무거운
-        # 작업이라 순차로 하면 (계정 수 x 20~30초)로 길어진다. 전역 브라우저
-        # 동시 실행 제한(browser_limit, 기본 4개) 안에서 최대 3개까지 병렬로
-        # 돌려 체감 시간을 줄인다(남는 1자리는 다른 트래픽용). 반환 순서는
-        # 요청받은 account_ids 순서를 그대로 유지한다.
-        max_workers = min(len(resolved), 3)
+        # 작업이라 순차로 하면 (계정 수 x 20~30초)로 길어진다. 병렬로 돌려
+        # 체감 시간을 줄이되, 3개까지 동시에 돌렸더니 Render 서버 자원 경합으로
+        # 로그인 후 페이지 대기가 45초 타임아웃 나는 사례가 나와서 2개로
+        # 낮춘다(전역 browser_limit 4개보다도 여유). 반환 순서는 요청받은
+        # account_ids 순서를 그대로 유지한다.
+        max_workers = min(len(resolved), 2)
         by_id: dict[int, dict] = {}
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             futures = {ex.submit(_register_one, aid, acc): aid for aid, acc in resolved}

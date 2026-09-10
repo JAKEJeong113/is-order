@@ -61,6 +61,23 @@ CLASS_CODES = {
 }
 
 
+def _wait_past_login(page) -> None:
+    """로그인 제출 후 로그인 페이지를 벗어났는지(리다이렉트 완료)만 기다린다.
+    오더퀸은 로그인 후 페이지가 백그라운드 요청을 계속 띄워서
+    wait_for_load_state("networkidle")가 좀처럼 안 끝난다 - 특히 "모든 계정에
+    추가"로 여러 브라우저가 동시에 돌 때 서버 자원 경합까지 겹치면 45초를
+    넘겨 타임아웃 나는 사례가 확인됐다(실측). networkidle 대신 URL이
+    login.itp를 벗어났는지 + DOM 로드만 확인한다."""
+    try:
+        page.wait_for_url(lambda u: "login.itp" not in u, timeout=15000)
+    except PWTimeoutError:
+        pass
+    try:
+        page.wait_for_load_state("domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+    except PWTimeoutError:
+        pass
+
+
 def _login(page, login_id: str, login_pw: str) -> None:
     """로그인 페이지에서 아이디/비번을 입력해 로그인한다. 실패하면
     RuntimeError를 던진다(디버그 스크린샷 없이 - 호출부에서 필요하면 남긴다)."""
@@ -71,7 +88,7 @@ def _login(page, login_id: str, login_pw: str) -> None:
     id_box.fill(login_id)
     pw_box.fill(login_pw)
     pw_box.press("Enter")
-    page.wait_for_load_state("networkidle", timeout=NETWORKIDLE_TIMEOUT_MS)
+    _wait_past_login(page)
 
     if "login.itp" in page.url:
         candidates = [
@@ -87,7 +104,7 @@ def _login(page, login_id: str, login_pw: str) -> None:
             loc = page.locator(sel)
             if loc.count() > 0:
                 loc.first.click()
-                page.wait_for_load_state("networkidle", timeout=NETWORKIDLE_TIMEOUT_MS)
+                _wait_past_login(page)
                 break
 
     if "login.itp" in page.url:
