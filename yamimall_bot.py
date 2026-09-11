@@ -482,18 +482,27 @@ def crawl_catalog_with_barcode(
     listing = crawl_full_catalog(username, password, base_url=base_url, category_codes=category_codes, max_pages=max_pages)
     products_by_url = {p["product_url"]: p for p in listing if p.get("product_url")}
 
+    # page.close()+new_page()로 페이지만 재생성하는 것만으로는 부족했다
+    # (2026-09-11 실측: 또요몰 상세페이지 1000여 개를 도는 동안 브라우저
+    # 프로세스 메모리가 5~6GB까지 불어나며 이후 요청이 사실상 응답불능
+    # 상태가 되는 사고 확인 - CPU는 거의 안 쓰는데 진행은 완전히 멈춤).
+    # 렌더러 레벨 메모리 누적으로 보여서, 이 개수마다 브라우저 프로세스
+    # 자체를 통째로 새로 띄운다(재로그인 포함).
+    BROWSER_RESTART_INTERVAL = 300
+    launch_args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"]
+
     results = []
     with browser_limit.browser_semaphore, sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-setuid-sandbox"],
-        )
-        try:
-            context = browser.new_context()
-            page = context.new_page()
-            _block_heavy_resources(page)
-            login_yamimall(page, username, password, base_url=base_url)
+        def _new_session():
+            b = p.chromium.launch(headless=True, args=launch_args)
+            c = b.new_context()
+            pg = c.new_page()
+            _block_heavy_resources(pg)
+            login_yamimall(pg, username, password, base_url=base_url)
+            return b, c, pg
 
+        browser, context, page = _new_session()
+        try:
             for i, (product_url, listed) in enumerate(products_by_url.items(), start=1):
                 try:
                     page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
@@ -528,7 +537,10 @@ def crawl_catalog_with_barcode(
                 if detail_limit is not None and len(results) >= detail_limit:
                     break
 
-                if i % 20 == 0:
+                if i % BROWSER_RESTART_INTERVAL == 0:
+                    browser.close()
+                    browser, context, page = _new_session()
+                elif i % 20 == 0:
                     page.close()
                     page = context.new_page()
                     _block_heavy_resources(page)
