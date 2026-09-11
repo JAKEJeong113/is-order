@@ -367,10 +367,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="도매몰 카탈로그 자동 등록")
     parser.add_argument("vendor_id", nargs="?", help="예: ccdome (생략하고 --all 쓰면 DEFAULT_VENDORS 전체)")
     parser.add_argument("--all", action="store_true", help=f"DEFAULT_VENDORS({', '.join(DEFAULT_VENDORS)}) 전체 실행")
+    parser.add_argument(
+        "--vendors", type=str, default=None,
+        help="콤마로 구분한 도매처 목록만 실행 (예: --vendors douyou,yamimall) - "
+             "특정 도매처가 일시적으로 막혀있을 때 그것만 빼고 돌리는 용도.",
+    )
     parser.add_argument("--limit", type=int, default=None, help="테스트용 상품 수 제한(도매처별)")
     args = parser.parse_args()
 
-    if args.all:
+    if args.vendors:
+        vendor_ids = tuple(v.strip() for v in args.vendors.split(",") if v.strip())
+        result = import_all_vendors(vendor_ids, limit=args.limit)
+        label = ", ".join(vendor_ids)
+    elif args.all:
         result = import_all_vendors(limit=args.limit)
         label = "전체(" + ", ".join(DEFAULT_VENDORS) + ")"
     elif args.vendor_id:
