@@ -4,7 +4,6 @@ import json
 import os
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import date
 from pathlib import Path
 from urllib.parse import quote
@@ -13,24 +12,6 @@ from playwright.sync_api import Page, sync_playwright, TimeoutError as PWTimeout
 
 import browser_limit
 import vendors
-
-# Playwright의 page.close()/browser.close()는 타임아웃 인자가 없어서, 렌더러가
-# 이미 응답불능(먹통) 상태일 때 부르면 몇 시간이고 영원히 안 끝날 수 있다
-# (2026-09-11 실측 - 삼봉몰 상세페이지 크롤링 중 이걸로 크롤링 전체가 밤새
-# 멈춘 사고). 별도 스레드에서 불러서 일정 시간 안에 안 끝나면 포기하고
-# 진행한다 - 그 스레드 자체는 백그라운드에 남지만(먼저 그만큼의 자원 낭비는
-# 있어도), 최소한 크롤링 전체가 영원히 막히는 것보다는 낫다.
-_CLOSE_TIMEOUT_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="godomall-safe-close")
-
-
-def _safe_close(close_fn, label: str = "", timeout_s: float = 10) -> None:
-    fut = _CLOSE_TIMEOUT_EXECUTOR.submit(close_fn)
-    try:
-        fut.result(timeout=timeout_s)
-    except FutureTimeoutError:
-        print(f"[GODOMALL] {label} close()가 {timeout_s}초 넘게 응답이 없어 포기하고 계속 진행합니다.")
-    except Exception:
-        pass  # 이미 닫혀있는 등 - 무시
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
@@ -545,13 +526,22 @@ def crawl_catalog_with_barcode(
                 # 페이지를 재생성한다. 여긴 페이지 이동 수가 훨씬 많아서
                 # (상품당 1회) 더 자주 재생성한다.
                 if i % 20 == 0:
-                    _safe_close(page.close, f"{base_url} page")
+                    page.close()
                     page = context.new_page()
                     _block_heavy_resources(page)
                 if i % 100 == 0:
                     print(f"[GODOMALL] {base_url} 상세페이지 {i}/{len(products_by_url)} 처리 중 (바코드 확인 {len(results)}건)")
         finally:
-            _safe_close(browser.close, f"{base_url} browser")
+            # (2026-09-11: close()를 별도 스레드에서 타임아웃과 함께 부르는
+            # 시도(_safe_close)를 해봤는데 Playwright sync API가 자신을 생성한
+            # 스레드에서만 호출 가능해서 "Cannot switch to a different
+            # thread" 오류로 즉시 깨졌다 - 되돌림. close()가 응답불능 렌더러
+            # 때문에 안 끝나는 위험 자체는, 이 함수를 부르는
+            # catalog_auto_import.py --all 실행 전체를 OS 레벨 timeout으로
+            # 감싸는 쪽으로 막는다(그 안에서 재시도하는 대신 이미 완료된
+            # 도매처까지는 체크포인트로 남아있으니 전체가 죽어도 손해가
+            # 적음).
+            browser.close()
 
     return results
 
