@@ -463,7 +463,6 @@ def crawl_catalog_with_barcode(
         "--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox",
         "--disable-extensions", "--disable-background-networking", "--disable-sync",
         "--disable-default-apps", "--disable-features=Translate,BackForwardCache",
-        "--renderer-process-limit=2",
     ]
 
     results = []
