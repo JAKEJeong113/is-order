@@ -449,14 +449,22 @@ def crawl_catalog_with_barcode(
     products_by_url = {p["product_url"]: p for p in listing if p.get("product_url")}
 
     # page.close()+new_page()로 페이지만 재생성하는 것만으로는 부족했다
-    # (2026-09-11 실측: 상세페이지 1000여 개를 도는 동안 브라우저 프로세스
-    # 메모리가 5~6GB까지 불어나며 이후 요청이 사실상 응답불능 상태가 되는
-    # 사고 확인 - CPU는 거의 안 쓰는데 진행은 완전히 멈춤. 다른
-    # 플랫폼(yamimall_bot)의 동일 패턴에서도 재현됨). 렌더러 레벨 메모리
-    # 누적으로 보여서, 이 개수마다 브라우저 프로세스 자체를 통째로 새로
-    # 띄운다(재로그인 포함).
-    BROWSER_RESTART_INTERVAL = 300
-    launch_args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"]
+    # (2026-09-11 실측: 이 프로세스가 5~6GB까지 불어나다 결국 "Page.goto:
+    # Page crashed"로 렌더러가 실제로 죽는 걸 확인 - 이 기기 전체 메모리가
+    # 13.9GB뿐이라 다른 크롬 창들과 경쟁하면서 여유가 빠듯함이 원인으로
+    # 보임. 다른 플랫폼(yamimall_bot)의 동일 패턴에서도 재현됨). 이
+    # 개수마다 브라우저 프로세스 자체를 통째로 새로 띄우고(재로그인 포함),
+    # 확장기능/백그라운드 기능을 꺼서 렌더러 하나가 먹는 메모리 자체도
+    # 줄인다. 렌더러가 죽으면(Page crashed) 남은 개수를 다 채우기 전이라도
+    # 그 즉시 재시작한다 - 죽은 페이지는 재시도해봐야 계속 같은 이유로
+    # 죽기만 하기 때문.
+    BROWSER_RESTART_INTERVAL = 150
+    launch_args = [
+        "--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox",
+        "--disable-extensions", "--disable-background-networking", "--disable-sync",
+        "--disable-default-apps", "--disable-features=Translate,BackForwardCache",
+        "--renderer-process-limit=2",
+    ]
 
     results = []
     with browser_limit.browser_semaphore, sync_playwright() as p:
@@ -473,6 +481,7 @@ def crawl_catalog_with_barcode(
             consecutive_failures = 0
             for i, (product_url, listed) in enumerate(products_by_url.items(), start=1):
                 body_text = None
+                crashed = False
                 try:
                     # (2026-09-11 실측: 실패 시 page.close()로 새 페이지를
                     # 만들어 재시도하게 했더니, 브라우저가 이미 맛이 간 상태
@@ -492,6 +501,14 @@ def crawl_catalog_with_barcode(
                         body_text = page.inner_text("body")
                     except Exception as e:
                         print(f"[GODOMALL] {product_url} 상세페이지 조회 실패(재시도 포함):", e)
+                        crashed = "crash" in str(e).lower()
+
+                if crashed:
+                    try:
+                        browser.close()
+                    except Exception:
+                        pass
+                    browser, context, page = _new_session()
 
                 if body_text is None:
                     consecutive_failures += 1
