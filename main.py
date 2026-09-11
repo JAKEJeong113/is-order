@@ -14,6 +14,7 @@ load_dotenv()
 import functools
 import math
 import re
+import time
 import traceback
 import uuid
 import hmac
@@ -1048,7 +1049,7 @@ def api_oq_app_register_item(req: OqAppRegisterRequest):
                 "ok": False, "message": "삭제되었거나 존재하지 않는 계정입니다.",
             }
         try:
-            result = orderqueen_bot.register_menu_item(
+            result = orderqueen_bot.register_menu_item_with_retry(
                 account["login_id"], account["login_pwd"],
                 barcode=req.barcode, menu_name=req.menu_name,
                 sale_price=req.sale_price, class_cd=req.class_cd, class_name=req.class_name,
@@ -1077,7 +1078,15 @@ def api_oq_app_register_item(req: OqAppRegisterRequest):
         max_workers = min(len(resolved), 2)
         by_id: dict[int, dict] = {}
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {ex.submit(_register_one, aid, acc): aid for aid, acc in resolved}
+            futures: dict = {}
+            for idx, (aid, acc) in enumerate(resolved):
+                if idx > 0:
+                    # 헤드리스 브라우저 여러 개가 정확히 같은 순간에 뜨는 걸
+                    # 피한다 - 동시 기동 스파이크가 net::ERR_ABORTED(위
+                    # register_menu_item_with_retry 설명 참고)의 주된 계기로
+                    # 보여서, 순차 제출로 살짝 시차를 둔다.
+                    time.sleep(1.5)
+                futures[ex.submit(_register_one, aid, acc)] = aid
             for fut in as_completed(futures):
                 by_id[futures[fut]] = fut.result()
         results = [by_id[aid] for aid in req.account_ids]

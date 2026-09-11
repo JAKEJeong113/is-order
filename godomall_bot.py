@@ -460,14 +460,46 @@ def crawl_catalog_with_barcode(
             _block_heavy_resources(page)
             login_godomall(page, base_url, login_id, login_pwd)
 
+            consecutive_failures = 0
             for i, (product_url, listed) in enumerate(products_by_url.items(), start=1):
-                try:
-                    page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
-                    page.wait_for_timeout(400)
-                    body_text = page.inner_text("body")
-                except Exception as e:
-                    print(f"[GODOMALL] {product_url} 상세페이지 조회 실패:", e)
+                body_text = None
+                for attempt in range(2):
+                    try:
+                        page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
+                        page.wait_for_timeout(400)
+                        body_text = page.inner_text("body")
+                        break
+                    except Exception as e:
+                        if attempt == 0:
+                            # 첫 시도 실패 - 페이지 자체가 이상한 상태로 멈춰있을 수
+                            # 있어서(실측: 한 도매몰에서 이 재시도 없이는 detail
+                            # 페이지 전부가 연쇄로 타임아웃 나며 그 도매처가 통째로
+                            # 0건으로 끝난 사고가 있었음) 새 페이지로 한 번만 더
+                            # 시도한다.
+                            try:
+                                page.close()
+                            except Exception:
+                                pass
+                            page = context.new_page()
+                            _block_heavy_resources(page)
+                            continue
+                        print(f"[GODOMALL] {product_url} 상세페이지 조회 실패(재시도 포함):", e)
+
+                if body_text is None:
+                    consecutive_failures += 1
+                    # 연속 실패가 계속 쌓이면 재시도까지 다 써도 안 되는 상태
+                    # (사이트 차단/전면 장애 등)일 가능성이 커서, 남은 상품을
+                    # 하나씩 다 태워보는 대신 여기서 멈추고 그때까지 모은
+                    # 결과라도 반환한다.
+                    if consecutive_failures >= 20:
+                        print(
+                            f"[GODOMALL] {base_url} 상세페이지 연속 {consecutive_failures}건 실패 - "
+                            f"사이트 차단/장애로 보고 중단합니다 ({i}/{len(products_by_url)}까지 시도, "
+                            f"바코드 확인 {len(results)}건)"
+                        )
+                        break
                     continue
+                consecutive_failures = 0
 
                 model_match = _MODEL_LABEL_RE.search(body_text)
                 barcode = model_match.group(1) if model_match else None

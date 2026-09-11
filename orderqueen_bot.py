@@ -263,6 +263,37 @@ def download_orderqueen_xlsx_with_retry(
     raise last_error
 
 
+REGISTER_MAX_ATTEMPTS = 2
+REGISTER_RETRY_DELAY_SECONDS = 3
+
+
+def register_menu_item_with_retry(
+    login_id: str, login_pw: str, barcode: str, menu_name: str, sale_price: int, class_cd: str,
+    store_id: str | None = None, class_name: str | None = None,
+) -> dict:
+    """register_menu_item을 감싸서 한 번 더 시도한다("모든 계정에 추가"로
+    여러 매장을 병렬(ThreadPoolExecutor)로 등록할 때, Render 서버에서
+    헤드리스 브라우저 여러 개가 동시에 뜨는 순간의 자원 경합으로
+    Page.goto가 net::ERR_ABORTED로 끊기는 사례가 실측 확인됨). 이 실패는
+    등록 모달을 열기도 전(즉 아직 아무것도 안 쓴) 단계에서 나므로 재시도해도
+    중복 등록 위험이 없고, 혹시 더 뒤에서 실패해도 오더퀸 자체가 바코드
+    중복 등록을 막아주므로("이미 등록된 바코드" 안내) 안전하다. 완전히
+    새 브라우저로 다시 시도한다(예외만 재시도 - {"ok": False, ...}로
+    정상 반환된 오더퀸 자체 안내 메시지는 재시도하지 않고 그대로 전달)."""
+    last_error: Exception | None = None
+    for attempt in range(1, REGISTER_MAX_ATTEMPTS + 1):
+        try:
+            return register_menu_item(
+                login_id, login_pw, barcode=barcode, menu_name=menu_name,
+                sale_price=sale_price, class_cd=class_cd, store_id=store_id, class_name=class_name,
+            )
+        except Exception as e:
+            last_error = e
+            if attempt < REGISTER_MAX_ATTEMPTS:
+                time.sleep(REGISTER_RETRY_DELAY_SECONDS)
+    raise last_error
+
+
 def register_menu_item(
     login_id: str, login_pw: str, barcode: str, menu_name: str, sale_price: int, class_cd: str,
     store_id: str | None = None, class_name: str | None = None,

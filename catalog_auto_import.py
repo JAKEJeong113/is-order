@@ -312,14 +312,49 @@ def _write_winners(by_barcode: dict[str, list[dict]]) -> dict:
 
 
 def import_all_vendors(vendor_ids: tuple[str, ...] = DEFAULT_VENDORS, limit: int | None = None) -> dict:
-    """도매처 여러 곳을 전부 크롤링한 뒤, 바코드가 겹치는 상품은 한 번에
-    비교해서(명시적 값 우선 -> 더 비싼 쪽) 결정한 값만 DB에 반영한다."""
-    by_barcode: dict[str, list[dict]] = {}
-    for vendor_id in vendor_ids:
-        for candidate in _collect_vendor_candidates(vendor_id, limit):
-            by_barcode.setdefault(candidate["barcode"], []).append(candidate)
+    """도매처 여러 곳을 전부 크롤링해서, 바코드가 겹치는 상품은(같은 바코드를
+    본 도매처들끼리) 비교해서(명시적 값 우선 -> 더 비싼 쪽) 결정한 값만 DB에
+    반영한다.
 
-    return _write_winners(by_barcode)
+    도매처 하나가 끝날 때마다 그 도매처가 새로 가져온 바코드만 바로 DB에
+    반영(체크포인트)하고, 도매처 하나가 실패해도(크롤링 오류, DB 연결 끊김
+    등) 남은 도매처는 계속 진행한다 - 예전에는 전체 도매처가 다 끝나야
+    한 번에 DB에 썼기 때문에, 마지막 도매처에서 죽으면 몇 시간짜리 크롤링
+    결과가 통째로 날아갔다(실제로 발생한 사고)."""
+    by_barcode: dict[str, list[dict]] = {}
+    summary: dict[str, list[dict]] = {
+        "added": [], "updated": [], "overwritten": [],
+        "skipped_existing_price": [], "skipped_parse_fail": [], "failed_vendors": [],
+    }
+
+    for vendor_id in vendor_ids:
+        try:
+            candidates = _collect_vendor_candidates(vendor_id, limit)
+        except Exception as e:
+            print(f"[CATALOG_IMPORT] {vendor_id} 크롤링 실패 - 건너뛰고 나머지 도매처를 계속 진행합니다: {e}")
+            summary["failed_vendors"].append({"vendor_id": vendor_id, "error": str(e)})
+            continue
+
+        touched_barcodes = set()
+        for candidate in candidates:
+            by_barcode.setdefault(candidate["barcode"], []).append(candidate)
+            touched_barcodes.add(candidate["barcode"])
+
+        # 이번 도매처가 새로 건드린 바코드만 넘긴다(그 바코드를 먼저 본 다른
+        # 도매처의 후보도 by_barcode에 이미 같이 들어있어 비교는 그대로 됨).
+        # 이미 끝난 바코드를 매번 다시 쓰지 않아 불필요한 DB 재작성도 없다.
+        touched = {b: by_barcode[b] for b in touched_barcodes}
+        try:
+            vendor_summary = _write_winners(touched)
+        except Exception as e:
+            print(f"[CATALOG_IMPORT] {vendor_id} 결과 DB 반영 실패 - 이 도매처 결과가 유실됐을 수 있습니다: {e}")
+            summary["failed_vendors"].append({"vendor_id": vendor_id, "error": f"DB 반영 실패: {e}"})
+            continue
+
+        for key in ("added", "updated", "overwritten", "skipped_existing_price", "skipped_parse_fail"):
+            summary[key].extend(vendor_summary[key])
+
+    return summary
 
 
 def import_vendor_catalog(vendor_id: str, limit: int | None = None) -> dict:
@@ -350,5 +385,9 @@ if __name__ == "__main__":
     print(f"도매 명시가로 덮어씀: {len(result['overwritten'])}개")
     for o in result["overwritten"]:
         print(f"   {o['barcode']} {o['name']}: {o['old_price']}원 -> {o['recommended_price']}원 ({o['vendor']})")
+    if result.get("failed_vendors"):
+        print(f"실패한 도매처: {len(result['failed_vendors'])}개 (그전까지 완료된 도매처 결과는 위에 반영됨)")
+        for f in result["failed_vendors"]:
+            print(f"   {f['vendor_id']}: {f['error']}")
     print(f"기존 값 있어 건너뜀(계산값): {len(result['skipped_existing_price'])}개")
     print(f"파싱 실패로 건너뜀: {len(result['skipped_parse_fail'])}개")

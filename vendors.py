@@ -182,14 +182,31 @@ def set_vendor_enabled(vendor_id: str, enabled: bool) -> None:
 
 
 def get_vendor_credentials(vendor_id: str) -> tuple[str, str] | None:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT login_id_enc, login_pwd_enc, enabled FROM vendor_credentials WHERE vendor_id = ?",
-        (vendor_id,),
-    )
-    row = cur.fetchone()
-    conn.close()
+    # 장시간 실행되는 배치(카탈로그 자동수집)에서 Render Postgres가 유휴
+    # 연결을 끊어버린 직후에 이 함수가 불리면, get_conn()의 생존 확인
+    # (SELECT 1)이 통과한 바로 다음 순간 이 쿼리에서 연결이 죽어있는 경우가
+    # 실제로 있었다(1회 재시도로 해결 확인) - 한 번 더 새 연결로 재시도한다.
+    from psycopg2 import InterfaceError, OperationalError
+
+    row = None
+    last_err = None
+    for attempt in range(2):
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT login_id_enc, login_pwd_enc, enabled FROM vendor_credentials WHERE vendor_id = ?",
+                (vendor_id,),
+            )
+            row = cur.fetchone()
+            last_err = None
+            break
+        except (OperationalError, InterfaceError) as e:
+            last_err = e
+        finally:
+            conn.close()
+    if last_err:
+        raise last_err
 
     if not row or not row[2] or not row[0] or not row[1]:
         return None
