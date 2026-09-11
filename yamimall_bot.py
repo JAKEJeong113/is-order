@@ -457,13 +457,39 @@ def _validate_barcode_checksum(code: str) -> bool:
     """EAN-8/12/13/14(GS1 계열) 체크섬 검증 - godomall_bot의 동일 함수와 같은
     알고리즘. 이 플랫폼은 "바코드"라는 전용 필드가 따로 있어(고도몰 계열의
     "모델명" 재활용보다 신뢰도가 높음) 오탐 가능성은 낮지만, 그래도 형식이
-    깨진 값(빈칸/오타)을 걸러내기 위해 검증한다."""
+    깨진 값(빈칸/오타)을 걸러내기 위해 검증한다.
+
+    8자리는 EAN-8일 수도 UPC-E(작은 포장에 흔한 압축형 UPC)일 수도 있다 -
+    아래 표준 체크섬은 EAN-8엔 맞지만 UPC-E엔 안 맞아서(UPC-E는 12자리
+    UPC-A로 복원한 뒤 그 값으로 계산해야 함) 8자리는 둘 다 시도한다
+    (godomall_bot._is_valid_upc_e와 동일 로직)."""
     if not code.isdigit() or len(code) not in (8, 12, 13, 14):
         return False
+    if len(code) == 8 and _is_valid_upc_e(code):
+        return True
     digits = [int(c) for c in code]
     check_digit = digits.pop()
     total = sum(d * (3 if i % 2 == 0 else 1) for i, d in enumerate(reversed(digits)))
     return (10 - total % 10) % 10 == check_digit
+
+
+def _is_valid_upc_e(code: str) -> bool:
+    """UPC-E(8자리: 시스템자릿수 1 + 압축된 6자리 + 체크숫자 1)를 표준 규칙으로
+    UPC-A(12자리)로 복원한 뒤 그 체크숫자가 맞는지 확인한다."""
+    d = [int(c) for c in code]
+    n, x1, x2, x3, x4, x5, x6, c = d
+    if n not in (0, 1):
+        return False
+    if x6 <= 2:
+        upc_a11 = [n, x1, x2, x6, 0, 0, 0, 0, x3, x4, x5]
+    elif x6 == 3:
+        upc_a11 = [n, x1, x2, x3, 0, 0, 0, 0, 0, x4, x5]
+    elif x6 == 4:
+        upc_a11 = [n, x1, x2, x3, x4, 0, 0, 0, 0, 0, x5]
+    else:
+        upc_a11 = [n, x1, x2, x3, x4, x5, 0, 0, 0, 0, x6]
+    total = sum(v * (3 if i % 2 == 0 else 1) for i, v in enumerate(upc_a11))
+    return (10 - total % 10) % 10 == c
 
 
 def crawl_catalog_with_barcode(

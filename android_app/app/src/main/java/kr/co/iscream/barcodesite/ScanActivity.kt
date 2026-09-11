@@ -192,6 +192,14 @@ class ScanActivity : AppCompatActivity() {
         if (!code.all { it.isDigit() }) return true
         if (code.length != 8 && code.length != 12 && code.length != 13 && code.length != 14) return true
 
+        // 8자리는 EAN-8일 수도, UPC-E(작은 포장에 흔한 압축형 UPC)일 수도
+        // 있다 - 아래 표준 체크섬(뒤에서부터 3,1 가중치)은 EAN-8엔 맞지만
+        // UPC-E엔 안 맞는다(UPC-E는 12자리 UPC-A로 먼저 복원한 뒤 그 값으로
+        // 체크섬을 계산해야 함). 초콜릿 등 작은 포장 상품의 UPC-E가 전부
+        // "체크섬 불일치"로 걸러지는 문제가 있어, 8자리는 둘 다 시도해서
+        // 하나라도 맞으면 통과시킨다.
+        if (code.length == 8 && isValidUpcE(code)) return true
+
         val digits = code.map { it - '0' }
         val checkDigit = digits.last()
         val body = digits.dropLast(1).reversed()
@@ -199,6 +207,26 @@ class ScanActivity : AppCompatActivity() {
             acc + d * (if (index % 2 == 0) 3 else 1)
         }
         return (10 - total % 10) % 10 == checkDigit
+    }
+
+    // UPC-E(8자리: 시스템자릿수 1 + 압축된 6자리 + 체크숫자 1)를 표준 규칙으로
+    // UPC-A(12자리)로 복원한 뒤 그 체크숫자가 맞는지 확인한다.
+    private fun isValidUpcE(code: String): Boolean {
+        val d = code.map { it - '0' }
+        val n = d[0]; val x1 = d[1]; val x2 = d[2]; val x3 = d[3]
+        val x4 = d[4]; val x5 = d[5]; val x6 = d[6]; val c = d[7]
+        if (n != 0 && n != 1) return false // UPC-E는 항상 0 또는 1로 시작
+
+        val upcA11 = when {
+            x6 <= 2 -> listOf(n, x1, x2, x6, 0, 0, 0, 0, x3, x4, x5)
+            x6 == 3 -> listOf(n, x1, x2, x3, 0, 0, 0, 0, 0, x4, x5)
+            x6 == 4 -> listOf(n, x1, x2, x3, x4, 0, 0, 0, 0, 0, x5)
+            else -> listOf(n, x1, x2, x3, x4, x5, 0, 0, 0, 0, x6)
+        }
+        val total = upcA11.foldIndexed(0) { index, acc, digit ->
+            acc + digit * (if (index % 2 == 0) 3 else 1)
+        }
+        return (10 - total % 10) % 10 == c
     }
 
     override fun onDestroy() {

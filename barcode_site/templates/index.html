@@ -410,6 +410,15 @@
     function isPlausibleBarcode(code) {
       if (!/^\d+$/.test(code)) return true;
       if (![8, 12, 13, 14].includes(code.length)) return true;
+      // 8자리는 EAN-8일 수도, UPC-E(작은 포장에 많이 쓰는 압축형 UPC)일
+      // 수도 있다 - 둘 다 8자리 숫자로 보이지만 체크섬 계산 방식이 다르다.
+      // 아래 표준 계산(뒤에서부터 3,1 가중치)은 EAN-8/UPC-A/EAN-13/ITF-14엔
+      // 맞지만 UPC-E엔 안 맞는다(UPC-E는 12자리 UPC-A로 먼저 "복원"한 뒤
+      // 그 복원된 값으로 체크섬을 계산해야 함) - 이것 때문에 초콜릿 등
+      // 작은 포장 상품의 UPC-E 바코드가 전부 "체크섬 불일치"로 걸러져서
+      // 스캔이 안 되는 문제가 있었다. 8자리는 EAN-8 방식과 UPC-E 방식
+      // 둘 다 시도해서 하나라도 맞으면 통과시킨다.
+      if (code.length === 8 && isValidUpcE(code)) return true;
       const digits = code.split("").map(Number);
       const checkDigit = digits.pop();
       let sum = 0;
@@ -417,6 +426,29 @@
         sum += d * (i % 2 === 0 ? 3 : 1);
       });
       return (10 - (sum % 10)) % 10 === checkDigit;
+    }
+
+    // UPC-E(8자리: 시스템자릿수 1 + 압축된 6자리 + 체크숫자 1)를 표준 규칙으로
+    // UPC-A(12자리)로 복원한 뒤 그 체크숫자가 맞는지 확인한다.
+    function isValidUpcE(code) {
+      const d = code.split("").map(Number);
+      const n = d[0], x1 = d[1], x2 = d[2], x3 = d[3], x4 = d[4], x5 = d[5], x6 = d[6], c = d[7];
+      if (n !== 0 && n !== 1) return false; // UPC-E는 항상 0 또는 1로 시작
+      let upcA11;
+      if (x6 <= 2) {
+        upcA11 = [n, x1, x2, x6, 0, 0, 0, 0, x3, x4, x5];
+      } else if (x6 === 3) {
+        upcA11 = [n, x1, x2, x3, 0, 0, 0, 0, 0, x4, x5];
+      } else if (x6 === 4) {
+        upcA11 = [n, x1, x2, x3, x4, 0, 0, 0, 0, 0, x5];
+      } else {
+        upcA11 = [n, x1, x2, x3, x4, x5, 0, 0, 0, 0, x6];
+      }
+      let sum = 0;
+      upcA11.forEach((digit, i) => {
+        sum += digit * (i % 2 === 0 ? 3 : 1);
+      });
+      return (10 - (sum % 10)) % 10 === c;
     }
 
     async function stopScan() {

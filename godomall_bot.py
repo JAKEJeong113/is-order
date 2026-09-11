@@ -416,6 +416,10 @@ def crawl_full_catalog(
 
 
 _MODEL_LABEL_RE = re.compile(r"모델명\s*\n?\s*([0-9]{8,14})")
+# 대부분은 "모델명" 필드를 바코드 용도로 재활용하지만, 실제로 "바코드"라는
+# 별도 필드를 쓰는 상품도 있다(실측: 과자생각 허쉬 초콜릿 등 - 이 필드를
+# 안 보고 있어서 유효한 바코드 상품이 그냥 통째로 스킵되고 있었음).
+_BARCODE_LABEL_RE = re.compile(r"바코드\s*\n?\s*([0-9]{8,14})")
 
 
 def _validate_barcode_checksum(code: str) -> bool:
@@ -423,13 +427,40 @@ def _validate_barcode_checksum(code: str) -> bool:
     없고 "모델명" 필드를 바코드 용도로 재활용하는 경우가 많다(실측: 과자생각
     상품 다수에서 모델명이 유효한 EAN-13이었음) - 그런데 모델명에 진짜 자체
     모델 코드(체크섬이 안 맞는 숫자)를 넣어둔 상품도 섞여 있을 수 있어, 체크섬
-    검증을 통과한 것만 바코드로 신뢰한다."""
+    검증을 통과한 것만 바코드로 신뢰한다.
+
+    8자리는 EAN-8일 수도 UPC-E(작은 포장에 흔한 압축형 UPC)일 수도 있다 -
+    아래 표준 체크섬(뒤에서부터 3,1 가중치)은 EAN-8엔 맞지만 UPC-E엔 안
+    맞는다(UPC-E는 12자리 UPC-A로 복원한 뒤 그 값으로 체크섬을 계산해야
+    함) - 초콜릿 등 작은 포장 상품의 UPC-E가 전부 체크섬 불일치로 걸러지는
+    문제가 있어서, 8자리는 둘 다 시도해서 하나라도 맞으면 통과시킨다."""
     if not code.isdigit() or len(code) not in (8, 12, 13, 14):
         return False
+    if len(code) == 8 and _is_valid_upc_e(code):
+        return True
     digits = [int(c) for c in code]
     check_digit = digits.pop()
     total = sum(d * (3 if i % 2 == 0 else 1) for i, d in enumerate(reversed(digits)))
     return (10 - total % 10) % 10 == check_digit
+
+
+def _is_valid_upc_e(code: str) -> bool:
+    """UPC-E(8자리: 시스템자릿수 1 + 압축된 6자리 + 체크숫자 1)를 표준 규칙으로
+    UPC-A(12자리)로 복원한 뒤 그 체크숫자가 맞는지 확인한다."""
+    d = [int(c) for c in code]
+    n, x1, x2, x3, x4, x5, x6, c = d
+    if n not in (0, 1):
+        return False
+    if x6 <= 2:
+        upc_a11 = [n, x1, x2, x6, 0, 0, 0, 0, x3, x4, x5]
+    elif x6 == 3:
+        upc_a11 = [n, x1, x2, x3, 0, 0, 0, 0, 0, x4, x5]
+    elif x6 == 4:
+        upc_a11 = [n, x1, x2, x3, x4, 0, 0, 0, 0, 0, x5]
+    else:
+        upc_a11 = [n, x1, x2, x3, x4, x5, 0, 0, 0, 0, x6]
+    total = sum(v * (3 if i % 2 == 0 else 1) for i, v in enumerate(upc_a11))
+    return (10 - total % 10) % 10 == c
 
 
 def crawl_catalog_with_barcode(
@@ -525,9 +556,16 @@ def crawl_catalog_with_barcode(
                     continue
                 consecutive_failures = 0
 
-                model_match = _MODEL_LABEL_RE.search(body_text)
-                barcode = model_match.group(1) if model_match else None
-                if not barcode or not _validate_barcode_checksum(barcode):
+                # "모델명"과 "바코드" 둘 다 시도한다 - 상품마다 어느 필드에
+                # 진짜 바코드가 들어있는지 다르다(위 정규식 설명 참고).
+                # 체크섬을 통과하는 첫 번째 후보를 채택한다.
+                barcode = None
+                for label_re in (_MODEL_LABEL_RE, _BARCODE_LABEL_RE):
+                    m = label_re.search(body_text)
+                    if m and _validate_barcode_checksum(m.group(1)):
+                        barcode = m.group(1)
+                        break
+                if not barcode:
                     continue
 
                 # 상세페이지 "판매가"는 로그인 세션이 살아있으면 실제 숫자가
