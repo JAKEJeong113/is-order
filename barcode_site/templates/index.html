@@ -142,7 +142,20 @@
       background:rgba(255,255,255,.15); color:#fff; border:none; border-radius:999px;
       width:32px; height:32px; font-size:18px; cursor:pointer; line-height:1;
     }
-    #reader{width:100%; max-width:480px}
+    .reader-wrap{position:relative; width:100%; max-width:480px}
+    #reader{width:100%}
+    /* 탭한 위치에 초점을 맞췄다는 걸 보여주는 링 - 실제 카메라 앱의 탭포커스
+       표시를 흉내낸다. 커진 상태로 나타났다가 원래 크기로 줄어들면서
+       사라진다(포커스 API 성공 여부와 무관하게 탭에 즉시 반응하는 것처럼
+       보이게 해서 "느리다"는 체감을 없앤다). */
+    .focus-ring{
+      position:absolute; width:72px; height:72px; margin-left:-36px; margin-top:-36px;
+      border:2px solid var(--mint); border-radius:50%;
+      box-shadow:0 0 0 1px rgba(0,0,0,.35);
+      pointer-events:none; opacity:0; transform:scale(1.5);
+      transition:opacity .45s ease, transform .45s cubic-bezier(.25,.8,.3,1);
+    }
+    .focus-ring.show{opacity:1; transform:scale(1)}
     .scan-hint{
       position:absolute; bottom:36px; left:0; right:0; text-align:center;
       color:#fff; font-size:13px; padding:0 20px;
@@ -221,7 +234,10 @@
       <span>바코드 스캔</span>
       <button class="scan-close" id="scanCloseBtn" type="button" aria-label="닫기">✕</button>
     </div>
-    <div id="reader"></div>
+    <div class="reader-wrap" id="readerWrap">
+      <div id="reader"></div>
+      <div class="focus-ring" id="focusRing"></div>
+    </div>
     <p class="scan-hint" id="scanHint">바코드를 화면 안에 맞춰주세요</p>
   </div>
 
@@ -379,6 +395,8 @@
     const scanOverlay = document.getElementById("scanOverlay");
     const scanCloseBtn = document.getElementById("scanCloseBtn");
     const scanHint = document.getElementById("scanHint");
+    const readerWrap = document.getElementById("readerWrap");
+    const focusRing = document.getElementById("focusRing");
     let html5QrCode = null;
     let scanning = false;
     let lastDecoded = null;
@@ -528,11 +546,30 @@
       }
     }
 
-    // 자동 초점이 흐릿한 채로 멈춰있을 때, 화면을 탭하면 강제로 다시 초점을
-    // 맞추게 한다 - 실제 바코드 스캐너 앱들이 흔히 쓰는 방식. html5-qrcode가
-    // 지원 여부와 무관하게 시도하고, 지원 안 하는 기기/브라우저면 조용히
-    // 무시한다(에러로 사용자에게 보여줄 필요 없는 상황).
-    async function refocus() {
+    // 탭한 위치에 초점 링을 잠깐 보여준다 - 실제 포커스 API가 성공했는지와
+    // 무관하게 탭에 즉시 반응하는 느낌을 줘서 "느리다"는 체감을 없앤다.
+    let focusRingTimer = null;
+    function showFocusRing(x, y) {
+      focusRing.style.left = x + "px";
+      focusRing.style.top = y + "px";
+      focusRing.classList.remove("show");
+      void focusRing.offsetWidth; // 연속으로 탭해도 애니메이션이 처음부터 다시 재생되게 강제 리플로우
+      focusRing.classList.add("show");
+      clearTimeout(focusRingTimer);
+      focusRingTimer = setTimeout(() => focusRing.classList.remove("show"), 600);
+    }
+
+    // 자동 초점이 흐릿한 채로 멈춰있을 때, 화면을 탭하면 그 지점에 강제로
+    // 다시 초점을 맞추게 한다 - 실제 바코드 스캐너 앱들이 흔히 쓰는 방식.
+    // point(정규화 좌표 {x,y}, 0~1)를 주면 pointsOfInterest로 탭한 위치를
+    // 겨냥해서 초점을 맞춘다 - 이게 없으면(예전 방식) 화면 어디를 탭하든
+    // 그냥 초점 모드만 껐다 켜는 셈이라 탭한 곳과 실제 초점 위치가 무관했다.
+    // pointsOfInterest는 아직 초안 단계 API라 대부분 기기/브라우저에서는
+    // 조용히 무시되지만, 지원하는 기기(일부 안드로이드 크롬)에서는 정확히
+    // 탭한 곳에 초점이 맞는다. html5-qrcode가 지원 여부와 무관하게 시도하고,
+    // 지원 안 하는 기기/브라우저면 조용히 무시한다(에러로 사용자에게 보여줄
+    // 필요 없는 상황).
+    async function refocus(point) {
       if (!html5QrCode || !scanning) return;
       try {
         if (typeof html5QrCode.applyVideoConstraints !== "function") return;
@@ -540,13 +577,22 @@
           ? html5QrCode.getRunningTrackCapabilities()
           : null;
         const focusModes = caps && caps.focusMode;
+        const singleShot = { focusMode: "single-shot" };
+        const continuous = { focusMode: "continuous" };
+        if (point) {
+          singleShot.pointsOfInterest = [point];
+          continuous.pointsOfInterest = [point]; // 이후 연속 초점도 탭한 지점 근처에 계속 맞추도록 유지
+        }
         // 연속 초점(continuous)을 그대로 다시 적용하면 아무 변화가 없다고
         // 보고 무시하는 기기가 있어서, 지원하면 single-shot으로 한 번
-        // "리셋"한 뒤 다시 continuous로 돌려 재탐색을 유도한다.
+        // "리셋"(탭한 지점 겨냥)한 뒤 다시 continuous로 돌려 재탐색을 유도한다.
         if (Array.isArray(focusModes) && focusModes.includes("single-shot")) {
-          await html5QrCode.applyVideoConstraints({ advanced: [{ focusMode: "single-shot" }] });
+          await html5QrCode.applyVideoConstraints({ advanced: [singleShot] });
+        } else if (point) {
+          // focusMode 자체는 못 바꾸는 기기라도 pointsOfInterest만 별도로 시도
+          await html5QrCode.applyVideoConstraints({ advanced: [{ pointsOfInterest: [point] }] });
         }
-        await html5QrCode.applyVideoConstraints({ advanced: [{ focusMode: "continuous" }] });
+        await html5QrCode.applyVideoConstraints({ advanced: [continuous] });
       } catch (e) {
         // 초점 제어를 지원하지 않는 기기 - 무시
       }
@@ -554,10 +600,19 @@
 
     scanBtn.addEventListener("click", startScan);
     scanCloseBtn.addEventListener("click", stopScan);
-    document.getElementById("reader").addEventListener("click", () => {
-      scanHint.textContent = "초점을 다시 맞추는 중...";
+    readerWrap.addEventListener("click", (e) => {
+      if (!scanning) return;
+      const rect = readerWrap.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      showFocusRing(x, y);
+      const point = {
+        x: Math.min(Math.max(x / rect.width, 0), 1),
+        y: Math.min(Math.max(y / rect.height, 0), 1),
+      };
+      scanHint.textContent = "탭한 지점에 초점을 맞추는 중...";
       scanHint.className = "scan-hint";
-      refocus().then(() => {
+      refocus(point).then(() => {
         if (scanning) {
           scanHint.textContent = "바코드를 화면 안에 맞춰주세요 (흐리면 화면을 탭하세요)";
         }
