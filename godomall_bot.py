@@ -4,6 +4,7 @@ import json
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import date
 from pathlib import Path
 from urllib.parse import quote
@@ -12,6 +13,24 @@ from playwright.sync_api import Page, sync_playwright, TimeoutError as PWTimeout
 
 import browser_limit
 import vendors
+
+# Playwright의 page.close()/browser.close()는 타임아웃 인자가 없어서, 렌더러가
+# 이미 응답불능(먹통) 상태일 때 부르면 몇 시간이고 영원히 안 끝날 수 있다
+# (2026-09-11 실측 - 삼봉몰 상세페이지 크롤링 중 이걸로 크롤링 전체가 밤새
+# 멈춘 사고). 별도 스레드에서 불러서 일정 시간 안에 안 끝나면 포기하고
+# 진행한다 - 그 스레드 자체는 백그라운드에 남지만(먼저 그만큼의 자원 낭비는
+# 있어도), 최소한 크롤링 전체가 영원히 막히는 것보다는 낫다.
+_CLOSE_TIMEOUT_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="godomall-safe-close")
+
+
+def _safe_close(close_fn, label: str = "", timeout_s: float = 10) -> None:
+    fut = _CLOSE_TIMEOUT_EXECUTOR.submit(close_fn)
+    try:
+        fut.result(timeout=timeout_s)
+    except FutureTimeoutError:
+        print(f"[GODOMALL] {label} close()가 {timeout_s}초 넘게 응답이 없어 포기하고 계속 진행합니다.")
+    except Exception:
+        pass  # 이미 닫혀있는 등 - 무시
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
@@ -463,26 +482,24 @@ def crawl_catalog_with_barcode(
             consecutive_failures = 0
             for i, (product_url, listed) in enumerate(products_by_url.items(), start=1):
                 body_text = None
-                for attempt in range(2):
+                try:
+                    # (2026-09-11 실측: 실패 시 page.close()로 새 페이지를
+                    # 만들어 재시도하게 했더니, 브라우저가 이미 맛이 간 상태
+                    # (렌더러 응답불능으로 추정)에서는 그 close() 자체가
+                    # Playwright 타임아웃도 안 먹힌 채 몇 시간이고 안 끝나는
+                    # 완전 행이 발생했다 - close/new_page 재시도는 제거하고,
+                    # 같은 page로 재요청만 한 번 더 한다(goto가 알아서 이전
+                    # 대기 중인 요청을 취소하므로 안전) - 그래도 안 되면 그냥
+                    # 실패 처리하고 다음 상품으로 넘어간다.
+                    page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(400)
+                    body_text = page.inner_text("body")
+                except Exception:
                     try:
                         page.goto(product_url, wait_until="domcontentloaded", timeout=30000)
                         page.wait_for_timeout(400)
                         body_text = page.inner_text("body")
-                        break
                     except Exception as e:
-                        if attempt == 0:
-                            # 첫 시도 실패 - 페이지 자체가 이상한 상태로 멈춰있을 수
-                            # 있어서(실측: 한 도매몰에서 이 재시도 없이는 detail
-                            # 페이지 전부가 연쇄로 타임아웃 나며 그 도매처가 통째로
-                            # 0건으로 끝난 사고가 있었음) 새 페이지로 한 번만 더
-                            # 시도한다.
-                            try:
-                                page.close()
-                            except Exception:
-                                pass
-                            page = context.new_page()
-                            _block_heavy_resources(page)
-                            continue
                         print(f"[GODOMALL] {product_url} 상세페이지 조회 실패(재시도 포함):", e)
 
                 if body_text is None:
@@ -528,13 +545,13 @@ def crawl_catalog_with_barcode(
                 # 페이지를 재생성한다. 여긴 페이지 이동 수가 훨씬 많아서
                 # (상품당 1회) 더 자주 재생성한다.
                 if i % 20 == 0:
-                    page.close()
+                    _safe_close(page.close, f"{base_url} page")
                     page = context.new_page()
                     _block_heavy_resources(page)
                 if i % 100 == 0:
                     print(f"[GODOMALL] {base_url} 상세페이지 {i}/{len(products_by_url)} 처리 중 (바코드 확인 {len(results)}건)")
         finally:
-            browser.close()
+            _safe_close(browser.close, f"{base_url} browser")
 
     return results
 
