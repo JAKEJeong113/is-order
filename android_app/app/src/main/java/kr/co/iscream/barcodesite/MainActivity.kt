@@ -15,6 +15,8 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 
 /**
@@ -112,6 +114,20 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        // targetSdk 35+(Android 15)부터는 OS가 항상 엣지투엣지로 그려서
+        // (테마의 statusBarColor는 더 이상 상태表시줄 영역을 확보해주지
+        // 않음), 상태표시줄(시계/배터리) 아래로 화면이 그대로 이어져
+        // 상단 버튼(메뉴/도움말/설정)들이 상태표시줄과 겹쳐 보이는 문제가
+        // 실사용에서 확인됐다. 루트 레이아웃에 상태표시줄 높이만큼 위쪽
+        // 패딩을 직접 넣어서, 이 화면의 다른 여백 계산(웹페이지 쪽 CSS
+        // 72px 등)은 그대로 두고 전체를 상태표시줄 아래로 밀어낸다.
+        val rootContainer = findViewById<View>(R.id.rootContainer)
+        ViewCompat.setOnApplyWindowInsetsListener(rootContainer) { view, insets ->
+            val statusBarInset = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            view.setPadding(0, statusBarInset.top, 0, 0)
+            insets
+        }
 
         webView = findViewById(R.id.webView)
         swipeRefresh = findViewById(R.id.swipeRefresh)
