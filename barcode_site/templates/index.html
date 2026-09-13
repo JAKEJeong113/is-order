@@ -60,7 +60,12 @@
       position:fixed; top:0; left:0; bottom:0; width:min(320px,86vw); z-index:30;
       background:var(--bg); box-shadow:2px 0 16px rgba(22,33,31,.14);
       transform:translateX(-100%); transition:transform .25s ease; overflow-y:auto;
-      padding:18px 18px 32px;
+      /* 패널 폭이 화면 오른쪽으로 꽤 넓게 걸쳐서(min(320px,86vw)), 헤더의
+         닫기(✕) 버튼을 맨 위에 두면 안드로이드 앱이 웹뷰 위에 겹쳐
+         그리는 네이티브 도움말(?)/설정(톱니) 버튼과 같은 자리에 놓여
+         눌리지 않는 사고가 실측 확인됐다 - 본문(body)이 상단 여백을
+         72px 두는 것과 같은 이유로, 패널도 그 밑으로 내용을 시작한다.*/
+      padding:72px 18px 32px;
     }
     .menu-panel.open{transform:translateX(0)}
     .menu-panel-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:6px}
