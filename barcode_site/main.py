@@ -103,9 +103,15 @@ def index(request: Request):
     # request, ...})가 "TypeError: cannot use 'tuple' as a dict key"로 깨지는 걸
     # Render 배포에서 실측 확인(로컬에 깔려있던 구버전 조합에서는 재현 안 됐음) -
     # request를 첫 인자로 넘기는 현재 권장 방식으로 고정한다.
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request, "index.html", {"main_site_url": MAIN_SITE_URL},
     )
+    # CSS/JS가 전부 이 HTML 하나에 인라인으로 들어있어서(별도 정적 파일
+    # 없음), 이 문서 자체가 캐시되면 배포한 새 기능(예: 즉석 등록 폼)이
+    # 안드로이드 WebView에서 한참 지나서야(앱을 완전히 껐다 켜야) 반영되는
+    # 문제가 실측 확인됐다 - 매번 서버에서 새로 받아오게 강제한다.
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
 
 
 @app.get("/privacy", response_class=HTMLResponse)
