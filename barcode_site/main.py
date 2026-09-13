@@ -56,6 +56,44 @@ CREATE TABLE IF NOT EXISTS pending_catalog_submissions (
 _conn.commit()
 _conn.close()
 
+# 이 앱(무인 바코드 검색기) 전용 패치노트 - 본체(main.py, barcode_app_patch_notes.py)가
+# 쓰는 것과 같은 테이블을 여기서도(배포 순서 무관하게) 만들어두고 읽기만 한다.
+_conn = db_conn.get_conn()
+# 이 파일(barcode_site)의 db_conn.py는 본체 것과 달리 SQLite 문법 번역
+# 계층이 없다(원래 catalog_items 읽기 전용이라 필요 없었음) - 여기서는
+# Postgres 네이티브 문법(SERIAL)을 바로 쓴다.
+_conn.cursor().execute("""
+CREATE TABLE IF NOT EXISTS barcode_app_patch_notes (
+    id SERIAL PRIMARY KEY,
+    version TEXT NOT NULL,
+    title TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    created_at TEXT NOT NULL
+)
+""")
+_conn.commit()
+_conn.close()
+
+
+@app.get("/api/patch-notes")
+def api_patch_notes(limit: int = Query(50, ge=1, le=200)):
+    """앱 메인화면의 메뉴 > 패치노트 목록 - 로그인 없이 누구나 조회 가능."""
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, version, title, detail, created_at FROM barcode_app_patch_notes ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+    items = [
+        {"id": r[0], "version": r[1], "title": r[2], "detail": r[3], "created_at": r[4]}
+        for r in rows
+    ]
+    return {"items": items}
+
 
 class PendingSubmissionRequest(BaseModel):
     barcode: str = Field(..., min_length=4, max_length=32)

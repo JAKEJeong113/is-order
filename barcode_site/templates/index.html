@@ -41,6 +41,63 @@
     h1{font-size:clamp(22px,5vw,28px); font-weight:800; margin:0 0 8px; letter-spacing:-.5px; text-align:center}
     .sub{color:var(--muted); font-size:14px; margin:0 0 28px; text-align:center; max-width:38ch}
 
+    /* 좌측 상단 메뉴 - 안드로이드 앱에서는 우측 상단에 네이티브 도움말(?)/
+       설정(톱니) 버튼이 웹뷰 위에 겹쳐 떠 있어서(MainActivity가 그리는
+       것 - 이 HTML과 무관), 그것과 안 겹치게 반대쪽(좌측)에 둔다. 일반
+       브라우저에서도 똑같이 보이므로 웹/앱 어디서 봐도 항상 있다. */
+    .menu-btn{
+      position:fixed; top:16px; left:16px; z-index:20;
+      width:40px; height:40px; border:none; border-radius:999px;
+      background:var(--card); color:var(--ink); font-size:18px; line-height:1;
+      box-shadow:0 1px 4px rgba(22,33,31,.12); cursor:pointer;
+    }
+    .menu-overlay{
+      position:fixed; inset:0; background:rgba(22,33,31,.35); z-index:29;
+      opacity:0; pointer-events:none; transition:opacity .2s;
+    }
+    .menu-overlay.open{opacity:1; pointer-events:auto}
+    .menu-panel{
+      position:fixed; top:0; left:0; bottom:0; width:min(320px,86vw); z-index:30;
+      background:var(--bg); box-shadow:2px 0 16px rgba(22,33,31,.14);
+      transform:translateX(-100%); transition:transform .25s ease; overflow-y:auto;
+      padding:18px 18px 32px;
+    }
+    .menu-panel.open{transform:translateX(0)}
+    .menu-panel-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:6px}
+    .menu-panel-header h2{font-size:16px; font-weight:800; margin:0}
+    .menu-close{
+      width:32px; height:32px; border:none; border-radius:999px; background:transparent;
+      color:var(--muted); font-size:18px; cursor:pointer;
+    }
+    .menu-section-title{
+      font-size:12px; font-weight:800; color:var(--muted); letter-spacing:.04em;
+      text-transform:uppercase; margin:22px 0 10px;
+    }
+    .pn-item{border-bottom:1px solid var(--line)}
+    .pn-item-header{
+      width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
+      background:none; border:none; padding:12px 2px; text-align:left; cursor:pointer;
+    }
+    .pn-item-top{display:flex; flex-direction:column; gap:2px; min-width:0}
+    .pn-version{font-size:11px; font-weight:800; color:var(--mint-dark)}
+    .pn-title{font-size:13.5px; font-weight:700; color:var(--ink)}
+    .pn-date{font-size:11px; color:var(--muted); white-space:nowrap; flex-shrink:0}
+    .pn-chevron{
+      font-size:11px; color:var(--muted); transition:transform .2s; flex-shrink:0; margin-left:2px;
+    }
+    .pn-item.open .pn-chevron{transform:rotate(180deg)}
+    /* max-height 애니메이션은 내용이 길면(체크섬 설명 등 상세 문구가 긴
+       노트) 잘려버려서, 내용 길이와 무관하게 자연스럽게 늘어나는
+       grid-template-rows 0fr→1fr 트릭을 쓴다. */
+    .pn-item-body{
+      display:grid; grid-template-rows:0fr; transition:grid-template-rows .25s ease;
+    }
+    .pn-item.open .pn-item-body{grid-template-rows:1fr}
+    .pn-item-body-inner{overflow:hidden; min-height:0}
+    .pn-item-body-inner p{
+      margin:0 2px 14px; font-size:13px; color:var(--muted); line-height:1.65; white-space:pre-line;
+    }
+
     /* 카드/배경 없이 밑줄과 얇은 구분선만으로 정리한 라인형 스타일 -
        색은 검색 버튼·가격처럼 시선이 가야 할 곳에만 포인트로 쓴다. */
     .search-card{width:100%; max-width:480px}
@@ -208,6 +265,17 @@
   </script>
 </head>
 <body>
+  <button class="menu-btn" id="menuBtn" type="button" aria-label="메뉴">☰</button>
+  <div class="menu-overlay" id="menuOverlay"></div>
+  <div class="menu-panel" id="menuPanel">
+    <div class="menu-panel-header">
+      <h2>메뉴</h2>
+      <button class="menu-close" id="menuCloseBtn" type="button" aria-label="닫기">✕</button>
+    </div>
+    <p class="menu-section-title">패치노트</p>
+    <div id="patchNotesList"><p class="hint">불러오는 중...</p></div>
+  </div>
+
   <div class="badge">i's&nbsp;ORDER</div>
   <h1>무인매장 바코드 조회</h1>
   <p class="sub">무인 아이스크림, 과자·음료·문구류 등 바코드 검색만으로 추천판매가를 바로 확인할 수 있어요.</p>
@@ -813,6 +881,77 @@
       npFilterRow.querySelectorAll(".np-filter-btn").forEach((b) => b.classList.remove("active"));
       filterBtn.classList.add("active");
       loadNewProducts(filterBtn.dataset.category);
+    });
+
+    // 좌측 상단 메뉴 - 지금은 "패치노트" 하나뿐이지만, 나중에 메뉴 항목이
+    // 늘어나도 이 패널 안에 섹션만 추가하면 되는 구조로 만들어뒀다.
+    const menuBtn = document.getElementById("menuBtn");
+    const menuOverlay = document.getElementById("menuOverlay");
+    const menuPanel = document.getElementById("menuPanel");
+    const menuCloseBtn = document.getElementById("menuCloseBtn");
+    const patchNotesList = document.getElementById("patchNotesList");
+    let patchNotesLoaded = false;
+
+    function openMenu() {
+      menuOverlay.classList.add("open");
+      menuPanel.classList.add("open");
+      if (!patchNotesLoaded) {
+        patchNotesLoaded = true;
+        loadPatchNotes();
+      }
+    }
+    function closeMenu() {
+      menuOverlay.classList.remove("open");
+      menuPanel.classList.remove("open");
+    }
+    menuBtn.addEventListener("click", openMenu);
+    menuCloseBtn.addEventListener("click", closeMenu);
+    menuOverlay.addEventListener("click", closeMenu);
+
+    function formatPatchDate(iso) {
+      // "2026-09-14T10:30:00" -> "26.09.14"
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
+      return m ? `${m[1].slice(2)}.${m[2]}.${m[3]}` : "";
+    }
+
+    async function loadPatchNotes() {
+      try {
+        const res = await fetch("/api/patch-notes");
+        const data = await res.json();
+        renderPatchNotes(data.items || []);
+      } catch (e) {
+        patchNotesList.innerHTML = '<p class="empty">불러오지 못했습니다. 잠시 후 다시 시도해주세요.</p>';
+      }
+    }
+
+    function renderPatchNotes(items) {
+      if (items.length === 0) {
+        patchNotesList.innerHTML = '<p class="empty">아직 등록된 패치노트가 없습니다.</p>';
+        return;
+      }
+      patchNotesList.innerHTML = items
+        .map(
+          (n) => `
+            <div class="pn-item">
+              <button type="button" class="pn-item-header">
+                <span class="pn-item-top">
+                  <span class="pn-version">v${escapeHtml(n.version)}</span>
+                  <span class="pn-title">${escapeHtml(n.title)}</span>
+                </span>
+                <span class="pn-date">${formatPatchDate(n.created_at)}</span>
+                <span class="pn-chevron">▾</span>
+              </button>
+              <div class="pn-item-body"><div class="pn-item-body-inner"><p>${escapeHtml(n.detail)}</p></div></div>
+            </div>
+          `,
+        )
+        .join("");
+    }
+
+    patchNotesList.addEventListener("click", (e) => {
+      const header = e.target.closest(".pn-item-header");
+      if (!header) return;
+      header.closest(".pn-item").classList.toggle("open");
     });
   </script>
 </body>

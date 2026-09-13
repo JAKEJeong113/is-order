@@ -64,6 +64,7 @@ import board
 import mailer
 import orderqueen_bot
 import patch_notes
+import barcode_app_patch_notes
 import popularity
 import product_ranking
 import store_expiry
@@ -141,6 +142,7 @@ mapping.init_unclassified_queue_table()
 mapping.init_pending_submissions_table()
 store_expiry.init_store_expiry_tables()
 patch_notes.init_patch_notes_table()
+barcode_app_patch_notes.init_barcode_app_patch_notes_table()
 board.init_announcements_table()
 board.init_suggestions_table()
 web_cart.init_web_cart_table()
@@ -1588,6 +1590,28 @@ def admin_api_patch_notes_create(req: PatchNoteCreateRequest, _: bool = Depends(
 @app.delete("/admin/api/patch-notes/{note_id}")
 def admin_api_patch_notes_delete(note_id: int, _: bool = Depends(require_admin)):
     patch_notes.delete_patch_note(note_id)
+    return {"ok": True}
+
+
+class BarcodeAppPatchNoteCreateRequest(BaseModel):
+    version: str = Field(..., min_length=1, max_length=30)
+    title: str = Field(..., min_length=1, max_length=200)
+    detail: str = Field(..., min_length=1, max_length=4000)
+
+
+@app.post("/admin/api/barcode-app-patch-notes")
+def admin_api_barcode_app_patch_notes_create(
+    req: BarcodeAppPatchNoteCreateRequest, _: bool = Depends(require_admin),
+):
+    """무인 바코드 검색기 앱(barcode.is-cream.co.kr) 전용 패치노트 - 업데이트할
+    때마다 여기에 기록하면 앱 메인화면 메뉴 > 패치노트에 바로 뜬다."""
+    note_id = barcode_app_patch_notes.add_barcode_app_patch_note(req.version, req.title, req.detail)
+    return {"ok": True, "id": note_id}
+
+
+@app.delete("/admin/api/barcode-app-patch-notes/{note_id}")
+def admin_api_barcode_app_patch_notes_delete(note_id: int, _: bool = Depends(require_admin)):
+    barcode_app_patch_notes.delete_barcode_app_patch_note(note_id)
     return {"ok": True}
 
 
