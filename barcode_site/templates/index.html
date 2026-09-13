@@ -313,14 +313,21 @@
     // 오더퀸 자동등록이 켜져 있을 때만) 보여주는 즉석 등록 폼 - 점주가
     // 상품명/분류/가격을 직접 입력해 그 자리에서 모든 매장 오더퀸에 등록할
     // 수 있게 한다(관리자의 사전 카탈로그 등록을 기다릴 필요 없음).
-    function renderNewItemForm(barcode) {
+    // 검색창에 숫자(바코드)를 넣었으면 바코드 칸을 채워 잠그고 상품명만
+    // 입력받고, 글자(상품명)를 넣었으면 반대로 상품명 칸을 채우고 바코드
+    // 칸은 비워서 직접 입력/스캔하게 한다.
+    function renderNewItemForm(query) {
+      const isNumeric = /^\d+$/.test(query);
+      const barcode = isNumeric ? query : "";
+      const name = isNumeric ? "" : query;
       return `
         <div class="new-item-form">
-          <p class="ni-notice">카탈로그에 없는 바코드입니다. 상품명과 판매가를 입력하면 지금 바로 오더퀸에 등록할 수 있어요.</p>
+          <p class="ni-notice">카탈로그에 없는 상품입니다. 나머지 정보를 입력하면 지금 바로 오더퀸에 등록할 수 있어요.</p>
           <label for="niBarcode">바코드</label>
-          <input type="text" id="niBarcode" value="${escapeHtml(barcode)}" disabled />
+          <input type="text" id="niBarcode" inputmode="numeric" placeholder="숫자 입력 또는 위 스캔 버튼 이용"
+            value="${escapeHtml(barcode)}" ${isNumeric ? "disabled" : ""} />
           <label for="niName">상품명</label>
-          <input type="text" id="niName" placeholder="예: 메로나 코코넛" autocomplete="off" />
+          <input type="text" id="niName" placeholder="예: 메로나 코코넛" autocomplete="off" value="${escapeHtml(name)}" />
           <label for="niCategory">분류</label>
           <select id="niCategory">
             <option value="0">아이스크림</option>
@@ -331,7 +338,7 @@
           </select>
           <label for="niPrice">판매가 (원)</label>
           <input type="number" id="niPrice" inputmode="numeric" placeholder="예: 1500" min="0" />
-          <button type="button" class="ni-submit-btn" id="niSubmitBtn" data-barcode="${escapeHtml(barcode)}">오더퀸에 등록</button>
+          <button type="button" class="ni-submit-btn" id="niSubmitBtn">오더퀸에 등록</button>
           <p class="ni-hint">입력하신 정보는 오더퀸에 바로 등록되고, 관리자 확인 후 카탈로그에도 반영돼서 다음부터는 검색만으로 바로 나와요.</p>
         </div>
       `;
@@ -412,13 +419,22 @@
     // 검색 결과(#results)와 신제품 안내 목록(#newProductsList) 둘 다 같은
     // 방식으로 클릭을 처리한다 - 매번 innerHTML로 새로 그려지므로 각 행에
     // 리스너를 다시 붙이는 대신 두 부모 컨테이너에 한 번씩만 위임(delegate)한다.
-    async function submitNewItem(barcode) {
+    async function submitNewItem() {
+      const barcodeEl = document.getElementById("niBarcode");
       const nameEl = document.getElementById("niName");
       const priceEl = document.getElementById("niPrice");
       const categoryEl = document.getElementById("niCategory");
       const submitBtn = document.getElementById("niSubmitBtn");
 
+      // 바코드 칸이 비활성화(자동 채움)면 그 값을, 사용자가 직접 입력할 수
+      // 있게 열어둔 경우(상품명으로 검색해 들어온 경우)엔 지금 입력된 값을
+      // 그대로 쓴다.
+      const barcode = barcodeEl.value.replace(/\D/g, "");
       const name = nameEl.value.trim();
+      if (!barcode) {
+        barcodeEl.focus();
+        return;
+      }
       if (!name) {
         nameEl.focus();
         return;
@@ -456,7 +472,7 @@
     function handleResultClick(e) {
       const niBtn = e.target.closest("#niSubmitBtn");
       if (niBtn) {
-        submitNewItem(niBtn.dataset.barcode);
+        submitNewItem();
         return;
       }
 
