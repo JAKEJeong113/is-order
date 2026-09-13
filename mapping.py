@@ -249,6 +249,92 @@ def dismiss_unclassified_item(barcode: str) -> bool:
     return deleted
 
 
+# --- 카탈로그 검수 대기: 바코드 사이트(barcode.is-cream.co.kr)에서 점주가
+# "카탈로그에 없는 상품"을 직접 입력해 오더퀸에 즉시 등록할 때, 그 입력값을
+# 여기 남긴다 - 다점포 점주가 관리자(우리)의 사전 등록을 기다리지 않고 바로
+# 모든 매장에 등록할 수 있게 하면서도, 카탈로그 자체는 아무나 쓴 값으로 바로
+# 오염되지 않고 여기서 관리자 승인을 거쳐서만 반영되게 한다. ---
+
+def init_pending_submissions_table() -> None:
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS pending_catalog_submissions (
+        barcode TEXT PRIMARY KEY,
+        menu_name TEXT NOT NULL,
+        is_coupang INTEGER NOT NULL DEFAULT 99,
+        recommended_price INTEGER,
+        submitted_at TEXT,
+        updated_at TEXT
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def list_pending_catalog_submissions(limit: int = 200) -> list[dict]:
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT barcode, menu_name, is_coupang, recommended_price, submitted_at, updated_at
+    FROM pending_catalog_submissions ORDER BY updated_at DESC LIMIT ?
+    """, (limit,))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "barcode": r[0], "menu_name": r[1], "is_coupang": r[2],
+            "recommended_price": r[3], "submitted_at": r[4], "updated_at": r[5],
+        }
+        for r in rows
+    ]
+
+
+def approve_pending_catalog_submission(barcode: str) -> bool:
+    """검수 대기 항목을 정식 카탈로그로 승격한다 - 기존에 같은 바코드가 이미
+    카탈로그에 있으면(관리자가 그 사이 다른 경로로 먼저 등록했을 수 있음)
+    이름/구분/가격만 덮어쓰고 나머지(1타 개수 등) 필드는 유지한다. 승격 후
+    대기열에서는 지운다."""
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT menu_name, is_coupang, recommended_price FROM pending_catalog_submissions WHERE barcode = ?
+    """, (barcode,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return False
+    menu_name, is_coupang, recommended_price = row
+    existing = load_catalog().get(barcode)
+    item = CoupangCatalogItem(
+        barcode=barcode,
+        menu_name=menu_name,
+        search_keyword=existing.search_keyword if existing else "",
+        fixed_url=existing.fixed_url if existing else "",
+        pack_qty=existing.pack_qty if existing else 1,
+        min_order=existing.min_order if existing else 1,
+        notes=existing.notes if existing else "점주 직접등록(바코드 사이트) 승인",
+        is_coupang=is_coupang,
+        icecream_box_qty=existing.icecream_box_qty if existing else 0,
+        category=existing.category if existing else "",
+        menu_code=existing.menu_code if existing else "",
+        recommended_price=recommended_price or 0,
+    )
+    upsert_catalog_item(item)
+    dismiss_pending_catalog_submission(barcode)
+    return True
+
+
+def dismiss_pending_catalog_submission(barcode: str) -> bool:
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM pending_catalog_submissions WHERE barcode = ?", (barcode,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
 def _item_values(item: "CoupangCatalogItem", now: str) -> tuple:
     return (
         item.barcode, item.menu_name, item.search_keyword, item.fixed_url,

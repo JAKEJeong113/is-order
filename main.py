@@ -138,6 +138,7 @@ biz_tools.init_table()
 consumables.init_table()
 mapping.init_catalog_table()
 mapping.init_unclassified_queue_table()
+mapping.init_pending_submissions_table()
 store_expiry.init_store_expiry_tables()
 patch_notes.init_patch_notes_table()
 board.init_announcements_table()
@@ -1791,6 +1792,25 @@ def admin_api_unclassified_queue_list(_: bool = Depends(require_admin)):
 @app.delete("/admin/api/unclassified-queue/{barcode}")
 def admin_api_unclassified_queue_dismiss(barcode: str, _: bool = Depends(require_admin)):
     ok = mapping.dismiss_unclassified_item(barcode)
+    return {"ok": ok}
+
+
+@app.get("/admin/api/pending-submissions")
+def admin_api_pending_submissions_list(_: bool = Depends(require_admin)):
+    """바코드 사이트에서 점주가 "카탈로그에 없는 상품"을 직접 입력해 오더퀸에
+    등록할 때 같이 남긴 검수 대기 목록 - 승인하면 정식 카탈로그로 반영된다."""
+    return {"ok": True, "items": mapping.list_pending_catalog_submissions()}
+
+
+@app.post("/admin/api/pending-submissions/{barcode}/approve")
+def admin_api_pending_submissions_approve(barcode: str, _: bool = Depends(require_admin)):
+    ok = mapping.approve_pending_catalog_submission(barcode)
+    return {"ok": ok}
+
+
+@app.delete("/admin/api/pending-submissions/{barcode}")
+def admin_api_pending_submissions_reject(barcode: str, _: bool = Depends(require_admin)):
+    ok = mapping.dismiss_pending_catalog_submission(barcode)
     return {"ok": ok}
 
 

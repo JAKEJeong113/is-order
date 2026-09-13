@@ -87,6 +87,30 @@
     .result-price{font-size:15px; font-weight:800; color:var(--mint-dark); white-space:nowrap}
     .empty, .hint{color:var(--muted); font-size:13.5px; text-align:center; padding:18px 4px}
 
+    /* 카탈로그에 없는 바코드를 스캔했을 때(오더퀸 자동등록 켜둔 경우) -
+       점주가 상품명/분류/가격을 직접 입력해 그 자리에서 오더퀸에 등록할 수
+       있게 하는 폼. 관리자 사전 등록을 기다릴 필요 없이 다점포 점주가
+       모든 매장에 바로 일괄 등록 가능(입력값은 검수 대기로도 남아 나중에
+       카탈로그에 정식 반영됨). */
+    .new-item-form{padding:6px 2px 4px}
+    .new-item-form .ni-notice{
+      background:var(--mint-soft); color:var(--mint-dark); font-size:12.5px; line-height:1.5;
+      padding:10px 12px; border-radius:10px; margin-bottom:14px;
+    }
+    .new-item-form label{display:block; font-size:12px; font-weight:700; color:var(--muted); margin:12px 0 5px}
+    .new-item-form label:first-of-type{margin-top:0}
+    .new-item-form input, .new-item-form select{
+      width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px;
+      font-size:15px; font-family:inherit; background:#fff; color:var(--ink);
+    }
+    .new-item-form input:focus, .new-item-form select:focus{outline:2px solid var(--mint); outline-offset:1px}
+    .ni-submit-btn{
+      width:100%; margin-top:16px; padding:13px; border:none; border-radius:10px;
+      background:var(--mint); color:#fff; font-weight:800; font-size:14.5px; cursor:pointer;
+    }
+    .ni-submit-btn:disabled{opacity:.6; cursor:default}
+    .ni-hint{font-size:11.5px; color:var(--muted); margin-top:8px; line-height:1.5}
+
     .cta{
       width:100%; max-width:480px; margin-top:32px; padding:16px 18px;
       background:var(--mint-soft); border-radius:14px; text-align:center; font-size:13.5px;
@@ -285,6 +309,34 @@
       `).join("");
     }
 
+    // 카탈로그에 없는 바코드를 스캔/검색했을 때(숫자 바코드가 확실하고
+    // 오더퀸 자동등록이 켜져 있을 때만) 보여주는 즉석 등록 폼 - 점주가
+    // 상품명/분류/가격을 직접 입력해 그 자리에서 모든 매장 오더퀸에 등록할
+    // 수 있게 한다(관리자의 사전 카탈로그 등록을 기다릴 필요 없음).
+    function renderNewItemForm(barcode) {
+      return `
+        <div class="new-item-form">
+          <p class="ni-notice">카탈로그에 없는 바코드입니다. 상품명과 판매가를 입력하면 지금 바로 오더퀸에 등록할 수 있어요.</p>
+          <label for="niBarcode">바코드</label>
+          <input type="text" id="niBarcode" value="${escapeHtml(barcode)}" disabled />
+          <label for="niName">상품명</label>
+          <input type="text" id="niName" placeholder="예: 메로나 코코넛" autocomplete="off" />
+          <label for="niCategory">분류</label>
+          <select id="niCategory">
+            <option value="0">아이스크림</option>
+            <option value="1">쿠팡</option>
+            <option value="2">도매몰</option>
+            <option value="3">문구·완구</option>
+            <option value="99">미분류</option>
+          </select>
+          <label for="niPrice">판매가 (원)</label>
+          <input type="number" id="niPrice" inputmode="numeric" placeholder="예: 1500" min="0" />
+          <button type="button" class="ni-submit-btn" id="niSubmitBtn" data-barcode="${escapeHtml(barcode)}">오더퀸에 등록</button>
+          <p class="ni-hint">입력하신 정보는 오더퀸에 바로 등록되고, 관리자 확인 후 카탈로그에도 반영돼서 다음부터는 검색만으로 바로 나와요.</p>
+        </div>
+      `;
+    }
+
     async function runSearch() {
       const query = input.value.trim();
       if (!query) return;
@@ -295,7 +347,13 @@
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
         const data = await res.json();
-        resultsEl.innerHTML = renderRows(data.items || []);
+        const items = data.items || [];
+        const oqAvailable = !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
+        if (items.length === 0 && oqAvailable && isPlausibleBarcode(query)) {
+          resultsEl.innerHTML = renderNewItemForm(query);
+        } else {
+          resultsEl.innerHTML = renderRows(items);
+        }
       } catch (e) {
         resultsEl.innerHTML = '<p class="empty">조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>';
       } finally {
@@ -354,7 +412,54 @@
     // 검색 결과(#results)와 신제품 안내 목록(#newProductsList) 둘 다 같은
     // 방식으로 클릭을 처리한다 - 매번 innerHTML로 새로 그려지므로 각 행에
     // 리스너를 다시 붙이는 대신 두 부모 컨테이너에 한 번씩만 위임(delegate)한다.
+    async function submitNewItem(barcode) {
+      const nameEl = document.getElementById("niName");
+      const priceEl = document.getElementById("niPrice");
+      const categoryEl = document.getElementById("niCategory");
+      const submitBtn = document.getElementById("niSubmitBtn");
+
+      const name = nameEl.value.trim();
+      if (!name) {
+        nameEl.focus();
+        return;
+      }
+      const category = parseInt(categoryEl.value, 10);
+      const price = priceEl.value === "" ? 0 : Math.max(0, parseInt(priceEl.value, 10) || 0);
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "등록 중...";
+
+      // 오더퀸 등록(모든 매장 일괄) - 계정 선택/진행률 표시는 네이티브
+      // 다이얼로그(OrderQueenDialogs)가 그대로 담당한다.
+      if (window.AndroidOrderQueen && typeof window.AndroidOrderQueen.registerItem === "function") {
+        window.AndroidOrderQueen.registerItem(barcode, name, String(price));
+      }
+
+      // 카탈로그 검수 대기 등록 - 실패해도(네트워크 등) 오더퀸 등록 자체는
+      // 이미 진행됐으니 조용히 무시한다(사용자에게 막을 이유가 없음).
+      try {
+        await fetch("/api/pending-submission", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            barcode, menu_name: name, is_coupang: category,
+            recommended_price: price || null,
+          }),
+        });
+      } catch (e) {
+        /* 조용히 무시 */
+      }
+
+      submitBtn.textContent = "등록 요청됨 ✓";
+    }
+
     function handleResultClick(e) {
+      const niBtn = e.target.closest("#niSubmitBtn");
+      if (niBtn) {
+        submitNewItem(niBtn.dataset.barcode);
+        return;
+      }
+
       const oqBtn = e.target.closest(".oq-register-btn");
       if (oqBtn) {
         // 행 전체 클릭(바코드 복사)으로 이어지지 않게 여기서 끝낸다.

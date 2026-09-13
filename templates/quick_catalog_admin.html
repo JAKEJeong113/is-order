@@ -65,6 +65,28 @@
     .recent-item b{font-weight:700}
     .recent-item .rp{color:var(--mint-dark); font-weight:800; white-space:nowrap}
     .empty{color:var(--muted); font-size:12.5px}
+
+    /* 검수 대기 - 바코드 사이트에서 점주가 "카탈로그에 없는 상품"을 직접
+       입력해 오더퀸에 즉석 등록할 때 같이 남긴 값을 여기서 확인/승인한다. */
+    .pending{margin-top:26px}
+    .pending h2{font-size:13px; color:var(--muted); margin:0 0 8px; display:flex; align-items:center; gap:6px}
+    .pending .count-badge{
+      background:var(--warn-soft); color:var(--warn); font-size:11px; font-weight:800;
+      border-radius:999px; padding:1px 8px;
+    }
+    .pending-item{
+      background:var(--card); border:1px solid var(--line); border-radius:10px;
+      padding:10px 12px; margin-bottom:7px; font-size:12.5px;
+    }
+    .pending-item .pi-main{cursor:pointer}
+    .pending-item .pi-name{font-weight:700; margin:0}
+    .pending-item .pi-meta{color:var(--muted); margin:2px 0 0; font-variant-numeric:tabular-nums}
+    .pending-item .pi-actions{display:flex; gap:8px; margin-top:8px}
+    .pending-item button{
+      flex:1; padding:7px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer;
+    }
+    .pi-approve{border:none; background:var(--mint); color:#fff}
+    .pi-reject{border:1px solid var(--line); background:#fff; color:var(--muted)}
   </style>
 </head>
 <body>
@@ -105,6 +127,12 @@
     <button type="button" class="save-btn" id="saveBtn">저장</button>
   </div>
 
+  <div class="pending" id="pendingSection" style="display:none">
+    <h2>검수 대기 <span class="count-badge" id="pendingCount">0</span></h2>
+    <p class="sub" style="margin:0 0 10px">바코드 사이트에서 점주가 직접 입력해 오더퀸에 등록한 상품이에요. 승인하면 카탈로그에 반영돼요. 상품명을 탭하면 위 폼에서 값을 고칠 수 있어요.</p>
+    <div id="pendingList"></div>
+  </div>
+
   <div class="recent">
     <h2>이번 세션에서 등록한 상품</h2>
     <div id="recentList"><p class="empty">아직 없습니다.</p></div>
@@ -118,6 +146,11 @@
           priceEl = $("price"), packEl = $("packQty"), boxEl = $("boxQty"),
           bannerEl = $("banner"), saveBtn = $("saveBtn"), recentEl = $("recentList");
     const recent = [];
+    const CATEGORY_LABELS = { 0: "아이스크림", 1: "쿠팡", 2: "도매몰", 3: "문구·완구", 99: "미분류" };
+    // 검수 대기 항목을 탭해서 위 폼으로 불러온 뒤 저장하면, 그 바코드의
+    // 대기 항목도 같이 지워야 한다(안 그러면 카탈로그엔 반영됐는데 대기
+    // 목록엔 그대로 남아 중복으로 보임) - 그 대상을 기억해둔다.
+    let editingPendingBarcode = null;
 
     function toast(msg) {
       const t = $("toast");
@@ -204,6 +237,18 @@
         recent.unshift({ barcode, name: menu_name, price: body.recommended_price || 0 });
         renderRecent();
         toast("저장됐습니다");
+
+        // 검수 대기 항목을 불러와서 저장한 거라면, 카탈로그엔 이미
+        // 반영됐으니 대기 목록에서도 지운다(dismiss만 하면 됨 - approve는
+        // 대기열에 남아있는 원래 값을 그대로 반영하는 것이라, 폼에서 값을
+        // 고쳐 저장한 이 경우엔 안 맞음).
+        if (editingPendingBarcode === barcode) {
+          editingPendingBarcode = null;
+          fetch("/admin/api/pending-submissions/" + encodeURIComponent(barcode), { method: "DELETE" })
+            .catch(() => {})
+            .finally(loadPending);
+        }
+
         // 다음 상품 입력을 위해 바코드/상품명/가격만 비우고 분류는 유지
         barcodeEl.value = ""; nameEl.value = ""; priceEl.value = "";
         boxEl.value = "0"; packEl.value = "1";
@@ -237,6 +282,101 @@
         )
         .join("");
     }
+
+    // --- 검수 대기 목록 ---
+    const pendingSection = $("pendingSection"), pendingListEl = $("pendingList"), pendingCountEl = $("pendingCount");
+    let pendingItems = [];
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    async function loadPending() {
+      try {
+        const res = await fetch("/admin/api/pending-submissions");
+        const data = await res.json();
+        pendingItems = data.items || [];
+      } catch (e) {
+        pendingItems = [];
+      }
+      renderPending();
+    }
+
+    function renderPending() {
+      pendingSection.style.display = pendingItems.length > 0 ? "block" : "none";
+      pendingCountEl.textContent = String(pendingItems.length);
+      pendingListEl.innerHTML = pendingItems
+        .map((it) => {
+          const price = it.recommended_price ? it.recommended_price.toLocaleString() + "원" : "가격 미입력";
+          const cat = CATEGORY_LABELS[it.is_coupang] ?? "미분류";
+          return (
+            '<div class="pending-item" data-barcode="' + escapeHtml(it.barcode) + '">' +
+            '<div class="pi-main">' +
+            '<p class="pi-name">' + escapeHtml(it.menu_name) + "</p>" +
+            '<p class="pi-meta">' + escapeHtml(it.barcode) + " · " + cat + " · " + price + "</p>" +
+            "</div>" +
+            '<div class="pi-actions">' +
+            '<button type="button" class="pi-approve">그대로 승인</button>' +
+            '<button type="button" class="pi-reject">거절</button>' +
+            "</div></div>"
+          );
+        })
+        .join("");
+    }
+
+    pendingListEl.addEventListener("click", async (e) => {
+      const itemEl = e.target.closest(".pending-item");
+      if (!itemEl) return;
+      const barcode = itemEl.dataset.barcode;
+      const item = pendingItems.find((it) => it.barcode === barcode);
+      if (!item) return;
+
+      if (e.target.closest(".pi-approve")) {
+        try {
+          const res = await fetch(
+            "/admin/api/pending-submissions/" + encodeURIComponent(barcode) + "/approve",
+            { method: "POST" },
+          );
+          const data = await res.json();
+          if (!data.ok) throw new Error();
+          toast("승인됐습니다");
+          await loadPending();
+        } catch (e2) {
+          toast("승인 실패, 다시 시도해주세요");
+        }
+        return;
+      }
+
+      if (e.target.closest(".pi-reject")) {
+        try {
+          const res = await fetch("/admin/api/pending-submissions/" + encodeURIComponent(barcode), {
+            method: "DELETE",
+          });
+          const data = await res.json();
+          if (!data.ok) throw new Error();
+          toast("거절했습니다");
+          await loadPending();
+        } catch (e2) {
+          toast("거절 실패, 다시 시도해주세요");
+        }
+        return;
+      }
+
+      // 항목 본문(승인/거절 버튼이 아닌 부분)을 탭하면 값을 고쳐서 저장할
+      // 수 있게 위 폼으로 불러온다.
+      barcodeEl.value = item.barcode;
+      nameEl.value = item.menu_name || "";
+      catEl.value = String(item.is_coupang ?? 99);
+      priceEl.value = item.recommended_price || "";
+      editingPendingBarcode = item.barcode;
+      bannerEl.className = "banner new";
+      bannerEl.textContent = "검수 대기 항목을 불러왔습니다. 값을 확인/수정하고 저장하세요.";
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      nameEl.focus();
+    });
+
+    loadPending();
   </script>
 </body>
 </html>

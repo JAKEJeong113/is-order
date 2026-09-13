@@ -28,6 +28,7 @@ load_dotenv(BASE_DIR / ".env")
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 
 import db_conn
 
@@ -35,6 +36,65 @@ app = FastAPI(title="무인매장 바코드 조회")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 MAIN_SITE_URL = os.getenv("MAIN_SITE_URL", "https://www.is-cream.co.kr")
+
+# 카탈로그 검수 대기(pending_catalog_submissions)는 본체(is-order)가 소유한
+# 테이블이 아니라 이 사이트에서 새로 만든 테이블이라(catalog_items와 달리
+# 본체와 공유하는 기존 테이블이 아님) 여기서 직접 생성한다 - 본체 main.py도
+# 같은 CREATE TABLE IF NOT EXISTS를 갖고 있어(mapping.py) 어느 쪽이 먼저
+# 떠도 안전하다.
+_conn = db_conn.get_conn()
+_conn.cursor().execute("""
+CREATE TABLE IF NOT EXISTS pending_catalog_submissions (
+    barcode TEXT PRIMARY KEY,
+    menu_name TEXT NOT NULL,
+    is_coupang INTEGER NOT NULL DEFAULT 99,
+    recommended_price INTEGER,
+    submitted_at TEXT,
+    updated_at TEXT
+)
+""")
+_conn.commit()
+_conn.close()
+
+
+class PendingSubmissionRequest(BaseModel):
+    barcode: str = Field(..., min_length=4, max_length=32)
+    menu_name: str = Field(..., min_length=1, max_length=200)
+    is_coupang: int = Field(99, ge=0, le=99)
+    recommended_price: int | None = Field(None, ge=0)
+
+
+@app.post("/api/pending-submission")
+def api_pending_submission(req: PendingSubmissionRequest):
+    """카탈로그에 없는 상품을 점주가 이 사이트에서 직접 입력해 오더퀸에
+    바로 등록할 때("카탈로그에 없는 상품입니다" 화면의 등록 폼), 그 값을
+    검수 대기 목록에 남긴다 - 아무나 입력한 값이 카탈로그에 바로 반영되지
+    않고, 관리자가 www.is-cream.co.kr/admin에서 확인한 뒤에만 정식
+    반영된다. 오더퀸 등록 자체는 이 사이트가 아니라 안드로이드 앱의 네이티브
+    브리지(AndroidOrderQueen)가 처리하므로 여기서는 기록만 한다."""
+    barcode = req.barcode.strip()
+    menu_name = req.menu_name.strip()
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO pending_catalog_submissions
+                (barcode, menu_name, is_coupang, recommended_price, submitted_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (barcode) DO UPDATE SET
+                menu_name = excluded.menu_name,
+                is_coupang = excluded.is_coupang,
+                recommended_price = excluded.recommended_price,
+                updated_at = excluded.updated_at
+            """,
+            (barcode, menu_name, req.is_coupang, req.recommended_price, now, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
 
 
 @app.get("/", response_class=HTMLResponse)
