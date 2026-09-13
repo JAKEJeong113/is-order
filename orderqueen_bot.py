@@ -1,6 +1,7 @@
 # orderqueen_bot.py
 
 import os
+import re
 import time
 from datetime import date
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError
@@ -294,6 +295,16 @@ def register_menu_item_with_retry(
     raise last_error
 
 
+def _normalize_for_match(text: str) -> str:
+    """한글/영문/숫자만 남기고 나머지(공백, 대괄호 등 특수문자)는 제거한다.
+    오더퀸에 저장된 상품명을 목록에서 다시 찾아 등록 여부를 확인할 때 쓴다
+    (아래 register_menu_item 참고) - 오더퀸이 저장 시 대괄호 등 특수문자를
+    다르게 표시/치환하는 경우가 있어(실측: "[멕시칸타코]"가 들어간 상품명이
+    실제로는 저장됐는데도 원문 그대로 비교하면 못 찾아서 등록 실패로
+    오판했음), 그런 차이에 흔들리지 않게 정규화해서 비교한다."""
+    return re.sub(r"[^0-9A-Za-z가-힣]", "", text)
+
+
 def register_menu_item(
     login_id: str, login_pw: str, barcode: str, menu_name: str, sale_price: int, class_cd: str,
     store_id: str | None = None, class_name: str | None = None,
@@ -514,7 +525,19 @@ def register_menu_item(
             # 그대로 나오니 verified가 True가 돼버려서 우리가 새로 등록한
             # 것처럼 잘못 보고했었다) - 우리가 넣은 상품명까지 같이 나와야만
             # 진짜 우리 등록이 반영된 것으로 인정한다.
-            verified = barcode in list_text and menu_name[:40] in list_text
+            #
+            # 원문 그대로 비교하면 안 된다(실측 확인: 상품명에 대괄호가 들어간
+            # "롯데 도리토스 [멕시칸타코] 70g"을 등록했더니 실제로는 저장에
+            # 성공했는데(오더퀸 확인창도 "저장 되었습니다") 목록 페이지의
+            # 표시 방식이 달라서(특수문자 처리 차이로 추정) 원문 그대로는
+            # 못 찾아 "등록 실패"로 잘못 보고 - 게다가 그 "실패" 메시지에
+            # dialog 원문("저장 되었습니다")을 그대로 붙여서 "실패 - 저장
+            # 되었습니다"라는 앞뒤가 안 맞는 문구까지 나갔다). 한글/영문/숫자만
+            # 남기고 비교해서 이런 표시 차이에 흔들리지 않게 한다.
+            normalized_list = _normalize_for_match(list_text)
+            normalized_name = _normalize_for_match(menu_name[:40])
+            name_matches = bool(normalized_name) and normalized_name in normalized_list
+            verified = barcode in list_text and name_matches
 
             if store_id and verified:
                 # 세션이 그대로 유효했던 경우(cached_state가 None으로 안 바뀜)도
