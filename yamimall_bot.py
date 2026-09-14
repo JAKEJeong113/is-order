@@ -495,6 +495,7 @@ def _is_valid_upc_e(code: str) -> bool:
 def crawl_catalog_with_barcode(
     username: str, password: str, base_url: str = YAMIMALL_URL,
     category_codes: list[str] | None = None, max_pages: int = 60, detail_limit: int | None = None,
+    on_item=None,
 ) -> list[dict]:
     """crawl_full_catalog(목록 페이지만 훑음)과 달리 상품 상세페이지까지
     들어가서 "바코드" 필드와, 있으면 "권장소비자가"(공급사가 이미 제시한
@@ -504,7 +505,11 @@ def crawl_catalog_with_barcode(
     페이지 이동이 늘어나 목록 크롤링보다 훨씬 느리다.
 
     detail_limit을 주면 상세페이지 방문을 그 개수만큼만 하고 멈춘다(파싱
-    로직을 실제 사이트로 빠르게 검증해볼 때 씀 - 운영 배치에서는 None)."""
+    로직을 실제 사이트로 빠르게 검증해볼 때 씀 - 운영 배치에서는 None).
+
+    on_item을 주면 상품 하나를 찾을 때마다 바로 호출한다 - 크롤링이
+    중간에 죽어도(godomall_bot과 같은 이유) 그때까지 찾은 것만이라도
+    즉시 DB에 반영하기 위함(호출부인 catalog_auto_import.py가 담당)."""
     listing = crawl_full_catalog(username, password, base_url=base_url, category_codes=category_codes, max_pages=max_pages)
     products_by_url = {p["product_url"]: p for p in listing if p.get("product_url")}
 
@@ -564,14 +569,20 @@ def crawl_catalog_with_barcode(
                 recommended_match = _RECOMMENDED_PRICE_LABEL_RE.search(body_text)
                 recommended_price = _parse_price(recommended_match.group(1)) if recommended_match else None
 
-                results.append({
+                item = {
                     "barcode": barcode,
                     "name": listed["name"],
                     "case_price": case_price,
                     "unit_qty": unit_qty,
                     "recommended_price": recommended_price or None,
                     "product_url": product_url,
-                })
+                }
+                results.append(item)
+                if on_item is not None:
+                    try:
+                        on_item(item)
+                    except Exception as e:
+                        print(f"[YAMIMALL] on_item 콜백 실패(무시하고 계속): {e}")
 
                 if detail_limit is not None and len(results) >= detail_limit:
                     break

@@ -80,15 +80,18 @@ _PACK_SUFFIX_RE = re.compile(r"\s*\(1(?:타|묶음|박스?)\s*\d+\s*개입\)\s*$
 CATEGORY_WHOLESALE = 2
 
 
-def _crawl_vendor_products(vendor_id: str, meta: dict, login_id: str, login_pwd: str, limit: int | None) -> list[dict]:
+def _crawl_vendor_products(
+    vendor_id: str, meta: dict, login_id: str, login_pwd: str, limit: int | None, on_item=None,
+) -> list[dict]:
     if vendor_id in _GODOMALL_VENDORS:
         return godomall_bot.crawl_catalog_with_barcode(
             meta["base_url"], login_id, login_pwd, meta["catalog_category_code"], detail_limit=limit,
+            on_item=on_item,
         )
     if vendor_id in _CUSTOM_PLATFORM_VENDORS:
         return yamimall_bot.crawl_catalog_with_barcode(
             login_id, login_pwd, base_url=meta["base_url"],
-            category_codes=meta.get("catalog_category_code"), detail_limit=limit,
+            category_codes=meta.get("catalog_category_code"), detail_limit=limit, on_item=on_item,
         )
     raise ValueError(f"{vendor_id}는 아직 바코드 자동등록을 지원하지 않습니다")
 
@@ -210,40 +213,53 @@ def _overwrite_price(barcode: str, recommended_price: int, notes: str) -> None:
         conn.close()
 
 
-def _collect_vendor_candidates(vendor_id: str, limit: int | None) -> list[dict]:
-    """도매처 하나를 크롤링해서, 바코드별 후보 dict 리스트를 반환한다(아직 DB에
-    쓰지 않음 - 다른 도매처 결과와 합쳐서 비교해야 하므로)."""
+def _to_candidate(p: dict, vendor_name: str) -> dict:
+    """크롤러가 준 상품 하나(raw dict)를 (추천판매가/명시여부/근거)까지 정리한
+    "후보" dict로 바꾼다 - 가격을 못 구하면 unresolved=True로 표시한다."""
+    resolved = _resolve_candidate(p, vendor_name)
+    if resolved is None:
+        return {
+            "barcode": p["barcode"], "name": p.get("name") or "", "vendor_name": vendor_name,
+            "unresolved": True,
+            "reason": f"case_price={p.get('case_price')}, unit_qty={p.get('unit_qty')}",
+        }
+    return {
+        "barcode": p["barcode"],
+        "name": p.get("name") or "",
+        "vendor_name": vendor_name,
+        "unit_qty": p.get("unit_qty") or 1,
+        "product_url": p.get("product_url") or "",
+        "price": resolved["price"],
+        "is_explicit": resolved["is_explicit"],
+        "reason": resolved["reason"],
+    }
+
+
+def _collect_vendor_candidates(vendor_id: str, limit: int | None, on_candidate=None) -> list[dict]:
+    """도매처 하나를 크롤링해서, 바코드별 후보 dict 리스트를 반환한다.
+
+    on_candidate를 주면 상품을 하나 찾을 때마다(크롤링이 끝나기 전, 그
+    자리에서) 바로 호출한다 - 호출부(import_all_vendors)가 이걸로 즉시
+    DB에 체크포인트해서, 크롤링이 도중에 죽어도 그때까지 찾은 건 남게
+    한다."""
     meta = vendors.VENDORS[vendor_id]
     creds = vendors.get_vendor_credentials(vendor_id)
     if not creds:
         raise RuntimeError(f"{vendor_id} 로그인 정보가 없습니다 (vendor_credentials에 등록 필요)")
     login_id, login_pwd = creds
 
+    def _on_raw_item(p: dict) -> None:
+        if on_candidate is not None:
+            on_candidate(_to_candidate(p, meta["name"]))
+
     print(f"[CATALOG_IMPORT] {meta['name']} 크롤링 시작 - 상품마다 상세페이지를 열어야 해서 오래 걸립니다.")
-    products = _crawl_vendor_products(vendor_id, meta, login_id, login_pwd, limit)
+    products = _crawl_vendor_products(
+        vendor_id, meta, login_id, login_pwd, limit,
+        on_item=_on_raw_item if on_candidate is not None else None,
+    )
     print(f"[CATALOG_IMPORT] {meta['name']} 유효한 바코드가 확인된 상품 {len(products)}개 수집 완료")
 
-    results = []
-    for p in products:
-        resolved = _resolve_candidate(p, meta["name"])
-        if resolved is None:
-            results.append({
-                "barcode": p["barcode"], "name": p.get("name") or "", "vendor_name": meta["name"],
-                "unresolved": True,
-                "reason": f"case_price={p.get('case_price')}, unit_qty={p.get('unit_qty')}",
-            })
-            continue
-        results.append({
-            "barcode": p["barcode"],
-            "name": p.get("name") or "",
-            "vendor_name": meta["name"],
-            "unit_qty": p.get("unit_qty") or 1,
-            "product_url": p.get("product_url") or "",
-            "price": resolved["price"],
-            "is_explicit": resolved["is_explicit"],
-            "reason": resolved["reason"],
-        })
-    return results
+    return [_to_candidate(p, meta["name"]) for p in products]
 
 
 def _write_winners(by_barcode: dict[str, list[dict]]) -> dict:
@@ -316,43 +332,43 @@ def import_all_vendors(vendor_ids: tuple[str, ...] = DEFAULT_VENDORS, limit: int
     본 도매처들끼리) 비교해서(명시적 값 우선 -> 더 비싼 쪽) 결정한 값만 DB에
     반영한다.
 
-    도매처 하나가 끝날 때마다 그 도매처가 새로 가져온 바코드만 바로 DB에
-    반영(체크포인트)하고, 도매처 하나가 실패해도(크롤링 오류, DB 연결 끊김
-    등) 남은 도매처는 계속 진행한다 - 예전에는 전체 도매처가 다 끝나야
-    한 번에 DB에 썼기 때문에, 마지막 도매처에서 죽으면 몇 시간짜리 크롤링
-    결과가 통째로 날아갔다(실제로 발생한 사고)."""
+    상품을 하나 찾을 때마다(크롤링 도중, 그 도매처가 아직 안 끝났어도)
+    바로 DB에 체크포인트한다. 도매처 하나가 실패해도(크롤링 오류, DB
+    연결 끊김 등) 남은 도매처는 계속 진행한다.
+
+    (예전엔 도매처 하나가 다 끝나야만 그 도매처 결과를 DB에 썼는데, 삼봉몰
+    에서 크롤링 도중 브라우저/렌더러가 원인 불명으로 응답불능이 되며
+    수천 개 중 마지막 몇백 개를 못 끝내고 죽는 사고가 반복됐다 - 그때마다
+    끝까지 못 간 도매처는 이미 찾아둔 것까지 통째로 날아갔다. 상품 단위
+    체크포인트로 바꿔서, 어느 지점에서 죽든 그 직전까지 찾은 건 이미
+    저장되어 있게 한다.)"""
     by_barcode: dict[str, list[dict]] = {}
     summary: dict[str, list[dict]] = {
         "added": [], "updated": [], "overwritten": [],
         "skipped_existing_price": [], "skipped_parse_fail": [], "failed_vendors": [],
     }
 
-    for vendor_id in vendor_ids:
+    def _checkpoint_barcode(barcode: str) -> None:
         try:
-            candidates = _collect_vendor_candidates(vendor_id, limit)
+            vendor_summary = _write_winners({barcode: by_barcode[barcode]})
+        except Exception as e:
+            print(f"[CATALOG_IMPORT] {barcode} 체크포인트 실패(건너뛰고 계속): {e}")
+            return
+        for key in ("added", "updated", "overwritten", "skipped_existing_price", "skipped_parse_fail"):
+            summary[key].extend(vendor_summary[key])
+
+    for vendor_id in vendor_ids:
+        def _on_candidate(candidate: dict) -> None:
+            barcode = candidate["barcode"]
+            by_barcode.setdefault(barcode, []).append(candidate)
+            _checkpoint_barcode(barcode)
+
+        try:
+            _collect_vendor_candidates(vendor_id, limit, on_candidate=_on_candidate)
         except Exception as e:
             print(f"[CATALOG_IMPORT] {vendor_id} 크롤링 실패 - 건너뛰고 나머지 도매처를 계속 진행합니다: {e}")
             summary["failed_vendors"].append({"vendor_id": vendor_id, "error": str(e)})
             continue
-
-        touched_barcodes = set()
-        for candidate in candidates:
-            by_barcode.setdefault(candidate["barcode"], []).append(candidate)
-            touched_barcodes.add(candidate["barcode"])
-
-        # 이번 도매처가 새로 건드린 바코드만 넘긴다(그 바코드를 먼저 본 다른
-        # 도매처의 후보도 by_barcode에 이미 같이 들어있어 비교는 그대로 됨).
-        # 이미 끝난 바코드를 매번 다시 쓰지 않아 불필요한 DB 재작성도 없다.
-        touched = {b: by_barcode[b] for b in touched_barcodes}
-        try:
-            vendor_summary = _write_winners(touched)
-        except Exception as e:
-            print(f"[CATALOG_IMPORT] {vendor_id} 결과 DB 반영 실패 - 이 도매처 결과가 유실됐을 수 있습니다: {e}")
-            summary["failed_vendors"].append({"vendor_id": vendor_id, "error": f"DB 반영 실패: {e}"})
-            continue
-
-        for key in ("added", "updated", "overwritten", "skipped_existing_price", "skipped_parse_fail"):
-            summary[key].extend(vendor_summary[key])
 
     return summary
 

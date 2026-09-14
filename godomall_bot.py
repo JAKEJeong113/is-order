@@ -466,6 +466,7 @@ def _is_valid_upc_e(code: str) -> bool:
 def crawl_catalog_with_barcode(
     base_url: str, login_id: str, login_pwd: str, category_codes: str | list[str],
     max_pages: int = 100, detail_limit: int | None = None,
+    on_item=None,
 ) -> list[dict]:
     """crawl_full_catalog(목록 페이지만 훑음)과 달리, 상품 상세페이지까지
     하나씩 들어가서 "모델명"(=바코드) 필드까지 긁어온다. 카탈로그 자동등록
@@ -475,7 +476,14 @@ def crawl_catalog_with_barcode(
     detail_limit을 주면 상세페이지 방문을 그 개수만큼만 하고 멈춘다(목록
     크롤링 자체는 그대로 전부 돈다 - 페이지 이동만 하고 상세페이지는 안 여는
     쪽이라 상대적으로 빠름). 파싱 로직을 실제 사이트로 빠르게 검증해볼 때 씀 -
-    운영 배치에서는 None(전체)으로 둔다."""
+    운영 배치에서는 None(전체)으로 둔다.
+
+    on_item을 주면 상품 하나를 찾을 때마다(그 자리에서) 바로 호출한다 -
+    삼봉몰에서 수천 개 중간에 브라우저/렌더러가 응답불능이 되며 통째로
+    멈추는 사고가 반복돼서(원인 불명 - 재현 시도 시 해당 URL 단독으로는
+    항상 정상 응답함, 오래 켜둔 브라우저 세션 자체가 가끔 맛이 가는 것으로
+    추정), 끝까지 못 가도 그때까지 찾은 것만이라도 즉시 DB에 반영하기
+    위함이다(호출부인 catalog_auto_import.py가 담당)."""
     listing = crawl_full_catalog(base_url, login_id, login_pwd, category_codes, max_pages=max_pages)
     products_by_url = {p["product_url"]: p for p in listing if p.get("product_url")}
 
@@ -578,14 +586,20 @@ def crawl_catalog_with_barcode(
                 sale_price_match = re.search(r"판매가\s*\n?\s*([\d,]+원)", body_text)
                 case_price = _parse_price(sale_price_match.group(1)) if sale_price_match else listed.get("price")
 
-                results.append({
+                item = {
                     "barcode": barcode,
                     "name": listed["name"],
                     "case_price": case_price,
                     "unit_qty": listed.get("unit_qty"),
                     "goods_no": listed.get("goods_no"),
                     "product_url": product_url,
-                })
+                }
+                results.append(item)
+                if on_item is not None:
+                    try:
+                        on_item(item)
+                    except Exception as e:
+                        print(f"[GODOMALL] on_item 콜백 실패(무시하고 계속): {e}")
 
                 if detail_limit is not None and len(results) >= detail_limit:
                     break
