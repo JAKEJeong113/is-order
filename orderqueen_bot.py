@@ -319,10 +319,13 @@ def _search_barcode_row(page, barcode: str) -> dict | None:
         return None
     row = row_loc.first
     price_text = row.locator(".fnSalePrice").first.inner_text().strip()
+    menu_nm_cell = row.locator(".fnMenuNm").first
+    menu_nm = (menu_nm_cell.get_attribute("data-menu-nm") or menu_nm_cell.inner_text()).strip()
     return {
         "store_no": row.get_attribute("data-store-no"),
         "menu_cd": row.get_attribute("data-menu-cd"),
         "sale_price": int(re.sub(r"[^0-9]", "", price_text) or "0"),
+        "menu_nm": menu_nm,
     }
 
 
@@ -345,16 +348,20 @@ def _open_menu_detail(page, store_no: str, menu_cd: str) -> None:
         page.evaluate("document.querySelector('#FrmSearch').submit()")
 
 
-def update_menu_item_price(
-    login_id: str, login_pw: str, barcode: str, new_price: int, store_id: str | None = None,
+def update_menu_item(
+    login_id: str, login_pw: str, barcode: str, menu_name: str, new_price: int,
+    store_id: str | None = None,
 ) -> dict:
-    """이미 오더퀸에 등록된 상품의 판매가만 카탈로그 추천가로 덮어쓴다.
-    register_menu_item은 신규 등록 폼만 열 수 있어서, 이미 등록된 바코드를
-    다시 등록하면 오더퀸이 저장을 거부하는데도(실측: "이미 등록된
+    """이미 오더퀸에 등록된 상품의 상품명/판매가를 앱에서 입력한 값으로
+    덮어쓴다. register_menu_item은 신규 등록 폼만 열 수 있어서, 이미 등록된
+    바코드를 다시 등록하면 오더퀸이 저장을 거부하는데도(실측: "이미 등록된
     바코드입니다") 목록에 그 바코드+이름이 이미 있다는 이유로 등록 검증을
-    통과해버려 "성공"으로 잘못 보고하고 가격은 그대로 남는 문제가 있었다
-    (실측 사례: 8801062631094 "빅 가나마일드"). 목록에서 해당 바코드 행을
-    찾아 상세 화면(MNU01021.itp)으로 들어가 salePrice만 바꿔 저장한다.
+    통과해버려 "성공"으로 잘못 보고하고 값은 그대로 남는 문제가 있었다
+    (실측 사례: 8801062631094 "빅 가나마일드" 가격 미반영). 처음엔 가격만
+    갱신했는데, 사용자가 검색 결과 화면에서 상품명도 직접 고쳐서 등록하고
+    싶어해(카탈로그 이름이 마음에 안 들 때 등) 이름도 같이 갱신하도록
+    넓혔다. 목록에서 해당 바코드 행을 찾아 상세 화면(MNU01021.itp)으로
+    들어가 menuNm/menuFullNm/salePrice를 바꿔 저장한다.
 
     반환값에 barcode 자체가 목록에 없으면 "not_found": True를 같이 담아,
     호출부(register_or_update_menu_item)가 신규 등록으로 넘어갈 수 있게
@@ -428,13 +435,17 @@ def update_menu_item_price(
                     "message": "해당 바코드로 등록된 상품을 찾을 수 없습니다.",
                 }
 
-            if row_info["sale_price"] == int(new_price):
-                # 이미 카탈로그 가격과 같으면 굳이 저장을 다시 안 해도 된다.
-                return {"ok": True, "message": "이미 카탈로그 가격과 동일합니다."}
+            name_already_same = _normalize_for_match(row_info["menu_nm"]) == _normalize_for_match(menu_name[:40])
+            price_already_same = row_info["sale_price"] == int(new_price)
+            if name_already_same and price_already_same:
+                # 이미 입력한 값과 같으면 굳이 저장을 다시 안 해도 된다.
+                return {"ok": True, "message": "이미 동일한 내용으로 등록되어 있습니다."}
 
             _open_menu_detail(page, row_info["store_no"], row_info["menu_cd"])
             _dismiss_popups()
 
+            page.locator("#menuNm").first.fill(menu_name[:40])
+            page.locator("#menuFullNm").first.fill(menu_name)
             page.locator("#salePrice").first.fill(str(int(new_price)))
 
             dialog_messages.clear()
@@ -456,7 +467,10 @@ def update_menu_item_price(
             if not row_info2:
                 return {"ok": False, "message": combined or "저장 확인에 실패했습니다."}
 
-            verified = row_info2["sale_price"] == int(new_price)
+            verified = (
+                row_info2["sale_price"] == int(new_price)
+                and _normalize_for_match(row_info2["menu_nm"]) == _normalize_for_match(menu_name[:40])
+            )
 
             if store_id and verified:
                 vendors.save_session_state(store_id, vendor_id, context.storage_state())
@@ -464,9 +478,9 @@ def update_menu_item_price(
             if not verified:
                 return {
                     "ok": False,
-                    "message": combined or f"가격이 반영되지 않았습니다(현재 {row_info2['sale_price']}원).",
+                    "message": combined or f"수정이 반영되지 않았습니다(현재 {row_info2['menu_nm']} / {row_info2['sale_price']}원).",
                 }
-            return {"ok": True, "message": combined or "가격이 수정되었습니다."}
+            return {"ok": True, "message": combined or "수정되었습니다."}
         finally:
             browser.close()
 
@@ -726,13 +740,13 @@ def register_or_update_menu_item(
     login_id: str, login_pw: str, barcode: str, menu_name: str, sale_price: int, class_cd: str,
     store_id: str | None = None, class_name: str | None = None,
 ) -> dict:
-    """앱의 "오더퀸 등록" 버튼 하나로 신규 등록/기존 상품 가격 갱신을 모두
-    처리한다. 먼저 update_menu_item_price로 가격 갱신을 시도해서 - 이미
-    등록된 바코드면 그대로 처리되고, "not_found"면 아직 등록 안 된 것이므로
+    """앱의 "오더퀸 등록" 버튼 하나로 신규 등록/기존 상품 상품명·가격 갱신을
+    모두 처리한다. 먼저 update_menu_item으로 갱신을 시도해서 - 이미 등록된
+    바코드면 그대로 처리되고, "not_found"면 아직 등록 안 된 것이므로
     register_menu_item으로 새로 등록한다. 대부분의 재등록 시도(이미 있는
-    상품의 가격만 바뀐 경우)는 로그인 세션 하나로 끝나고, 정말 신규인
+    상품을 수정만 하는 경우)는 로그인 세션 하나로 끝나고, 정말 신규인
     경우에만 두 번째 세션(등록 폼)이 추가로 열린다."""
-    update_result = update_menu_item_price(login_id, login_pw, barcode, sale_price, store_id=store_id)
+    update_result = update_menu_item(login_id, login_pw, barcode, menu_name, sale_price, store_id=store_id)
     if not update_result.get("not_found"):
         return update_result
     return register_menu_item(
