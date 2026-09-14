@@ -305,6 +305,172 @@ def _normalize_for_match(text: str) -> str:
     return re.sub(r"[^0-9A-Za-z가-힣]", "", text)
 
 
+def _search_barcode_row(page, barcode: str) -> dict | None:
+    """메뉴관리 목록에서 바코드로 검색해 실제 그 바코드로 등록된 행을 찾는다.
+    화면 텍스트만 보고 판단하지 않고 data-barcode-no 속성으로 정확히
+    대조한다(register_menu_item이 겪었던 "다른 상품이 섞여 보이는" 오탐을
+    피하기 위함). 없으면 None."""
+    search_box = page.locator("#schBarcodeNo").first
+    search_box.fill(barcode)
+    search_box.press("Enter")
+    page.wait_for_timeout(1200)
+    row_loc = page.locator(f'tr[data-barcode-no="{barcode}"]')
+    if row_loc.count() == 0:
+        return None
+    row = row_loc.first
+    price_text = row.locator(".fnSalePrice").first.inner_text().strip()
+    return {
+        "store_no": row.get_attribute("data-store-no"),
+        "menu_cd": row.get_attribute("data-menu-cd"),
+        "sale_price": int(re.sub(r"[^0-9]", "", price_text) or "0"),
+    }
+
+
+def _open_menu_detail(page, store_no: str, menu_cd: str) -> None:
+    """목록의 "상세" 버튼은 <a> 태그가 아니라(그래서 링크 텍스트로 찾으려던
+    첫 시도가 실패했다 - 실측 확인), 클릭 시 JS가 숨겨진 #FrmSearch 폼의
+    storeNo/menuCd를 채우고 action을 MNU01021.itp로 바꿔 제출하는 방식이다.
+    같은 폼 제출을 그대로 재현해서 상세/수정 화면으로 들어간다."""
+    page.evaluate(
+        """([storeNo, menuCd]) => {
+            document.querySelector('#storeNo').value = storeNo;
+            document.querySelector('#menuCd').value = menuCd;
+            const f = document.querySelector('#FrmSearch');
+            f.setAttribute('target', '');
+            f.setAttribute('action', '/backoffice_admin/MNU01021.itp');
+        }""",
+        [store_no, menu_cd],
+    )
+    with page.expect_navigation(timeout=PAGE_GOTO_TIMEOUT_MS):
+        page.evaluate("document.querySelector('#FrmSearch').submit()")
+
+
+def update_menu_item_price(
+    login_id: str, login_pw: str, barcode: str, new_price: int, store_id: str | None = None,
+) -> dict:
+    """이미 오더퀸에 등록된 상품의 판매가만 카탈로그 추천가로 덮어쓴다.
+    register_menu_item은 신규 등록 폼만 열 수 있어서, 이미 등록된 바코드를
+    다시 등록하면 오더퀸이 저장을 거부하는데도(실측: "이미 등록된
+    바코드입니다") 목록에 그 바코드+이름이 이미 있다는 이유로 등록 검증을
+    통과해버려 "성공"으로 잘못 보고하고 가격은 그대로 남는 문제가 있었다
+    (실측 사례: 8801062631094 "빅 가나마일드"). 목록에서 해당 바코드 행을
+    찾아 상세 화면(MNU01021.itp)으로 들어가 salePrice만 바꿔 저장한다.
+
+    반환값에 barcode 자체가 목록에 없으면 "not_found": True를 같이 담아,
+    호출부(register_or_update_menu_item)가 신규 등록으로 넘어갈 수 있게
+    한다."""
+    vendor_id = "orderqueen"
+
+    with browser_limit.browser_semaphore, sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        )
+        try:
+            cached_state = vendors.get_session_state(store_id, vendor_id) if store_id else None
+            context = browser.new_context(storage_state=cached_state) if cached_state else browser.new_context()
+            page = context.new_page()
+            _block_heavy_resources(page)
+
+            dialog_messages: list[str] = []
+
+            def _on_dialog(dialog):
+                dialog_messages.append(dialog.message)
+                dialog.accept()
+
+            page.on("dialog", _on_dialog)
+
+            def _open_menu_list_logged_in() -> bool:
+                page.goto(MENU_LIST_URL, wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+                if "login.itp" in page.url:
+                    return False
+                page.wait_for_selector('button:has-text("등록"), a:has-text("등록")', timeout=15000)
+                return True
+
+            if cached_state:
+                logged_in = _open_menu_list_logged_in()
+                if not logged_in:
+                    context.clear_cookies()
+                    _login(page, login_id, login_pw)
+                    _open_menu_list_logged_in()
+                    cached_state = None
+            else:
+                _login(page, login_id, login_pw)
+                _open_menu_list_logged_in()
+
+            def _dismiss_popups() -> None:
+                for _ in range(2):
+                    try:
+                        page.keyboard.press("Escape")
+                        page.wait_for_timeout(300)
+                    except Exception:
+                        pass
+                try:
+                    visible_close = page.locator(".ui-dialog-titlebar-close:visible")
+                    if visible_close.count() > 0:
+                        visible_close.first.click(timeout=3000)
+                        page.wait_for_timeout(300)
+                except Exception:
+                    pass
+                try:
+                    generic_close = page.locator('button:has-text("닫기"):visible, a:has-text("닫기"):visible')
+                    if generic_close.count() > 0:
+                        generic_close.first.click(timeout=3000)
+                        page.wait_for_timeout(300)
+                except Exception:
+                    pass
+
+            _dismiss_popups()
+            row_info = _search_barcode_row(page, barcode)
+            if not row_info:
+                return {
+                    "ok": False, "not_found": True,
+                    "message": "해당 바코드로 등록된 상품을 찾을 수 없습니다.",
+                }
+
+            if row_info["sale_price"] == int(new_price):
+                # 이미 카탈로그 가격과 같으면 굳이 저장을 다시 안 해도 된다.
+                return {"ok": True, "message": "이미 카탈로그 가격과 동일합니다."}
+
+            _open_menu_detail(page, row_info["store_no"], row_info["menu_cd"])
+            _dismiss_popups()
+
+            page.locator("#salePrice").first.fill(str(int(new_price)))
+
+            dialog_messages.clear()
+            try:
+                with page.expect_navigation(timeout=15000):
+                    page.locator("#btn-submit").first.click(force=True)
+            except PWTimeoutError:
+                # 검증 오류 등으로 저장이 막히면 alert만 뜨고 페이지 이동은
+                # 없다 - dialog_messages에 원인이 남아있으니 그대로 진행한다.
+                pass
+            page.wait_for_timeout(500)
+            combined = " ".join(dialog_messages)
+
+            # dialog 메시지만 믿지 않고, 목록을 다시 조회해서 실제 표시가로
+            # 반영 여부를 직접 확인한다(register_menu_item과 같은 이유).
+            page.goto(MENU_LIST_URL, wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+            _dismiss_popups()
+            row_info2 = _search_barcode_row(page, barcode)
+            if not row_info2:
+                return {"ok": False, "message": combined or "저장 확인에 실패했습니다."}
+
+            verified = row_info2["sale_price"] == int(new_price)
+
+            if store_id and verified:
+                vendors.save_session_state(store_id, vendor_id, context.storage_state())
+
+            if not verified:
+                return {
+                    "ok": False,
+                    "message": combined or f"가격이 반영되지 않았습니다(현재 {row_info2['sale_price']}원).",
+                }
+            return {"ok": True, "message": combined or "가격이 수정되었습니다."}
+        finally:
+            browser.close()
+
+
 def register_menu_item(
     login_id: str, login_pw: str, barcode: str, menu_name: str, sale_price: int, class_cd: str,
     store_id: str | None = None, class_name: str | None = None,
@@ -554,3 +720,43 @@ def register_menu_item(
             return {"ok": True, "message": combined or "저장 되었습니다."}
         finally:
             browser.close()
+
+
+def register_or_update_menu_item(
+    login_id: str, login_pw: str, barcode: str, menu_name: str, sale_price: int, class_cd: str,
+    store_id: str | None = None, class_name: str | None = None,
+) -> dict:
+    """앱의 "오더퀸 등록" 버튼 하나로 신규 등록/기존 상품 가격 갱신을 모두
+    처리한다. 먼저 update_menu_item_price로 가격 갱신을 시도해서 - 이미
+    등록된 바코드면 그대로 처리되고, "not_found"면 아직 등록 안 된 것이므로
+    register_menu_item으로 새로 등록한다. 대부분의 재등록 시도(이미 있는
+    상품의 가격만 바뀐 경우)는 로그인 세션 하나로 끝나고, 정말 신규인
+    경우에만 두 번째 세션(등록 폼)이 추가로 열린다."""
+    update_result = update_menu_item_price(login_id, login_pw, barcode, sale_price, store_id=store_id)
+    if not update_result.get("not_found"):
+        return update_result
+    return register_menu_item(
+        login_id, login_pw, barcode=barcode, menu_name=menu_name, sale_price=sale_price,
+        class_cd=class_cd, store_id=store_id, class_name=class_name,
+    )
+
+
+def register_or_update_menu_item_with_retry(
+    login_id: str, login_pw: str, barcode: str, menu_name: str, sale_price: int, class_cd: str,
+    store_id: str | None = None, class_name: str | None = None,
+) -> dict:
+    """register_menu_item_with_retry와 같은 이유로 register_or_update_menu_item을
+    한 번 더 시도한다(자원 경합으로 인한 예외만 재시도 - 정상 반환된
+    {"ok": False, ...}는 그대로 전달)."""
+    last_error: Exception | None = None
+    for attempt in range(1, REGISTER_MAX_ATTEMPTS + 1):
+        try:
+            return register_or_update_menu_item(
+                login_id, login_pw, barcode=barcode, menu_name=menu_name, sale_price=sale_price,
+                class_cd=class_cd, store_id=store_id, class_name=class_name,
+            )
+        except Exception as e:
+            last_error = e
+            if attempt < REGISTER_MAX_ATTEMPTS:
+                time.sleep(REGISTER_RETRY_DELAY_SECONDS)
+    raise last_error

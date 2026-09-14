@@ -1052,7 +1052,7 @@ def api_oq_app_register_item(req: OqAppRegisterRequest):
                 "ok": False, "message": "삭제되었거나 존재하지 않는 계정입니다.",
             }
         try:
-            result = orderqueen_bot.register_menu_item_with_retry(
+            result = orderqueen_bot.register_or_update_menu_item_with_retry(
                 account["login_id"], account["login_pwd"],
                 barcode=req.barcode, menu_name=req.menu_name,
                 sale_price=req.sale_price, class_cd=req.class_cd, class_name=req.class_name,
