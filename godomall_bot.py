@@ -510,6 +510,10 @@ def crawl_catalog_with_barcode(
         try:
             consecutive_failures = 0
             for i, (product_url, listed) in enumerate(products_by_url.items(), start=1):
+                # 원인 불명으로 상세페이지 단계에서 로그 한 줄 없이 멈추는
+                # 사고가 반복돼서(2026-09), 정확히 어느 상품에서 멈추는지
+                # 보려고 시도 직전 URL을 남긴다.
+                print(f"[GODOMALL] {i}/{len(products_by_url)} 시도: {product_url}")
                 body_text = None
                 crashed = False
                 try:
