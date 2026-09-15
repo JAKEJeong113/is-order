@@ -3,7 +3,7 @@
 import os
 import re
 import time
-from datetime import date
+from datetime import date, datetime
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError
 
 import browser_limit
@@ -892,6 +892,148 @@ def push_menu_item_to_kiosk_screen(
             browser.close()
 
 
+# push_menu_item_to_kiosk_screen을 앱 요청과 같은 타이밍(동기)에 부르면
+# 브라우저 세션을 하나 더 여는 만큼 사용자가 체감하는 등록 시간이 늘어난다
+# (실측: 이미 반영된 상품도 최소 6초, 신규는 그 이상 추가). 매장 키오스크
+# 반영이 몇십 초~몇 분 늦어도 상관없다는 사용자 확인에 따라, 대신 이
+# 작업큐에 넣어두고 별도 스케줄러(main.py)가 뒤에서 처리한다
+# (cart_jobs.py의 FOR UPDATE SKIP LOCKED 큐와 같은 패턴).
+KIOSK_SCREEN_JOB_MAX_ATTEMPTS = 3
+
+
+def init_kiosk_screen_job_table() -> None:
+    conn = vendors.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS oq_kiosk_screen_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            store_id TEXT NOT NULL,
+            account_id INTEGER NOT NULL,
+            barcode TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            result_message TEXT,
+            created_at TEXT NOT NULL,
+            finished_at TEXT
+        )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_oq_kiosk_screen_jobs_status ON oq_kiosk_screen_jobs (status, id)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def enqueue_kiosk_screen_job(store_id: str, account_id: int, barcode: str) -> int:
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = vendors.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO oq_kiosk_screen_jobs (store_id, account_id, barcode, status, created_at)
+            VALUES (?, ?, ?, 'pending', ?) RETURNING id
+            """,
+            (store_id, account_id, barcode, now),
+        )
+        job_id = cur.fetchone()[0]
+        conn.commit()
+        return job_id
+    finally:
+        conn.close()
+
+
+def _claim_kiosk_screen_jobs(limit: int) -> list[dict]:
+    """대기 중인 작업을 최대 limit개 원자적으로 집어 processing으로 표시한다
+    (동시에 여러 프로세스가 폴링해도 중복 처리 안 되게 - cart_jobs.claim_next_job과
+    같은 이유)."""
+    conn = vendors.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE oq_kiosk_screen_jobs SET status = 'processing', attempts = attempts + 1
+            WHERE id IN (
+                SELECT id FROM oq_kiosk_screen_jobs WHERE status = 'pending'
+                ORDER BY id ASC FOR UPDATE SKIP LOCKED LIMIT ?
+            )
+            RETURNING id, store_id, account_id, barcode, attempts
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+        conn.commit()
+        return [
+            {"id": r[0], "store_id": r[1], "account_id": r[2], "barcode": r[3], "attempts": r[4]}
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def _finish_kiosk_screen_job(job_id: int, status: str, message: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = vendors.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE oq_kiosk_screen_jobs SET status = ?, result_message = ?, finished_at = ? WHERE id = ?",
+            (status, message, now, job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def process_pending_kiosk_screen_jobs(limit: int = 5) -> dict:
+    """대기 중인 화면(키오스크) 반영 작업을 최대 limit개 처리한다. 계정
+    정보는 큐에 저장하지 않고(자격증명을 굳이 한 곳에 더 두지 않기 위함)
+    처리 시점에 store_id/account_id로 다시 조회한다(register-item API가
+    이미 쓰는 것과 같은 조회 함수). 실패해도 attempts가
+    KIOSK_SCREEN_JOB_MAX_ATTEMPTS 미만이면 pending으로 되돌려 다음 스케줄에
+    재시도하고, 그 이상이면 failed로 확정한다(호출부가 관리자에게 알림)."""
+    jobs = _claim_kiosk_screen_jobs(limit)
+    done = 0
+    failed = 0
+    permanently_failed: list[dict] = []
+    for job in jobs:
+        account = vendors.resolve_store_vendor_account(job["store_id"], "orderqueen", job["account_id"])
+        if not account:
+            _finish_kiosk_screen_job(job["id"], "failed", "삭제되었거나 존재하지 않는 계정입니다.")
+            failed += 1
+            permanently_failed.append({**job, "message": "계정을 찾을 수 없음"})
+            continue
+        try:
+            result = push_menu_item_to_kiosk_screen(
+                account["login_id"], account["login_pwd"], job["barcode"],
+                store_id=f"{job['store_id']}:{job['account_id']}",
+            )
+        except Exception as e:
+            result = {"ok": False, "message": str(e)}
+
+        if result.get("ok"):
+            _finish_kiosk_screen_job(job["id"], "done", result.get("message", ""))
+            done += 1
+            continue
+
+        if job["attempts"] < KIOSK_SCREEN_JOB_MAX_ATTEMPTS:
+            # 다음 스케줄에서 다시 시도할 수 있게 pending으로 되돌린다
+            # (attempts는 claim 시점에 이미 증가했으므로 그대로 둠).
+            conn = vendors.get_conn()
+            try:
+                cur = conn.cursor()
+                cur.execute("UPDATE oq_kiosk_screen_jobs SET status = 'pending' WHERE id = ?", (job["id"],))
+                conn.commit()
+            finally:
+                conn.close()
+        else:
+            _finish_kiosk_screen_job(job["id"], "failed", result.get("message", ""))
+            permanently_failed.append({**job, "message": result.get("message", "")})
+        failed += 1
+
+    return {"done": done, "failed": failed, "permanently_failed": permanently_failed}
+
+
 def register_or_update_menu_item(
     login_id: str, login_pw: str, barcode: str, menu_name: str, sale_price: int, class_cd: str,
     store_id: str | None = None, class_name: str | None = None,
@@ -903,33 +1045,21 @@ def register_or_update_menu_item(
     상품을 수정만 하는 경우)는 로그인 세션 하나로 끝나고, 정말 신규인
     경우에만 두 번째 세션(등록 폼)이 추가로 열린다.
 
-    메뉴관리 저장이 성공하면 반드시 push_menu_item_to_kiosk_screen도 이어서
-    호출한다 - 메뉴관리(서버)만 반영되고 화면관리(유통)(실제 매장 키오스크
-    기기)는 비어있는 채로 남아, 점주가 앱에서 등록을 마쳤다고 믿어도 정작
-    매장에서 바코드를 스캔하면 인식이 안 되는 문제가 있었다(사용자 확인).
-    화면(키오스크) 등록까지 실패하면 메뉴 자체는 저장됐어도 실사용이
-    안 되는 상태이므로 전체를 실패로 보고한다."""
+    이 함수는 메뉴관리(서버) 저장까지만 하고 화면관리(유통)(실제 매장
+    키오스크 기기)은 건드리지 않는다 - push_menu_item_to_kiosk_screen이
+    별도 브라우저 세션을 한 번 더 여는 탓에 그 자리에서 같이 하면 앱
+    사용자가 체감하는 등록 시간이 눈에 띄게 늘어난다(실측 확인 - 사용자
+    요청으로 분리). 화면(키오스크) 반영은 호출부(main.py)가
+    enqueue_kiosk_screen_job으로 큐에 넣어 백그라운드 스케줄러가 뒤늦게
+    처리하게 한다 - 몇십 초~몇 분 정도 늦게 매장에 반영돼도 무방하다는
+    사용자 확인."""
     update_result = update_menu_item(login_id, login_pw, barcode, menu_name, sale_price, store_id=store_id)
-    if update_result.get("not_found"):
-        menu_result = register_menu_item(
-            login_id, login_pw, barcode=barcode, menu_name=menu_name, sale_price=sale_price,
-            class_cd=class_cd, store_id=store_id, class_name=class_name,
-        )
-    else:
-        menu_result = update_result
-
-    if not menu_result.get("ok"):
-        return menu_result
-
-    screen_result = push_menu_item_to_kiosk_screen(login_id, login_pw, barcode, store_id=store_id)
-    if not screen_result.get("ok"):
-        return {
-            "ok": False,
-            "message": f"{menu_result.get('message', '')} (메뉴 저장은 완료됐지만 매장 화면(키오스크) 등록에 실패했습니다: {screen_result.get('message', '')})",
-        }
-    if screen_result.get("already"):
-        return menu_result
-    return {"ok": True, "message": f"{menu_result.get('message', '')} · 매장 화면(키오스크)에도 반영했습니다."}
+    if not update_result.get("not_found"):
+        return update_result
+    return register_menu_item(
+        login_id, login_pw, barcode=barcode, menu_name=menu_name, sale_price=sale_price,
+        class_cd=class_cd, store_id=store_id, class_name=class_name,
+    )
 
 
 def register_or_update_menu_item_with_retry(

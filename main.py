@@ -148,6 +148,7 @@ board.init_announcements_table()
 board.init_suggestions_table()
 web_cart.init_web_cart_table()
 cart_jobs.init_cart_jobs_table()
+orderqueen_bot.init_kiosk_screen_job_table()
 store_reports.init_store_report_tables()
 store_reports.init_manual_report_table()
 usage_stats.init_usage_events_table()
@@ -272,6 +273,35 @@ scheduler.add_job(
     functools.partial(_run_price_snapshot_and_notify, product_ranking.SNACK),
     trigger=IntervalTrigger(minutes=30),
     id="price_snapshot_snack",
+    replace_existing=True,
+)
+
+
+# 오더퀸 등록/수정 시 메뉴관리(서버)는 그 자리에서 바로 반영하되, 매장
+# 키오스크 화면(화면관리(유통)) 반영은 여기서 뒤늦게 처리한다(사용자 확인:
+# 몇십 초~몇 분 지연은 무방). 별도 브라우저 세션이 필요해 앱 요청과 같은
+# 타이밍에 하면 체감 등록 시간이 늘어나는 걸 실측으로 확인해서 분리했다.
+def _run_oq_kiosk_screen_jobs() -> None:
+    try:
+        result = orderqueen_bot.process_pending_kiosk_screen_jobs(limit=5)
+    except Exception as e:
+        telegram_bot.alert_admin(f"오더퀸 매장 화면(키오스크) 반영 작업 실패: {e}")
+        raise
+    for job in result.get("permanently_failed", []):
+        # 앱에는 이미 "등록 성공"으로 안내가 나간 뒤라(메뉴관리 저장은
+        # 성공했으므로), 화면(키오스크) 반영이 끝내 실패하면 점주는 실제로
+        # 매장에서 스캔이 안 되는 걸 뒤늦게 발견할 수밖에 없다 - 관리자가
+        # 수동으로 확인/조치할 수 있게 알린다.
+        telegram_bot.alert_admin(
+            f"오더퀸 매장 화면(키오스크) 반영 {orderqueen_bot.KIOSK_SCREEN_JOB_MAX_ATTEMPTS}회 실패 - "
+            f"매장 {job['store_id']}(계정 {job['account_id']}) 바코드 {job['barcode']}: {job['message']}"
+        )
+
+
+scheduler.add_job(
+    _run_oq_kiosk_screen_jobs,
+    trigger=IntervalTrigger(seconds=30),
+    id="oq_kiosk_screen_jobs",
     replace_existing=True,
 )
 
@@ -1066,6 +1096,12 @@ def api_oq_app_register_item(req: OqAppRegisterRequest):
             )
         except Exception as e:
             result = {"ok": False, "message": f"오더퀸 등록 중 오류가 발생했습니다: {e}"}
+        if result.get("ok"):
+            # 매장 키오스크 화면(유통) 반영은 별도 브라우저 세션이 하나 더
+            # 필요해 그 자리에서 같이 하면 체감 등록 시간이 눈에 띄게
+            # 늘어난다(실측). 몇십 초~몇 분 늦게 매장에 반영돼도 괜찮다는
+            # 사용자 확인에 따라 큐에 넣고 백그라운드 스케줄러가 처리한다.
+            orderqueen_bot.enqueue_kiosk_screen_job(store_id, account_id, req.barcode)
         result["account_id"] = account_id
         result["nickname"] = account["nickname"]
         return result
