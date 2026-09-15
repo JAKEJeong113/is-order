@@ -46,6 +46,21 @@ DOWNLOAD_BUTTON_SELECTOR = os.getenv("OQ_DOWNLOAD_SELECTOR", "#btn-excel button"
 
 MENU_LIST_URL = "https://www.orderqueen.kr/backoffice_admin/MNU01020.itp"
 
+# "메뉴관리"(MNU01020/1021, 서버 등록)와 실제 매장 키오스크 기기의 화면은
+# 별개다 - "화면관리(유통)"(MNU02030.itp)에서 코너별로 메뉴를 따로 등록해야
+# 기기에서 바코드 스캔 시 인식된다(실측 확인·사용자 확인: 오더퀸 모바일 앱은
+# 이 둘을 한 번에 처리하지만 PC 화면/이 API 자동화 경로는 메뉴관리만 반영하고
+# 화면관리(유통)는 그대로 빈 채로 남는다). 그래서 register_menu_item/
+# update_menu_item으로 저장한 뒤 항상 push_menu_item_to_kiosk_screen도 같이
+# 호출해야 실제로 매장에서 팔 수 있는 상태가 된다.
+SCREEN_MANAGEMENT_URL = "https://www.orderqueen.kr/backoffice_admin/MNU02030.itp"
+
+# 코너 코드(cornerCd)는 매장마다 다를 수 있다(코너관리에서 매장이 직접
+# 만들고 이름 붙이는 구조 - class_cd와 같은 이유). 그래서 코드가 아니라
+# 이름으로 찾는다. 대부분 매장이 "상품"이라는 이름의 코너를 실제 판매
+# 상품 목록으로 쓴다(실측 확인).
+KIOSK_SCREEN_CORNER_NAME = "상품"
+
 # 상품 등록 화면(MNU01021.itp)의 "분류" 드롭다운 - 실측으로 확인한 한 매장의
 # 실제 분류 코드값. 앱에서 사용자가 직접 고르는 드롭다운을 채우는 데 쓴다.
 # 주의: 이 숫자 코드는 매장마다 다르다(점주가 오더퀸에서 분류를 추가/삭제/
@@ -295,6 +310,51 @@ def register_menu_item_with_retry(
     raise last_error
 
 
+def _dismiss_popups(page) -> None:
+    """jQuery UI 팝업(예: "사용자 정보" - 비밀번호 3개월 경과 안내, 공지사항
+    등)이 오버레이와 함께 뜨는 경우가 있어 "등록"/"저장" 버튼 클릭을
+    가로막는다(실측 확인). 같은 클래스(.ui-dialog-titlebar-close)의 닫기
+    버튼이 숨겨진 다른 팝업 것까지 여러 개 있어서 .first로 찾으면 엉뚱한(안
+    보이는) 걸 클릭하게 되므로, jQuery UI 표준 닫기 방법인 Escape 키를 먼저
+    쓴다 - 어떤 팝업이 열려있든 범용으로 통한다."""
+    for _ in range(2):
+        try:
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+        except Exception:
+            pass
+    try:
+        visible_close = page.locator(".ui-dialog-titlebar-close:visible")
+        if visible_close.count() > 0:
+            visible_close.first.click(timeout=3000)
+            page.wait_for_timeout(300)
+    except Exception:
+        pass
+    # 공지사항류 배너(예: "오늘 하루동안 보지 않기 닫기")는 jQuery UI
+    # dialog가 아니라 그냥 텍스트가 "닫기"인 버튼/링크일 수 있어(실측 확인 -
+    # Escape만으론 안 닫히고 화면에 남아 저장 버튼 클릭까지 먹통으로 만듦)
+    # 별도로도 시도한다.
+    try:
+        generic_close = page.locator('button:has-text("닫기"):visible, a:has-text("닫기"):visible')
+        if generic_close.count() > 0:
+            generic_close.first.click(timeout=3000)
+            page.wait_for_timeout(300)
+    except Exception:
+        pass
+    # 2026-09-14부터 새로 뜨기 시작한 전체화면 공지 배너(예: "문자 발송 2차
+    # 인증 적용 안내") - 닫기가 <span id="close">닫기</span>라 위의
+    # button/a 셀렉터로는 못 잡고, 전체 화면을 덮어 이후 모든 클릭을
+    # 무반응으로 만든다(실측 확인 - 화면관리(유통) 자동화가 이걸로 계속
+    # 조용히 실패했었음). 페이지마다 다시 뜰 수 있어 매번 시도한다.
+    try:
+        notice_close = page.locator("#popup_box1 #close:visible, span#close:visible")
+        if notice_close.count() > 0:
+            notice_close.first.click(force=True, timeout=3000)
+            page.wait_for_timeout(300)
+    except Exception:
+        pass
+
+
 def _normalize_for_match(text: str) -> str:
     """한글/영문/숫자만 남기고 나머지(공백, 대괄호 등 특수문자)는 제거한다.
     오더퀸에 저장된 상품명을 목록에서 다시 찾아 등록 여부를 확인할 때 쓴다
@@ -405,29 +465,7 @@ def update_menu_item(
                 _login(page, login_id, login_pw)
                 _open_menu_list_logged_in()
 
-            def _dismiss_popups() -> None:
-                for _ in range(2):
-                    try:
-                        page.keyboard.press("Escape")
-                        page.wait_for_timeout(300)
-                    except Exception:
-                        pass
-                try:
-                    visible_close = page.locator(".ui-dialog-titlebar-close:visible")
-                    if visible_close.count() > 0:
-                        visible_close.first.click(timeout=3000)
-                        page.wait_for_timeout(300)
-                except Exception:
-                    pass
-                try:
-                    generic_close = page.locator('button:has-text("닫기"):visible, a:has-text("닫기"):visible')
-                    if generic_close.count() > 0:
-                        generic_close.first.click(timeout=3000)
-                        page.wait_for_timeout(300)
-                except Exception:
-                    pass
-
-            _dismiss_popups()
+            _dismiss_popups(page)
             row_info = _search_barcode_row(page, barcode)
             if not row_info:
                 return {
@@ -442,7 +480,7 @@ def update_menu_item(
                 return {"ok": True, "message": "이미 동일한 내용으로 등록되어 있습니다."}
 
             _open_menu_detail(page, row_info["store_no"], row_info["menu_cd"])
-            _dismiss_popups()
+            _dismiss_popups(page)
 
             page.locator("#menuNm").first.fill(menu_name[:40])
             page.locator("#menuFullNm").first.fill(menu_name)
@@ -462,7 +500,7 @@ def update_menu_item(
             # dialog 메시지만 믿지 않고, 목록을 다시 조회해서 실제 표시가로
             # 반영 여부를 직접 확인한다(register_menu_item과 같은 이유).
             page.goto(MENU_LIST_URL, wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
-            _dismiss_popups()
+            _dismiss_popups(page)
             row_info2 = _search_barcode_row(page, barcode)
             if not row_info2:
                 return {"ok": False, "message": combined or "저장 확인에 실패했습니다."}
@@ -568,39 +606,6 @@ def register_menu_item(
                 _login(page, login_id, login_pw)
                 _open_menu_list_logged_in()
 
-            def _dismiss_popups() -> None:
-                """jQuery UI 팝업(예: "사용자 정보" - 비밀번호 3개월 경과 안내,
-                공지사항 등)이 오버레이와 함께 뜨는 경우가 있어 "등록" 버튼
-                클릭을 가로막는다(실측 확인). 같은 클래스(.ui-dialog-titlebar-close)의
-                닫기 버튼이 숨겨진 다른 팝업 것까지 여러 개 있어서 .first로
-                찾으면 엉뚱한(안 보이는) 걸 클릭하게 되므로, jQuery UI 표준
-                닫기 방법인 Escape 키를 먼저 쓴다 - 어떤 팝업이 열려있든
-                범용으로 통한다."""
-                for _ in range(2):
-                    try:
-                        page.keyboard.press("Escape")
-                        page.wait_for_timeout(300)
-                    except Exception:
-                        pass
-                try:
-                    visible_close = page.locator(".ui-dialog-titlebar-close:visible")
-                    if visible_close.count() > 0:
-                        visible_close.first.click(timeout=3000)
-                        page.wait_for_timeout(300)
-                except Exception:
-                    pass
-                # 공지사항류 배너(예: "오늘 하루동안 보지 않기 닫기")는 jQuery
-                # UI dialog가 아니라 그냥 텍스트가 "닫기"인 버튼/링크일 수
-                # 있어(실측 확인 - Escape만으론 안 닫히고 화면에 남아
-                # 저장 버튼 클릭까지 먹통으로 만듦) 별도로도 시도한다.
-                try:
-                    generic_close = page.locator('button:has-text("닫기"):visible, a:has-text("닫기"):visible')
-                    if generic_close.count() > 0:
-                        generic_close.first.click(timeout=3000)
-                        page.wait_for_timeout(300)
-                except Exception:
-                    pass
-
             # 페이지에 id="barcodeNo"가 두 개 있다(하나는 숨김 input, 하나는
             # 등록 모달 안의 실제 입력창 - 실측 확인, 유효하지 않은 HTML이지만
             # 실제로 이렇게 되어 있음). ".content_in_in.detail_in"도 페이지에
@@ -615,7 +620,7 @@ def register_menu_item(
             modal_opened = False
             for attempt in range(3):
                 page.wait_for_timeout(500)
-                _dismiss_popups()
+                _dismiss_popups(page)
                 page.locator('button:has-text("등록"), a:has-text("등록")').first.click(force=True)
                 try:
                     form.locator("#barcodeNo").first.wait_for(state="visible", timeout=6000)
@@ -671,7 +676,7 @@ def register_menu_item(
 
             # 필드를 채우는 동안(특히 select_option의 change 이벤트 등으로)
             # 새 팝업이 뜰 수 있어 저장 직전에 한 번 더 정리한다.
-            _dismiss_popups()
+            _dismiss_popups(page)
 
             dialog_messages.clear()
             # 페이지 전체에는 "저장" 버튼이 여러 개(다른 숨겨진 패널 것까지)
@@ -692,7 +697,7 @@ def register_menu_item(
             dialog_says_fail = any(kw in combined for kw in failure_keywords)
 
             page.goto(MENU_LIST_URL, wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
-            _dismiss_popups()
+            _dismiss_popups(page)
             search_box = page.locator("#schBarcodeNo").first
             search_box.fill(barcode)
             search_box.press("Enter")
@@ -736,6 +741,157 @@ def register_menu_item(
             browser.close()
 
 
+def _find_corner_code(page, corner_name: str) -> str | None:
+    options = page.locator("select#cornerCd option")
+    for i in range(options.count()):
+        o = options.nth(i)
+        if (o.text_content() or "").strip() == corner_name:
+            return o.get_attribute("value")
+    return None
+
+
+def _barcode_in_current_corner(page, barcode: str) -> bool:
+    """지금 코너 필터가 적용된 화면관리(유통) 목록에서 이 바코드가 이미
+    있는지 확인한다(호출 전에 select#cornerCd를 원하는 코너로 맞춰둬야 함)."""
+    page.locator('#FrmSearch input[name="barcodeNo"]').fill(barcode)
+    page.locator("#btn-search").first.click(force=True)
+    page.wait_for_timeout(1000)
+    return barcode in page.inner_text("#innerHtmlDiv")
+
+
+def push_menu_item_to_kiosk_screen(
+    login_id: str, login_pw: str, barcode: str, store_id: str | None = None,
+) -> dict:
+    """메뉴관리(MNU01020/1021)에 등록/수정한 상품을 실제 매장 키오스크
+    화면에도 반영한다("화면관리(유통)" - MNU02030.itp). 오더퀸 모바일 앱으로
+    신제품을 등록하면 이 둘을 한 번에 처리해주지만, PC 화면(그리고 이걸
+    자동화하는 이 봇)으로 등록하면 메뉴관리만 반영되고 화면관리(유통)는
+    그대로 비어있어서, 매장 키오스크에서 바코드를 스캔해도 인식되지 않는
+    문제가 있었다(실측 확인·사용자 확인). register_menu_item/update_menu_item
+    으로 메뉴를 저장한 뒤 반드시 이 함수도 같이 불러야 한다.
+
+    이미 그 코너에 등록되어 있으면(예: update_menu_item으로 기존 상품
+    가격만 바꾼 경우) 아무 것도 하지 않고 성공으로 돌려준다 - 재등록해도
+    오더퀸이 별 문제 없이 받아주는 것으로 보이지만(실측), 굳이 매번 다시
+    등록할 이유가 없다."""
+    vendor_id = "orderqueen"
+
+    with browser_limit.browser_semaphore, sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        )
+        try:
+            cached_state = vendors.get_session_state(store_id, vendor_id) if store_id else None
+            context = browser.new_context(storage_state=cached_state) if cached_state else browser.new_context()
+            page = context.new_page()
+            _block_heavy_resources(page)
+
+            dialog_messages: list[str] = []
+
+            def _on_dialog(dialog):
+                dialog_messages.append(dialog.message)
+                dialog.accept()
+
+            page.on("dialog", _on_dialog)
+
+            def _open_screen_page_logged_in() -> bool:
+                page.goto(SCREEN_MANAGEMENT_URL, wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+                if "login.itp" in page.url:
+                    return False
+                page.wait_for_selector("select#cornerCd", timeout=15000)
+                return True
+
+            if cached_state:
+                logged_in = _open_screen_page_logged_in()
+                if not logged_in:
+                    context.clear_cookies()
+                    _login(page, login_id, login_pw)
+                    _open_screen_page_logged_in()
+                    cached_state = None
+            else:
+                _login(page, login_id, login_pw)
+                _open_screen_page_logged_in()
+
+            page.wait_for_timeout(500)
+            _dismiss_popups(page)
+
+            corner_cd = _find_corner_code(page, KIOSK_SCREEN_CORNER_NAME)
+            if not corner_cd:
+                return {
+                    "ok": False,
+                    "message": f"'{KIOSK_SCREEN_CORNER_NAME}' 코너를 찾을 수 없습니다. 코너관리에서 먼저 만들어주세요.",
+                }
+
+            page.locator("select#cornerCd").select_option(corner_cd)
+            page.wait_for_timeout(800)
+            _dismiss_popups(page)
+
+            if _barcode_in_current_corner(page, barcode):
+                if store_id:
+                    vendors.save_session_state(store_id, vendor_id, context.storage_state())
+                return {"ok": True, "message": "이미 화면(키오스크)에 등록되어 있습니다.", "already": True}
+
+            page.locator(".btn-add").first.click(force=True)
+            page.wait_for_timeout(1000)  # 모달의 초기 자동검색(필터 없음) 완료 대기 - 아래서 필터링된 결과로 덮어씀
+            page.locator("#pop-menu-add #schType").select_option("S")
+
+            # 모달의 후보 목록은 AJAX로 갱신되는데, 고정 대기시간만 믿고
+            # 체크박스를 누르면 아직 안 바뀐 이전(필터 전) 목록의 엉뚱한
+            # 행을 눌러 완전히 다른 상품을 코너에 등록하게 되는 사고가
+            # 실측으로 발생했다 - 반드시 검색 응답 자체를 기다린 뒤,
+            # 실제로 화면에 뜬 행의 바코드가 우리가 찾는 바코드와 일치하는지
+            # 한 번 더 확인하고서만 체크한다.
+            with page.expect_response(lambda r: "MNU04011_AmLST" in r.url, timeout=15000):
+                page.locator("#pop-menu-add #barcodeNo").fill(barcode)
+                page.locator("#btn-menu-search").first.click(force=True)
+            page.wait_for_timeout(500)
+
+            rows = page.locator("#tbl-add tbody tr.fnClickRow")
+            if rows.count() == 0:
+                try:
+                    page.evaluate("$('#pop-menu-add').dialog('close')")
+                except Exception:
+                    pass
+                return {
+                    "ok": False,
+                    "message": "메뉴관리에서 이 바코드를 찾지 못했습니다(먼저 메뉴 등록이 필요합니다).",
+                }
+
+            row = rows.first
+            row_barcode = (row.locator(".barcode-no").first.inner_text() or "").strip()
+            if row_barcode != barcode:
+                try:
+                    page.evaluate("$('#pop-menu-add').dialog('close')")
+                except Exception:
+                    pass
+                return {"ok": False, "message": f"검색 결과 바코드 불일치(찾음: {row_barcode!r}) - 등록을 건너뜁니다."}
+
+            row.locator('input[name="menuCd"]').click(force=True, timeout=8000)
+
+            dialog_messages.clear()
+            page.locator("#btn-add-reg").first.click(force=True, timeout=8000)
+            page.wait_for_timeout(1500)
+            combined = " ".join(dialog_messages)
+
+            try:
+                page.evaluate("$('#pop-menu-add').dialog('close')")
+            except Exception:
+                pass
+            page.wait_for_timeout(300)
+
+            verified = _barcode_in_current_corner(page, barcode)
+
+            if store_id and verified:
+                vendors.save_session_state(store_id, vendor_id, context.storage_state())
+
+            if not verified:
+                return {"ok": False, "message": combined or "화면(키오스크) 등록 확인에 실패했습니다."}
+            return {"ok": True, "message": combined or "화면(키오스크)에 등록되었습니다."}
+        finally:
+            browser.close()
+
+
 def register_or_update_menu_item(
     login_id: str, login_pw: str, barcode: str, menu_name: str, sale_price: int, class_cd: str,
     store_id: str | None = None, class_name: str | None = None,
@@ -745,14 +901,35 @@ def register_or_update_menu_item(
     바코드면 그대로 처리되고, "not_found"면 아직 등록 안 된 것이므로
     register_menu_item으로 새로 등록한다. 대부분의 재등록 시도(이미 있는
     상품을 수정만 하는 경우)는 로그인 세션 하나로 끝나고, 정말 신규인
-    경우에만 두 번째 세션(등록 폼)이 추가로 열린다."""
+    경우에만 두 번째 세션(등록 폼)이 추가로 열린다.
+
+    메뉴관리 저장이 성공하면 반드시 push_menu_item_to_kiosk_screen도 이어서
+    호출한다 - 메뉴관리(서버)만 반영되고 화면관리(유통)(실제 매장 키오스크
+    기기)는 비어있는 채로 남아, 점주가 앱에서 등록을 마쳤다고 믿어도 정작
+    매장에서 바코드를 스캔하면 인식이 안 되는 문제가 있었다(사용자 확인).
+    화면(키오스크) 등록까지 실패하면 메뉴 자체는 저장됐어도 실사용이
+    안 되는 상태이므로 전체를 실패로 보고한다."""
     update_result = update_menu_item(login_id, login_pw, barcode, menu_name, sale_price, store_id=store_id)
-    if not update_result.get("not_found"):
-        return update_result
-    return register_menu_item(
-        login_id, login_pw, barcode=barcode, menu_name=menu_name, sale_price=sale_price,
-        class_cd=class_cd, store_id=store_id, class_name=class_name,
-    )
+    if update_result.get("not_found"):
+        menu_result = register_menu_item(
+            login_id, login_pw, barcode=barcode, menu_name=menu_name, sale_price=sale_price,
+            class_cd=class_cd, store_id=store_id, class_name=class_name,
+        )
+    else:
+        menu_result = update_result
+
+    if not menu_result.get("ok"):
+        return menu_result
+
+    screen_result = push_menu_item_to_kiosk_screen(login_id, login_pw, barcode, store_id=store_id)
+    if not screen_result.get("ok"):
+        return {
+            "ok": False,
+            "message": f"{menu_result.get('message', '')} (메뉴 저장은 완료됐지만 매장 화면(키오스크) 등록에 실패했습니다: {screen_result.get('message', '')})",
+        }
+    if screen_result.get("already"):
+        return menu_result
+    return {"ok": True, "message": f"{menu_result.get('message', '')} · 매장 화면(키오스크)에도 반영했습니다."}
 
 
 def register_or_update_menu_item_with_retry(
