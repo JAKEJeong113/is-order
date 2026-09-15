@@ -191,6 +191,11 @@ def init_table(pt: ProductType) -> None:
         cur.execute(f"ALTER TABLE {pt.table_name} ADD COLUMN pending_price INTEGER")
     if "pending_count" not in existing_cols:
         cur.execute(f"ALTER TABLE {pt.table_name} ADD COLUMN pending_count INTEGER NOT NULL DEFAULT 0")
+    if "coupang_product_id" not in existing_cols:
+        # 가격 재확인 시 이름 유사도 대신 쿠팡 상품 고유 ID로 "진짜 같은
+        # 상품인지" 정확히 대조하기 위한 값(snapshot_prices 참고). 기존
+        # 행은 다음 가격 확인 때 자연히 채워진다(마이그레이션 백필 불필요).
+        cur.execute(f"ALTER TABLE {pt.table_name} ADD COLUMN coupang_product_id TEXT")
 
     conn.commit()
     conn.close()
@@ -226,6 +231,12 @@ def init_price_tracking_tables() -> None:
         status TEXT NOT NULL DEFAULT 'pending'
     )
     """)
+    existing_alert_cols = {row[1] for row in cur.execute("PRAGMA table_info(pending_price_alerts)").fetchall()}
+    if "match_method" not in existing_alert_cols:
+        # 'product_id'(쿠팡 상품 고유 ID로 정확히 대조된 확정 매칭) vs
+        # 'similarity'(이름 유사도 + 다중 확인 통과) - 나중에 핫딜 위젯이
+        # "대표님 승인 없이 즉시 노출해도 되는 알림"을 구분하는 데 쓴다.
+        cur.execute("ALTER TABLE pending_price_alerts ADD COLUMN match_method TEXT NOT NULL DEFAULT 'similarity'")
     conn.commit()
     conn.close()
 
@@ -295,8 +306,22 @@ def _make_authorization(method: str, path: str, query: str, access_key: str, sec
     return f"CEA algorithm=HmacSHA256, access-key={access_key}, signed-date={signed_date}, signature={signature}"
 
 
-def search_coupang_product(keyword: str) -> dict | None:
-    """검색어로 쿠팡 상품을 검색해서 1순위 상품의 이미지/가격/상품 URL을 가져온다."""
+def _parse_coupang_product(raw: dict) -> dict:
+    return {
+        "product_id": raw.get("productId"),
+        "image_url": raw.get("productImage"),
+        "price": raw.get("productPrice"),
+        "reference_url": raw.get("productUrl"),
+        "product_name": raw.get("productName"),
+    }
+
+
+def _fetch_coupang_products(keyword: str, limit: int = 1) -> list[dict]:
+    """검색어로 쿠팡 상품을 검색해서 상위 limit개를 그대로 돌려준다(빈 결과면
+    빈 리스트). 응답의 productId는 쿠팡이 매기는 상품 고유 식별자라(실측
+    확인: 같은 검색이라도 재검색 때마다 순위가 바뀔 수 있는 productName과
+    달리, 같은 상품이면 항상 같은 값) - 이름 유사도보다 훨씬 확실하게 "같은
+    상품인지"를 판단하는 데 쓴다(snapshot_prices 참고)."""
     if not CP_ACCESS_KEY or not CP_SECRET_KEY:
         raise RuntimeError("CP_ACCESS_KEY / CP_SECRET_KEY 환경변수가 설정되지 않았습니다.")
 
@@ -306,7 +331,7 @@ def search_coupang_product(keyword: str) -> dict | None:
             "실제 쿠팡 한도(분당 50회) 초과를 막기 위해 이번 호출은 건너뜁니다."
         )
 
-    query = urlencode({"keyword": keyword, "limit": "1"})
+    query = urlencode({"keyword": keyword, "limit": str(limit)})
     authorization = _make_authorization("GET", CP_SEARCH_PATH, query, CP_ACCESS_KEY, CP_SECRET_KEY)
 
     resp = requests.get(
@@ -322,16 +347,25 @@ def search_coupang_product(keyword: str) -> dict | None:
         raise RuntimeError(f"쿠팡 상품검색 실패: {result}")
 
     products = (result.get("data") or {}).get("productData") or []
-    if not products:
-        return None
+    return [_parse_coupang_product(p) for p in products]
 
-    top = products[0]
-    return {
-        "image_url": top.get("productImage"),
-        "price": top.get("productPrice"),
-        "reference_url": top.get("productUrl"),
-        "product_name": top.get("productName"),
-    }
+
+def search_coupang_product(keyword: str) -> dict | None:
+    """검색어로 쿠팡 상품을 검색해서 1순위 상품의 이미지/가격/상품 URL을 가져온다."""
+    products = _fetch_coupang_products(keyword, limit=1)
+    return products[0] if products else None
+
+
+# snapshot_prices가 productId 대조에 쓸 후보 개수. 너무 크면 API 응답이
+# 무거워지고, 너무 작으면 실제로 같은 상품인데 검색 순위가 밀려나 있을 때
+# 못 찾아 매번 폴백(이름 유사도)으로 떨어진다 - 적당히 여유를 둔다.
+PRICE_CHECK_ID_MATCH_CANDIDATES = 10
+
+
+def search_coupang_products_for_price_check(keyword: str) -> list[dict]:
+    """snapshot_prices 전용 - ID 대조용 후보와 기존 이름 유사도 폴백에 쓸
+    1순위 결과를 한 번의 API 호출로 같이 얻는다."""
+    return _fetch_coupang_products(keyword, limit=PRICE_CHECK_ID_MATCH_CANDIDATES)
 
 
 def refresh_products(pt: ProductType, limit: int | None = None) -> dict:
@@ -394,8 +428,8 @@ def refresh_products(pt: ProductType, limit: int | None = None) -> dict:
         # 추적 태그가 붙은 링크로 나온다 - 별도 딥링크 변환 없이 reference_url을
         # 그대로 partners_link로 써도 이미 수익 추적이 된다.
         cur.execute(f"""
-        INSERT INTO {pt.table_name} (item_key, item_name, image_url, price, reference_url, partners_link, click_count, image_refreshed_at, link_refreshed_at)
-        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+        INSERT INTO {pt.table_name} (item_key, item_name, image_url, price, reference_url, partners_link, click_count, image_refreshed_at, link_refreshed_at, coupang_product_id)
+        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
         ON CONFLICT(item_key) DO UPDATE SET
             item_name=excluded.item_name,
             image_url=excluded.image_url,
@@ -403,8 +437,13 @@ def refresh_products(pt: ProductType, limit: int | None = None) -> dict:
             reference_url=excluded.reference_url,
             partners_link=excluded.partners_link,
             image_refreshed_at=excluded.image_refreshed_at,
-            link_refreshed_at=excluded.link_refreshed_at
-        """, (item_key, entry.menu_name, result["image_url"], result["price"], result["reference_url"], result["reference_url"], now, now))
+            link_refreshed_at=excluded.link_refreshed_at,
+            coupang_product_id=excluded.coupang_product_id
+        """, (
+            item_key, entry.menu_name, result["image_url"], result["price"], result["reference_url"],
+            result["reference_url"], now, now,
+            str(result["product_id"]) if result.get("product_id") is not None else None,
+        ))
         conn.commit()
         saved += 1
         time.sleep(SEARCH_DELAY_SECONDS)
@@ -604,7 +643,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(f"""
-    SELECT item_key, item_name, price, pending_price, pending_count FROM {pt.table_name}
+    SELECT item_key, item_name, price, pending_price, pending_count, coupang_product_id FROM {pt.table_name}
     WHERE reference_url IS NOT NULL AND deleted = 0
     ORDER BY price_checked_at ASC NULLS FIRST
     LIMIT ?
@@ -617,13 +656,13 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     new_lows = []
     now = datetime.now().isoformat(timespec="seconds")
 
-    for item_key, stored_name, stored_price, pending_price, pending_count in targets:
+    for item_key, stored_name, stored_price, pending_price, pending_count, stored_product_id in targets:
         entry = catalog.get(item_key)
         keyword = (entry.search_keyword or entry.menu_name) if entry else stored_name
         checked += 1
 
         try:
-            result = search_coupang_product(keyword)
+            candidates = search_coupang_products_for_price_check(keyword)
         except CoupangRateLimitError as e:
             print(f"[PRODUCT_RANKING:{pt.key}] 가격 조회 중 API 한도 초과, 이번 배치 중단: {e}")
             rate_limited = True
@@ -639,48 +678,72 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
         # 항목에서 계속 걸려서 뒤쪽 항목들이 영영 갱신 안 됨.
         cur.execute(f"UPDATE {pt.table_name} SET price_checked_at = ? WHERE item_key = ?", (now, item_key))
 
-        if not result or not result.get("price"):
+        if not candidates:
+            conn.commit()
+            time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
+            continue
+
+        # 저장된 productId와 정확히 일치하는 후보가 있으면 "진짜 같은 상품"임이
+        # 확정된다 - 재검색 때마다 순위가 바뀌거나 이름이 미묘하게 다르게
+        # 나와도(실측: 짧은 카탈로그 이름 특성상 유사도만으론 헐거움) 흔들리지
+        # 않는 판단 근거라, 이름 유사도/다중확인 없이 바로 신뢰한다.
+        id_match = None
+        if stored_product_id:
+            id_match = next(
+                (c for c in candidates if c.get("product_id") is not None and str(c["product_id"]) == stored_product_id),
+                None,
+            )
+
+        result = id_match or candidates[0]
+        if not result.get("price"):
             conn.commit()
             time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
             continue
 
         found_name = result.get("product_name") or ""
         new_price = result["price"]
-        sim = product_match.similarity(stored_name or "", found_name)
+        match_method = "product_id" if id_match else "similarity"
 
-        threshold = PRICE_CHECK_SIMILARITY_THRESHOLD
-        is_deviant = False
-        is_extreme = False
-        if stored_price and new_price:
-            ratio = new_price / stored_price
-            is_deviant = ratio < PRICE_CHECK_DEVIATION_LOW_RATIO or ratio > PRICE_CHECK_DEVIATION_HIGH_RATIO
-            is_extreme = ratio < PRICE_CHECK_EXTREME_DEVIATION_RATIO
-            if is_deviant:
-                threshold = PRICE_CHECK_STRICT_SIMILARITY_THRESHOLD
+        if id_match:
+            required_confirmations = 1
+        else:
+            sim = product_match.similarity(stored_name or "", found_name)
 
-        if sim < threshold:
-            print(f"[PRODUCT_RANKING:{pt.key}] {item_key!r} 재검색 결과가 다른 상품/판매단위로 의심됨"
-                  f"(저장된 이름={stored_name!r}, 저장가={stored_price}, 검색결과={found_name!r}, "
-                  f"검색가={new_price}, 유사도={sim:.2f}, 기준={threshold}) - 가격 기록 건너뜀")
-            conn.commit()
-            time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
-            continue
+            threshold = PRICE_CHECK_SIMILARITY_THRESHOLD
+            is_deviant = False
+            is_extreme = False
+            if stored_price and new_price:
+                ratio = new_price / stored_price
+                is_deviant = ratio < PRICE_CHECK_DEVIATION_LOW_RATIO or ratio > PRICE_CHECK_DEVIATION_HIGH_RATIO
+                is_extreme = ratio < PRICE_CHECK_EXTREME_DEVIATION_RATIO
+                if is_deviant:
+                    threshold = PRICE_CHECK_STRICT_SIMILARITY_THRESHOLD
 
-        # 상품명 유사도만으로는 "같은 브랜드/맛인데 낱개/묶음처럼 판매단위가
-        # 다른 상품"을 걸러내지 못하는 사례가 실측으로 확인됐다(짧은 검색결과
-        # 이름이 우연히 저장된 이름과 완전히 같아 유사도가 1.0으로 나오는 경우
-        # 등). 그래서 가격이 크게 벌어졌을 때는 유사도가 아무리 높아도 한 번에
-        # 확정하지 않고, 같은 가격이 연속으로 재확인돼야 실제 가격 변동으로
-        # 인정한다. 다만 2026-07-29 실측으로, "검색어가 다른 상품/판매단위로
-        # 안정적으로 재매칭된" 경우 2회 연속 확인 정도는 쉽게 통과한다는 걸
-        # 확인했다(빼빼로 화이트쿠키 81% 하락, 오징어땅콩 83% 하락 등이 실제로
-        # 이 경로로 통과해 발송됨) - 하락폭이 클수록(60%+) 우연이 아니라 안정적인
-        # 오탐일 가능성이 크다고 보고 요구 확인 횟수를 3회로 늘린다.
-        required_confirmations = (
-            PRICE_CHECK_EXTREME_CONFIRMATIONS_REQUIRED if is_extreme
-            else PRICE_CHECK_CONFIRMATIONS_REQUIRED if is_deviant
-            else 1
-        )
+            if sim < threshold:
+                print(f"[PRODUCT_RANKING:{pt.key}] {item_key!r} 재검색 결과가 다른 상품/판매단위로 의심됨"
+                      f"(저장된 이름={stored_name!r}, 저장가={stored_price}, 검색결과={found_name!r}, "
+                      f"검색가={new_price}, 유사도={sim:.2f}, 기준={threshold}) - 가격 기록 건너뜀")
+                conn.commit()
+                time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
+                continue
+
+            # 상품명 유사도만으로는 "같은 브랜드/맛인데 낱개/묶음처럼 판매단위가
+            # 다른 상품"을 걸러내지 못하는 사례가 실측으로 확인됐다(짧은 검색결과
+            # 이름이 우연히 저장된 이름과 완전히 같아 유사도가 1.0으로 나오는 경우
+            # 등). 그래서 가격이 크게 벌어졌을 때는 유사도가 아무리 높아도 한 번에
+            # 확정하지 않고, 같은 가격이 연속으로 재확인돼야 실제 가격 변동으로
+            # 인정한다. 다만 2026-07-29 실측으로, "검색어가 다른 상품/판매단위로
+            # 안정적으로 재매칭된" 경우 2회 연속 확인 정도는 쉽게 통과한다는 걸
+            # 확인했다(빼빼로 화이트쿠키 81% 하락, 오징어땅콩 83% 하락 등이 실제로
+            # 이 경로로 통과해 발송됨) - 하락폭이 클수록(60%+) 우연이 아니라 안정적인
+            # 오탐일 가능성이 크다고 보고 요구 확인 횟수를 3회로 늘린다.
+            # (id_match가 없을 때만 이 다중확인 절차를 거친다 - productId로
+            # 확정된 경우는 애초에 이런 오탐이 구조적으로 불가능하다.)
+            required_confirmations = (
+                PRICE_CHECK_EXTREME_CONFIRMATIONS_REQUIRED if is_extreme
+                else PRICE_CHECK_CONFIRMATIONS_REQUIRED if is_deviant
+                else 1
+            )
 
         if required_confirmations > 1:
             confirmed_count = (pending_count or 0) + 1 if pending_price == new_price else 1
@@ -708,15 +771,26 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
             "INSERT INTO price_history (product_type, item_key, price, recorded_at) VALUES (?, ?, ?, ?)",
             (pt.key, item_key, new_price, now),
         )
-        cur.execute(f"UPDATE {pt.table_name} SET price = ? WHERE item_key = ?", (new_price, item_key))
+        # 이번에 실제로 신뢰하고 쓴 결과의 productId로 갱신/백필한다 - 처음
+        # 매칭 때는 없었거나(기존 행) id_match가 아니었던 행도, 유사도 검증을
+        # 통과한 안전한 시점에 채워둬서 다음 확인부터는 ID 경로를 탈 수 있게
+        # 한다.
+        new_product_id = str(result["product_id"]) if result.get("product_id") is not None else stored_product_id
+        cur.execute(
+            f"UPDATE {pt.table_name} SET price = ?, coupang_product_id = ? WHERE item_key = ?",
+            (new_price, new_product_id, item_key),
+        )
         recorded += 1
 
         if prior_low is not None and new_price < prior_low:
             cur.execute("""
-            INSERT INTO pending_price_alerts (product_type, item_key, item_name, old_low, new_price, created_at, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending')
-            """, (pt.key, item_key, stored_name, prior_low, new_price, now))
-            new_lows.append({"item_key": item_key, "item_name": stored_name, "old_low": prior_low, "new_price": new_price})
+            INSERT INTO pending_price_alerts (product_type, item_key, item_name, old_low, new_price, created_at, status, match_method)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+            """, (pt.key, item_key, stored_name, prior_low, new_price, now, match_method))
+            new_lows.append({
+                "item_key": item_key, "item_name": stored_name, "old_low": prior_low,
+                "new_price": new_price, "match_method": match_method,
+            })
 
         conn.commit()
         time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
@@ -747,7 +821,7 @@ def list_recent_price_alerts(limit: int = 200) -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT id, product_type, item_key, item_name, old_low, new_price, created_at, status
+    SELECT id, product_type, item_key, item_name, old_low, new_price, created_at, status, match_method
     FROM pending_price_alerts ORDER BY id DESC LIMIT ?
     """, (limit,))
     rows = cur.fetchall()
@@ -756,6 +830,7 @@ def list_recent_price_alerts(limit: int = 200) -> list[dict]:
         {
             "id": r[0], "product_type": r[1], "item_key": r[2], "item_name": r[3],
             "old_low": r[4], "new_price": r[5], "created_at": r[6], "status": r[7],
+            "match_method": r[8],
         }
         for r in rows
     ]
