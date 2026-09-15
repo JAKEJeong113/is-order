@@ -37,9 +37,18 @@ yamimall_bot 사용). 플랫폼마다 바코드가 저장된 필드명과 크롤
   - 이미 있고 값이 채워져 있는데, 이번 결과가 "계산값"뿐이라면 -> 안 건드리고
     건너뛴다(관리자가 손댔을 수 있는 값을 추정치로 덮지 않는다).
 
+특정 (바코드, 도매처) 조합 배제(catalog_import_source_exclusions 테이블):
+  도매처가 상품 상세페이지에 바코드를 잘못 기재해둔 경우(실측: 또요몰에서
+  실제 78g 상품 페이지에 100g 상품의 바코드가 오기되어 있어, 그 바코드의
+  추천판매가가 엉뚱한 용량 기준으로 계속 덮어써짐 - 8801062870462 사례)
+  대비용. 크롤링 후보 수집 단계(_collect_vendor_candidates)에서 걸러내서
+  이후 병합 로직에 아예 도달하지 않는다 - 도매처 자체를 막는 게 아니라
+  그 상품 하나만 이 도매처 출처를 안 믿는다는 뜻.
+
 실행:
   python catalog_auto_import.py ccdome [--limit 20]   # 도매처 하나만
   python catalog_auto_import.py --all [--limit 20]    # DEFAULT_VENDORS 전체
+  python catalog_auto_import.py --exclude-source 8801062870462 douyou --reason "..."
 """
 import argparse
 import re
@@ -78,6 +87,65 @@ _PACK_SUFFIX_RE = re.compile(r"\s*\(1(?:타|묶음|박스?)\s*\d+\s*개입\)\s*$
 # 이 스크립트가 만들거나 채운 상품은 전부 "도매몰" 카테고리(main.py의
 # is_coupang 필드 정의: 0=아이스크림,1=쿠팡,2=도매몰,3=문구완구,99=미분류).
 CATEGORY_WHOLESALE = 2
+
+
+def init_import_exclusions_table() -> None:
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS catalog_import_source_exclusions (
+            barcode TEXT NOT NULL,
+            vendor_id TEXT NOT NULL,
+            reason TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (barcode, vendor_id)
+        )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def add_import_exclusion(barcode: str, vendor_id: str, reason: str = "") -> None:
+    """이 (바코드, 도매처) 조합을 이후 크롤링 결과 병합에서 영구히 제외한다.
+    이미 등록돼있으면 사유만 갱신한다."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO catalog_import_source_exclusions (barcode, vendor_id, reason, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(barcode, vendor_id) DO UPDATE SET reason=excluded.reason, created_at=excluded.created_at
+            """,
+            (barcode, vendor_id, reason, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_import_exclusions() -> list[dict]:
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT barcode, vendor_id, reason, created_at FROM catalog_import_source_exclusions ORDER BY created_at DESC")
+        rows = cur.fetchall()
+        return [{"barcode": r[0], "vendor_id": r[1], "reason": r[2], "created_at": r[3]} for r in rows]
+    finally:
+        conn.close()
+
+
+def _load_excluded_pairs() -> set[tuple[str, str]]:
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT barcode, vendor_id FROM catalog_import_source_exclusions")
+        return {(r[0], r[1]) for r in cur.fetchall()}
+    finally:
+        conn.close()
 
 
 def _crawl_vendor_products(
@@ -248,7 +316,11 @@ def _collect_vendor_candidates(vendor_id: str, limit: int | None, on_candidate=N
         raise RuntimeError(f"{vendor_id} 로그인 정보가 없습니다 (vendor_credentials에 등록 필요)")
     login_id, login_pwd = creds
 
+    excluded = _load_excluded_pairs()
+
     def _on_raw_item(p: dict) -> None:
+        if (p["barcode"], vendor_id) in excluded:
+            return
         if on_candidate is not None:
             on_candidate(_to_candidate(p, meta["name"]))
 
@@ -259,7 +331,7 @@ def _collect_vendor_candidates(vendor_id: str, limit: int | None, on_candidate=N
     )
     print(f"[CATALOG_IMPORT] {meta['name']} 유효한 바코드가 확인된 상품 {len(products)}개 수집 완료")
 
-    return [_to_candidate(p, meta["name"]) for p in products]
+    return [_to_candidate(p, meta["name"]) for p in products if (p["barcode"], vendor_id) not in excluded]
 
 
 def _write_winners(by_barcode: dict[str, list[dict]]) -> dict:
@@ -389,7 +461,20 @@ if __name__ == "__main__":
              "특정 도매처가 일시적으로 막혀있을 때 그것만 빼고 돌리는 용도.",
     )
     parser.add_argument("--limit", type=int, default=None, help="테스트용 상품 수 제한(도매처별)")
+    parser.add_argument(
+        "--exclude-source", nargs=2, metavar=("BARCODE", "VENDOR_ID"),
+        help="이 바코드는 이 도매처(예: douyou) 결과를 이후 자동등록에서 영구히 무시 "
+             "(도매처가 바코드를 잘못 기재해둔 경우 등). --reason과 같이 쓰면 사유도 남긴다.",
+    )
+    parser.add_argument("--reason", type=str, default="", help="--exclude-source와 같이 쓰는 배제 사유")
     args = parser.parse_args()
+
+    if args.exclude_source:
+        init_import_exclusions_table()
+        barcode, vendor_id = args.exclude_source
+        add_import_exclusion(barcode, vendor_id, args.reason)
+        print(f"[CATALOG_IMPORT] 배제 등록 완료: 바코드 {barcode} / 도매처 {vendor_id} (사유: {args.reason or '(없음)'})")
+        raise SystemExit(0)
 
     if args.vendors:
         vendor_ids = tuple(v.strip() for v in args.vendors.split(",") if v.strip())
