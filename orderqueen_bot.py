@@ -750,6 +750,22 @@ def _find_corner_code(page, corner_name: str) -> str | None:
     return None
 
 
+def _find_first_real_corner_code(page) -> str | None:
+    """"상품"이라는 이름의 코너가 없는 매장도 있다(실측: 텔레그램 오류 알림
+    으로 확인 - 코너 이름은 매장이 코너관리에서 직접 짓는 값이라 class_cd
+    처럼 매장마다 다를 수 있음). 값이 없는 첫 옵션("전체")은 실제 코너가
+    아니라 "필터 없음"을 뜻하는 항목이라 등록 자체가 안 되므로(오더퀸
+    자체 검증: "코너명이 전체일 경우 메뉴등록을 할 수 없습니다") 반드시
+    제외하고, 그 다음 첫 번째 실제 코너를 쓴다."""
+    options = page.locator("select#cornerCd option")
+    for i in range(options.count()):
+        o = options.nth(i)
+        value = (o.get_attribute("value") or "").strip()
+        if value:
+            return value
+    return None
+
+
 def _barcode_in_current_corner(page, barcode: str) -> bool:
     """지금 코너 필터가 적용된 화면관리(유통) 목록에서 이 바코드가 이미
     있는지 확인한다(호출 전에 select#cornerCd를 원하는 코너로 맞춰둬야 함)."""
@@ -818,9 +834,14 @@ def push_menu_item_to_kiosk_screen(
 
             corner_cd = _find_corner_code(page, KIOSK_SCREEN_CORNER_NAME)
             if not corner_cd:
+                # "상품"이라는 이름의 코너가 없는 매장 - 코너 이름은 매장마다
+                # 다르게 지을 수 있어서(실측 확인) "전체"(필터 없음, 등록
+                # 불가)만 제외하고 실제로 존재하는 첫 코너를 대신 쓴다.
+                corner_cd = _find_first_real_corner_code(page)
+            if not corner_cd:
                 return {
                     "ok": False,
-                    "message": f"'{KIOSK_SCREEN_CORNER_NAME}' 코너를 찾을 수 없습니다. 코너관리에서 먼저 만들어주세요.",
+                    "message": "등록 가능한 코너를 찾을 수 없습니다. 코너관리에서 먼저 코너를 만들어주세요.",
                 }
 
             page.locator("select#cornerCd").select_option(corner_cd)
