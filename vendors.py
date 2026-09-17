@@ -390,13 +390,16 @@ def list_store_vendor_accounts(store_id: str, vendor_id: str) -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT id, nickname, is_default FROM store_vendor_credentials
+    SELECT id, nickname, is_default, sales_data_consent FROM store_vendor_credentials
     WHERE store_id = ? AND vendor_id = ?
     ORDER BY is_default DESC, id ASC
     """, (store_id, vendor_id))
     rows = cur.fetchall()
     conn.close()
-    return [{"id": r[0], "nickname": r[1], "is_default": bool(r[2])} for r in rows]
+    return [
+        {"id": r[0], "nickname": r[1], "is_default": bool(r[2]), "sales_data_consent": bool(r[3])}
+        for r in rows
+    ]
 
 
 def delete_store_vendor_account(store_id: str, vendor_id: str, account_id: int) -> bool:

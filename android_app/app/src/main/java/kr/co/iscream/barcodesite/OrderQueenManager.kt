@@ -8,7 +8,10 @@ import java.net.URL
 import java.util.UUID
 
 /** 등록된 오더퀸 계정 하나(계정명만 - 아이디/비밀번호는 목록 조회에 안 실림). */
-data class OqAccount(val id: Int, val nickname: String, val isDefault: Boolean)
+data class OqAccount(
+    val id: Int, val nickname: String, val isDefault: Boolean,
+    val salesDataConsent: Boolean = false,
+)
 
 /** 계정 하나에 대한 등록 시도 결과 - "모든 계정에 추가"로 여러 계정을
  * 골랐을 때 계정별로 성공/실패가 다를 수 있어 따로 담는다. */
@@ -103,7 +106,10 @@ object OrderQueenManager {
             val arr = res.optJSONArray("accounts") ?: org.json.JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                OqAccount(o.getInt("id"), o.getString("nickname"), o.optBoolean("is_default", false))
+                OqAccount(
+                    o.getInt("id"), o.getString("nickname"), o.optBoolean("is_default", false),
+                    o.optBoolean("sales_data_consent", false),
+                )
             }
         } catch (e: Exception) {
             emptyList()
@@ -123,12 +129,37 @@ object OrderQueenManager {
             .put("login_pwd", loginPwd)
             .put("sales_data_consent", salesDataConsent)
         return try {
-            val res = request("/api/oq-app/credentials", "POST", body)
+            // 저장 전에 서버가 실제로 오더퀸 로그인을 시도해 아이디/비밀번호를
+            // 확인한다(실측: 성공 약 5초, 틀린 비밀번호 등 실패는 재시도
+            // 대기 때문에 최대 20초 가까이 걸림) - 기본 20초 타임아웃으로는
+            // 실패 응답이 오기 직전에 클라이언트가 먼저 타임아웃날 수 있어
+            // 여유를 둔다.
+            val res = request("/api/oq-app/credentials", "POST", body, readTimeoutMs = 30000)
             if (res.optBoolean("ok", false)) {
                 setEnabledLocally(context, true)
                 Result.success(res.optInt("account_id"))
             } else {
                 Result.failure(Exception(res.optString("message", "저장에 실패했습니다.")))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** 이미 등록된 계정의 "판매 데이터 활용" 동의를 나중에 바꾼다(이 동의
+     * 항목이 생기기 전에 이미 계정을 등록해둔 사용자용 - 설정 화면에서
+     * 계정별로 토글). */
+    fun setSalesDataConsent(context: Context, accountId: Int, consent: Boolean): Result<Unit> {
+        val body = JSONObject()
+            .put("device_id", getDeviceId(context))
+            .put("account_id", accountId)
+            .put("sales_data_consent", consent)
+        return try {
+            val res = request("/api/oq-app/credentials/consent", "POST", body)
+            if (res.optBoolean("ok", false)) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception(res.optString("message", "변경에 실패했습니다.")))
             }
         } catch (e: Exception) {
             Result.failure(e)

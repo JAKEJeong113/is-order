@@ -135,10 +135,13 @@ object OrderQueenDialogs {
             listContainer.removeAllViews()
             emptyHint.visibility = if (accounts.isEmpty()) View.VISIBLE else View.GONE
             accounts.forEach { acc ->
+                val itemContainer = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, dp(activity, 7), 0, dp(activity, 7))
+                }
                 val row = LinearLayout(activity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(0, dp(activity, 7), 0, dp(activity, 7))
                 }
                 row.addView(
                     TextView(activity).apply { text = acc.nickname; textSize = 14f },
@@ -165,7 +168,35 @@ object OrderQueenDialogs {
                             .show()
                     }
                 })
-                listContainer.addView(row)
+                itemContainer.addView(row)
+
+                // 이 동의 항목이 생기기 전에 이미 등록된 계정도 나중에 켤 수
+                // 있게, 계정마다 현재 동의 상태를 보여주고 바로 토글한다.
+                itemContainer.addView(CheckBox(activity).apply {
+                    text = "판매 데이터 활용 동의"
+                    textSize = 11.5f
+                    isChecked = acc.salesDataConsent
+                    setOnCheckedChangeListener { cb, checked ->
+                        if (checked == acc.salesDataConsent) return@setOnCheckedChangeListener
+                        cb.isEnabled = false
+                        thread {
+                            val result = OrderQueenManager.setSalesDataConsent(activity, acc.id, checked)
+                            activity.runOnUiThread {
+                                cb.isEnabled = true
+                                result.onFailure { e ->
+                                    cb.isChecked = acc.salesDataConsent
+                                    Toast.makeText(activity, "변경 실패: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }.onSuccess {
+                                    val updated = accounts.map { a ->
+                                        if (a.id == acc.id) a.copy(salesDataConsent = checked) else a
+                                    }
+                                    renderAccounts(updated)
+                                }
+                            }
+                        }
+                    }
+                })
+                listContainer.addView(itemContainer)
             }
         }
 
@@ -184,11 +215,16 @@ object OrderQueenDialogs {
             }
             val salesDataConsent = salesConsentCheck.isChecked
             formSaveBtn.isEnabled = false
+            // 저장 전에 서버가 실제로 오더퀸에 로그인해 아이디/비밀번호를
+            // 확인하느라 몇 초~20여 초 걸릴 수 있어(실측), 버튼이 멈춘 것처럼
+            // 보이지 않게 진행 중임을 알린다.
+            formSaveBtn.text = "확인 중…"
             thread {
                 val result = OrderQueenManager.saveAccount(activity, nickname, loginId, loginPwd, salesDataConsent)
                 val updated = if (result.isSuccess) OrderQueenManager.fetchAccounts(activity) else null
                 activity.runOnUiThread {
                     formSaveBtn.isEnabled = true
+                    formSaveBtn.text = "저장"
                     result.onSuccess {
                         closeForm()
                         updated?.let(::renderAccounts)

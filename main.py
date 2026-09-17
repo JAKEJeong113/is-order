@@ -1038,7 +1038,17 @@ class OqAppCredentialsRequest(BaseModel):
 def api_oq_app_save_credentials(req: OqAppCredentialsRequest):
     """앱에서 오더퀸 계정을 하나 추가한다(암호화 저장 - vendors.py의 기존
     지점별 도매처 계정 저장 방식을 그대로 재사용). 이미 같은 계정명(별명)이
-    있으면 그 계정의 아이디/비밀번호만 갱신한다."""
+    있으면 그 계정의 아이디/비밀번호만 갱신한다.
+
+    저장 전에 실제로 오더퀸에 로그인을 시도해서 아이디/비밀번호가 맞는지
+    확인한다(사용자 요청) - 틀린 값을 그대로 저장해뒀다가 나중에 등록
+    시도할 때가 돼서야 실패를 알게 되는 것보다 저장 시점에 바로 알려주는
+    게 낫다. 성공 시 약 5초, 실패 시(재시도 대기 포함) 약 15~20초 걸린다
+    (sync def라 별도 스레드에서 처리되어 다른 요청은 막지 않음)."""
+    verify = orderqueen_bot.verify_login(req.login_id, req.login_pwd)
+    if not verify.get("ok"):
+        return {"ok": False, "message": verify.get("message") or "로그인에 실패했습니다."}
+
     account_id = vendors.add_store_vendor_account(
         _oq_app_store_id(req.device_id), _OQ_APP_VENDOR_ID, req.nickname,
         req.login_id, req.login_pwd, sales_data_consent=req.sales_data_consent,
@@ -1050,9 +1060,30 @@ def api_oq_app_save_credentials(req: OqAppCredentialsRequest):
 def api_oq_app_list_accounts(device_id: str = Query(..., min_length=8, max_length=200)):
     """설정 화면에 등록된 계정 목록(계정명만, 비밀번호는 절대 내려주지 않음)을
     보여주는 용도 - "오더퀸에 등록" 버튼을 눌렀을 때 어느 계정에 등록할지
-    고르는 목록에도 이 응답을 그대로 쓴다."""
+    고르는 목록에도 이 응답을 그대로 쓴다. sales_data_consent도 같이
+    내려줘서, 설정 화면에서 기존 계정의 동의 상태를 보여주고 바꿀 수 있게
+    한다(이 동의 항목이 생기기 전에 이미 등록해둔 계정 대응용)."""
     accounts = vendors.list_store_vendor_accounts(_oq_app_store_id(device_id), _OQ_APP_VENDOR_ID)
     return {"ok": True, "accounts": accounts}
+
+
+class OqAppConsentRequest(BaseModel):
+    device_id: str = Field(..., min_length=8, max_length=200)
+    account_id: int
+    sales_data_consent: bool
+
+
+@app.post("/api/oq-app/credentials/consent")
+def api_oq_app_set_consent(req: OqAppConsentRequest):
+    """이미 등록된 계정의 "판매 데이터 활용" 동의 여부를 나중에 바꾼다 -
+    이 동의 항목이 새로 생기기 전에 이미 계정을 등록해둔 사용자도 설정
+    화면에서 동의/철회할 수 있게 한다."""
+    updated = vendors.set_sales_data_consent(
+        _oq_app_store_id(req.device_id), _OQ_APP_VENDOR_ID, req.account_id, req.sales_data_consent,
+    )
+    if not updated:
+        return {"ok": False, "message": "계정을 찾을 수 없습니다."}
+    return {"ok": True}
 
 
 @app.get("/api/oq-app/credentials/status")

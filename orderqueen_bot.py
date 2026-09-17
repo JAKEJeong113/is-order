@@ -127,6 +127,32 @@ def _login(page, login_id: str, login_pw: str) -> None:
         raise RuntimeError("오더퀸 로그인에 실패했습니다 - 아이디/비밀번호를 확인해주세요.")
 
 
+def verify_login(login_id: str, login_pw: str) -> dict:
+    """오더퀸 계정을 앱에 처음 저장할 때 아이디/비밀번호가 실제로 맞는지
+    확인한다(사용자 요청) - 틀린 값을 그대로 암호화 저장해뒀다가 나중에
+    등록 시도할 때가 돼서야 실패를 알게 되는 것보다, 저장 시점에 바로
+    알려주는 편이 낫다. _login만 수행하고 그 외에는 아무 것도 하지 않는다
+    (세션 캐시 저장도 안 함 - 이 호출은 검증 전용이라 store_id가 없다).
+
+    성공하면 실측 약 5초, 틀린 비밀번호 등 실패하면 _login 내부의 재시도
+    대기(최대 15초) 때문에 약 15~20초 걸린다(호출부에서 로딩 표시 필요)."""
+    with browser_limit.browser_semaphore, sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        )
+        try:
+            page = browser.new_page()
+            _block_heavy_resources(page)
+            try:
+                _login(page, login_id, login_pw)
+                return {"ok": True}
+            except Exception as e:
+                return {"ok": False, "message": str(e)}
+        finally:
+            browser.close()
+
+
 def download_orderqueen_xlsx(
     login_id: str,
     login_pw: str,
