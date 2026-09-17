@@ -111,7 +111,7 @@ object OrderQueenDialogs {
         // 보이지 않게 한다.
         val formSaveHint = hintText(
             activity,
-            "저장을 누르면 오더퀸 로그인 확인 절차가 진행됩니다.\n(몇 초~20여 초 소요)",
+            "저장을 누르면 오더퀸 로그인 확인 절차가 진행됩니다(몇 초~20여 초 소요).",
             topPaddingDp = 2,
         )
         val addForm = LinearLayout(activity).apply {
@@ -291,7 +291,7 @@ object OrderQueenDialogs {
         ).apply { visibility = View.GONE }
         val saveHint = hintText(
             activity,
-            "아이디 또는 비밀번호를 변경하면 저장 시 오더퀸 로그인 확인 절차가\n진행됩니다(몇 초~20여 초 소요).",
+            "아이디 또는 비밀번호를 변경하면 저장 시 오더퀸 로그인 확인 절차가 진행됩니다(몇 초~20여 초 소요).",
         ).apply { visibility = View.GONE }
         root.addView(nicknameInput)
         root.addView(idInput)

@@ -363,7 +363,10 @@
       <button type="button" class="sr-period-btn active" data-period="week">이번 주</button>
       <button type="button" class="sr-period-btn" data-period="month">이번 달</button>
     </div>
-    <p class="sr-hint">판매 데이터 활용에 동의한 매장들의 실제 판매량을 모은 순위입니다.</p>
+    <p class="sr-hint">
+      판매 데이터 활용에 동의한 매장들의 실제 판매량을 모은 순위입니다.<br>
+      <span id="srPeriodRange"></span>
+    </p>
     <div class="results" id="salesRankingList"></div>
   </div>
 
@@ -940,9 +943,16 @@
     const salesRankingList = document.getElementById("salesRankingList");
     const srCategoryRow = document.getElementById("srCategoryRow");
     const srPeriodRow = document.getElementById("srPeriodRow");
+    const srPeriodRange = document.getElementById("srPeriodRange");
     let srLoaded = false;
     let srCategory = "icecream";
     let srPeriod = "week";
+
+    // "2026-09-15" -> "2026.09.15" (서버가 ISO 날짜 문자열로 주는 걸
+    // 화면에 보여줄 때만 점 구분으로 바꾼다).
+    function formatDot(isoDate) {
+      return isoDate ? isoDate.replaceAll("-", ".") : "";
+    }
 
     function renderRankingRows(items) {
       if (!items || items.length === 0) {
@@ -964,8 +974,12 @@
         const res = await fetch(url);
         const data = await res.json();
         salesRankingList.innerHTML = renderRankingRows(data.items || []);
+        srPeriodRange.textContent = data.period_from && data.period_to
+          ? `집계 기간: ${formatDot(data.period_from)} ~ ${formatDot(data.period_to)}`
+          : "";
       } catch (e) {
         salesRankingList.innerHTML = '<p class="empty">불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>';
+        srPeriodRange.textContent = "";
       }
     }
 

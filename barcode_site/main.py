@@ -271,6 +271,11 @@ def api_sales_ranking(
     쌓아두는 oq_sales_events 테이블을 읽기만 한다(이 사이트가 소유한
     테이블이 아님 - catalog_items와 같은 패턴).
 
+    store_vendor_credentials와 조인해서 "지금 이 순간 동의 상태인" 계정의
+    데이터만 센다 - 수집 시점엔 동의했다가 나중에 동의를 철회한 매장의
+    과거 데이터가 계속 순위에 남아있으면 안 되므로, 매 조회마다 현재
+    동의 여부를 다시 확인한다(단순히 "앞으로 수집을 멈추는" 것과는 다름).
+
     "이번 주"는 월요일부터 오늘까지, "이번 달"은 1일부터 오늘까지다(본체와
     동일 기준 - sales_ranking._period_range 참고)."""
     if category not in _SALES_RANKING_CATEGORIES:
@@ -289,10 +294,12 @@ def api_sales_ranking(
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT item_key, MAX(item_name) AS item_name, SUM(qty) AS total_qty
-            FROM oq_sales_events
-            WHERE category = ? AND sale_date >= ? AND sale_date <= ?
-            GROUP BY item_key
+            SELECT e.item_key, MAX(e.item_name) AS item_name, SUM(e.qty) AS total_qty
+            FROM oq_sales_events e
+            JOIN store_vendor_credentials c
+                ON c.store_id = e.store_id AND c.id = e.account_id AND c.vendor_id = 'orderqueen'
+            WHERE e.category = ? AND e.sale_date >= ? AND e.sale_date <= ? AND c.sales_data_consent = 1
+            GROUP BY e.item_key
             ORDER BY total_qty DESC
             LIMIT ?
             """,

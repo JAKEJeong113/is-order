@@ -180,16 +180,22 @@ def _period_range(period: str, today: date | None = None) -> tuple[date, date]:
 
 
 def get_ranking(category: str, period: str, limit: int = 20) -> list[dict]:
+    """store_vendor_credentials와 조인해서 "지금 이 순간 동의 상태인" 계정의
+    데이터만 센다 - 수집 시점엔 동의했다가 나중에 철회한 매장의 과거
+    데이터가 순위에 계속 남지 않도록 매 조회마다 현재 동의 여부를 다시
+    확인한다(barcode_site의 같은 이름 엔드포인트와 동일한 이유)."""
     if category not in CATEGORIES:
         raise ValueError(f"알 수 없는 카테고리: {category}")
     start, end = _period_range(period)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT item_key, MAX(item_name) AS item_name, SUM(qty) AS total_qty
-    FROM oq_sales_events
-    WHERE category = ? AND sale_date >= ? AND sale_date <= ?
-    GROUP BY item_key
+    SELECT e.item_key, MAX(e.item_name) AS item_name, SUM(e.qty) AS total_qty
+    FROM oq_sales_events e
+    JOIN store_vendor_credentials c
+        ON c.store_id = e.store_id AND c.id = e.account_id AND c.vendor_id = 'orderqueen'
+    WHERE e.category = ? AND e.sale_date >= ? AND e.sale_date <= ? AND c.sales_data_consent = 1
+    GROUP BY e.item_key
     ORDER BY total_qty DESC
     LIMIT ?
     """, (category, start.isoformat(), end.isoformat(), limit))
