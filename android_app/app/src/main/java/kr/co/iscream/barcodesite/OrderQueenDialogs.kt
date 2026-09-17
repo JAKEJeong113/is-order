@@ -27,6 +27,18 @@ object OrderQueenDialogs {
     private fun dp(activity: AppCompatActivity, value: Int): Int =
         (value * activity.resources.displayMetrics.density).toInt()
 
+    /** 폼 아래 붙는 보조 안내문구(동의 안내, 저장 소요시간 안내, 사용법
+     * 안내 등)를 전부 같은 크기/색/줄바꿈 방식으로 통일한다 - 문구마다
+     * 따로 스타일을 주면 줄바꿈 위치가 들쭉날쭉해 보인다(실측 확인).
+     * topPaddingDp로 문구 앞 간격만 조절한다. */
+    private fun hintText(activity: AppCompatActivity, text: String, topPaddingDp: Int = 10): TextView =
+        TextView(activity).apply {
+            this.text = text
+            textSize = 11.5f
+            alpha = 0.65f
+            setPadding(dp(activity, 4), dp(activity, topPaddingDp), dp(activity, 4), 0)
+        }
+
     // 다매장 점주는 매장마다 오더퀸 계정이 달라 계정을 여러 개 등록해야
     // 한다 - 계정명(별명)으로 구분해서 리스트로 관리하고, 계정이 하나라도
     // 있으면 "자동등록 사용" 상태로 본다(별도 온/오프 스위치 없음 - 전부
@@ -73,13 +85,12 @@ object OrderQueenDialogs {
             textSize = 12.5f
             setPadding(0, dp(activity, 10), 0, 0)
         }
-        val salesConsentNote = TextView(activity).apply {
-            text = "동의하지 않아도 바코드 등록 기능은 그대로 사용할 수 있습니다.\n" +
-                "수집된 데이터는 외부 업체에 제공·판매되지 않으며, 개별 매장을 알 수 없는 집계 형태로만 활용됩니다."
-            textSize = 11f
-            alpha = 0.65f
-            setPadding(dp(activity, 4), dp(activity, 2), 0, 0)
-        }
+        val salesConsentNote = hintText(
+            activity,
+            "동의하지 않아도 바코드 등록 기능은 그대로 사용할 수 있습니다.\n" +
+                "수집된 데이터는 외부 업체에 제공·판매되지 않으며,\n개별 매장을 알 수 없는 집계 형태로만 활용됩니다.",
+            topPaddingDp = 2,
+        )
         val formCancelBtn = TextView(activity).apply {
             text = "취소"; textSize = 13f; alpha = 0.7f
             setPadding(dp(activity, 4), dp(activity, 10), dp(activity, 16), dp(activity, 4))
@@ -98,13 +109,11 @@ object OrderQueenDialogs {
         // 저장이 곧바로 안 끝나고 몇 초~20여 초 걸릴 수 있다는 걸 누르기
         // 전에 미리 알려서, 버튼이 "확인 중…"으로 바뀌는 게 멈춘 것처럼
         // 보이지 않게 한다.
-        val formSaveHint = TextView(activity).apply {
-            text = "저장을 누르면 오더퀸 로그인 확인 절차가 진행됩니다(몇 초~20여 초 소요)."
-            textSize = 11f
-            alpha = 0.65f
-            gravity = Gravity.END
-            setPadding(0, dp(activity, 2), 0, 0)
-        }
+        val formSaveHint = hintText(
+            activity,
+            "저장을 누르면 오더퀸 로그인 확인 절차가 진행됩니다.\n(몇 초~20여 초 소요)",
+            topPaddingDp = 2,
+        )
         val addForm = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -118,13 +127,12 @@ object OrderQueenDialogs {
         }
         root.addView(addForm)
 
-        root.addView(TextView(activity).apply {
-            text = "등록한 계정은 검색결과의 \"오더퀸 등록\" 버튼을 누를 때 어느 매장에 등록할지 고를 수 있습니다. " +
-                "아이디/비밀번호는 암호화되어 서버에 저장됩니다."
-            textSize = 12f
-            setPadding(0, dp(activity, 14), 0, 0)
-            alpha = 0.7f
-        })
+        root.addView(hintText(
+            activity,
+            "등록한 계정은 검색결과의 \"오더퀸 등록\" 버튼을 누를 때 어느 매장에 등록할지 고를 수 있습니다.\n" +
+                "아이디/비밀번호는 암호화되어 서버에 저장됩니다.",
+            topPaddingDp = 14,
+        ))
 
         val dialog = AlertDialog.Builder(activity)
             .setTitle("오더퀸 자동등록 설정")
@@ -275,21 +283,16 @@ object OrderQueenDialogs {
             setPadding(0, dp(activity, 10), 0, 0)
             visibility = View.GONE
         }
-        val consentNote = TextView(activity).apply {
-            text = "동의하지 않아도 바코드 등록 기능은 그대로 사용할 수 있습니다.\n" +
-                "수집된 데이터는 외부 업체에 제공·판매되지 않으며, 개별 매장을 알 수 없는 집계 형태로만 활용됩니다."
-            textSize = 11f
-            alpha = 0.65f
-            setPadding(dp(activity, 4), dp(activity, 2), 0, 0)
-            visibility = View.GONE
-        }
-        val saveHint = TextView(activity).apply {
-            text = "아이디 또는 비밀번호를 변경하면 저장 시 오더퀸 로그인 확인 절차가 진행됩니다(몇 초~20여 초 소요)."
-            textSize = 11f
-            alpha = 0.65f
-            setPadding(dp(activity, 4), dp(activity, 10), 0, 0)
-            visibility = View.GONE
-        }
+        val consentNote = hintText(
+            activity,
+            "동의하지 않아도 바코드 등록 기능은 그대로 사용할 수 있습니다.\n" +
+                "수집된 데이터는 외부 업체에 제공·판매되지 않으며,\n개별 매장을 알 수 없는 집계 형태로만 활용됩니다.",
+            topPaddingDp = 2,
+        ).apply { visibility = View.GONE }
+        val saveHint = hintText(
+            activity,
+            "아이디 또는 비밀번호를 변경하면 저장 시 오더퀸 로그인 확인 절차가\n진행됩니다(몇 초~20여 초 소요).",
+        ).apply { visibility = View.GONE }
         root.addView(nicknameInput)
         root.addView(idInput)
         root.addView(pwInput)
