@@ -74,7 +74,8 @@ object OrderQueenDialogs {
             setPadding(0, dp(activity, 10), 0, 0)
         }
         val salesConsentNote = TextView(activity).apply {
-            text = "동의하지 않아도 바코드 등록 기능은 그대로 사용할 수 있습니다."
+            text = "동의하지 않아도 바코드 등록 기능은 그대로 사용할 수 있습니다.\n" +
+                "수집된 데이터는 외부 업체에 제공·판매되지 않으며, 개별 매장을 알 수 없는 집계 형태로만 활용됩니다."
             textSize = 11f
             alpha = 0.65f
             setPadding(dp(activity, 4), dp(activity, 2), 0, 0)
@@ -94,6 +95,16 @@ object OrderQueenDialogs {
             addView(formCancelBtn)
             addView(formSaveBtn)
         }
+        // 저장이 곧바로 안 끝나고 몇 초~20여 초 걸릴 수 있다는 걸 누르기
+        // 전에 미리 알려서, 버튼이 "확인 중…"으로 바뀌는 게 멈춘 것처럼
+        // 보이지 않게 한다.
+        val formSaveHint = TextView(activity).apply {
+            text = "저장을 누르면 오더퀸 로그인 확인 절차가 진행됩니다(몇 초~20여 초 소요)."
+            textSize = 11f
+            alpha = 0.65f
+            gravity = Gravity.END
+            setPadding(0, dp(activity, 2), 0, 0)
+        }
         val addForm = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -103,6 +114,7 @@ object OrderQueenDialogs {
             addView(salesConsentCheck)
             addView(salesConsentNote)
             addView(formBtnRow)
+            addView(formSaveHint)
         }
         root.addView(addForm)
 
@@ -264,10 +276,18 @@ object OrderQueenDialogs {
             visibility = View.GONE
         }
         val consentNote = TextView(activity).apply {
-            text = "동의하지 않아도 바코드 등록 기능은 그대로 사용할 수 있습니다."
+            text = "동의하지 않아도 바코드 등록 기능은 그대로 사용할 수 있습니다.\n" +
+                "수집된 데이터는 외부 업체에 제공·판매되지 않으며, 개별 매장을 알 수 없는 집계 형태로만 활용됩니다."
             textSize = 11f
             alpha = 0.65f
             setPadding(dp(activity, 4), dp(activity, 2), 0, 0)
+            visibility = View.GONE
+        }
+        val saveHint = TextView(activity).apply {
+            text = "아이디 또는 비밀번호를 변경하면 저장 시 오더퀸 로그인 확인 절차가 진행됩니다(몇 초~20여 초 소요)."
+            textSize = 11f
+            alpha = 0.65f
+            setPadding(dp(activity, 4), dp(activity, 10), 0, 0)
             visibility = View.GONE
         }
         root.addView(nicknameInput)
@@ -275,6 +295,7 @@ object OrderQueenDialogs {
         root.addView(pwInput)
         root.addView(consentCheck)
         root.addView(consentNote)
+        root.addView(saveHint)
 
         val dialog = AlertDialog.Builder(activity)
             .setTitle("계정 설정")
@@ -298,6 +319,7 @@ object OrderQueenDialogs {
                     pwInput.visibility = View.VISIBLE
                     consentCheck.visibility = View.VISIBLE
                     consentNote.visibility = View.VISIBLE
+                    saveHint.visibility = View.VISIBLE
                     nicknameInput.setText(detail.nickname)
                     idInput.setText(detail.loginId)
                     consentCheck.isChecked = detail.salesDataConsent
