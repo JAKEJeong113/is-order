@@ -64,6 +64,21 @@ object OrderQueenDialogs {
             hint = "오더퀸 비밀번호"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
+        // 판매 데이터 활용 동의(옵트인, 기본 미동의) - 개인정보 목적 외 이용
+        // 금지 원칙에 따라 계정 저장과 같은 화면에서 명확히 별도로 받는다.
+        // 동의 여부와 무관하게 바코드 등록 등 계정의 다른 기능은 그대로
+        // 쓸 수 있다는 점을 바로 밑에 명시한다(사용자 확인).
+        val salesConsentCheck = CheckBox(activity).apply {
+            text = "매장 판매 데이터를 전체 가맹점 인기 판매 순위 산출에 활용하는 데 동의합니다"
+            textSize = 12.5f
+            setPadding(0, dp(activity, 10), 0, 0)
+        }
+        val salesConsentNote = TextView(activity).apply {
+            text = "동의하지 않아도 바코드 등록 기능은 그대로 사용할 수 있습니다."
+            textSize = 11f
+            alpha = 0.65f
+            setPadding(dp(activity, 4), dp(activity, 2), 0, 0)
+        }
         val formCancelBtn = TextView(activity).apply {
             text = "취소"; textSize = 13f; alpha = 0.7f
             setPadding(dp(activity, 4), dp(activity, 10), dp(activity, 16), dp(activity, 4))
@@ -85,6 +100,8 @@ object OrderQueenDialogs {
             addView(nicknameInput)
             addView(idInput)
             addView(pwInput)
+            addView(salesConsentCheck)
+            addView(salesConsentNote)
             addView(formBtnRow)
         }
         root.addView(addForm)
@@ -106,6 +123,7 @@ object OrderQueenDialogs {
 
         fun clearForm() {
             nicknameInput.setText(""); idInput.setText(""); pwInput.setText("")
+            salesConsentCheck.isChecked = false
         }
         fun closeForm() {
             clearForm()
@@ -164,9 +182,10 @@ object OrderQueenDialogs {
                 Toast.makeText(activity, "계정명/아이디/비밀번호를 모두 입력해주세요.", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+            val salesDataConsent = salesConsentCheck.isChecked
             formSaveBtn.isEnabled = false
             thread {
-                val result = OrderQueenManager.saveAccount(activity, nickname, loginId, loginPwd)
+                val result = OrderQueenManager.saveAccount(activity, nickname, loginId, loginPwd, salesDataConsent)
                 val updated = if (result.isSuccess) OrderQueenManager.fetchAccounts(activity) else null
                 activity.runOnUiThread {
                     formSaveBtn.isEnabled = true

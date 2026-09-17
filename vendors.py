@@ -267,6 +267,12 @@ def init_store_vendor_table():
     CREATE UNIQUE INDEX IF NOT EXISTS idx_store_vendor_nickname
     ON store_vendor_credentials (store_id, vendor_id, nickname)
     """)
+    existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(store_vendor_credentials)").fetchall()}
+    if "sales_data_consent" not in existing_cols:
+        # 오더퀸 계정 저장 시 "판매 데이터를 전체 가맹점 인기 순위 산출에
+        # 활용"에 동의했는지(옵트인, 기본값 미동의) - vendor_id 무관하게 이
+        # 테이블 전체에 두되 실제로는 orderqueen 계정에만 의미가 있다.
+        cur.execute("ALTER TABLE store_vendor_credentials ADD COLUMN sales_data_consent INTEGER NOT NULL DEFAULT 0")
     conn.commit()
     conn.close()
 
@@ -310,10 +316,20 @@ def _migrate_legacy_store_vendor_credentials() -> None:
     conn.close()
 
 
-def add_store_vendor_account(store_id: str, vendor_id: str, nickname: str, login_id: str, login_pwd: str) -> int:
+def add_store_vendor_account(
+    store_id: str, vendor_id: str, nickname: str, login_id: str, login_pwd: str,
+    sales_data_consent: bool = False,
+) -> int:
     """계정을 하나 추가한다(같은 별명이 이미 있으면 그 계정의 아이디/비번을 갱신).
     해당 지점/도매처에 등록된 계정이 하나도 없었으면 이 계정을 자동으로 기본
-    계정으로 지정한다. 반환값은 계정 id(계정 선택/세션 캐시 키로 사용)."""
+    계정으로 지정한다. 반환값은 계정 id(계정 선택/세션 캐시 키로 사용).
+
+    sales_data_consent는 오더퀸 계정 저장 화면에서 같이 받는 "판매 데이터를
+    전체 가맹점 인기 순위 산출에 활용" 동의 여부(옵트인) - 다른 도매처
+    계정에는 의미 없지만 컬럼은 공용 테이블에 둔다. 이미 있는 계정의
+    아이디/비번만 갱신하는 호출(동의 여부를 다시 안 보내는 기존 흐름)에서
+    실수로 동의를 false로 되돌리지 않도록, 이미 있는 계정은 기존 동의값을
+    그대로 유지하고 True로 새로 받은 경우에만 갱신한다."""
     if vendor_id not in VENDORS:
         raise ValueError(f"알 수 없는 도매처: {vendor_id}")
 
@@ -335,13 +351,14 @@ def add_store_vendor_account(store_id: str, vendor_id: str, nickname: str, login
     nickname = (nickname or "").strip() or ("기본" if is_first else f"계정{existing_count + 1}")
 
     cur.execute("""
-    INSERT INTO store_vendor_credentials (store_id, vendor_id, nickname, login_id_enc, login_pwd_enc, is_default, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO store_vendor_credentials (store_id, vendor_id, nickname, login_id_enc, login_pwd_enc, is_default, sales_data_consent, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(store_id, vendor_id, nickname) DO UPDATE SET
         login_id_enc = excluded.login_id_enc,
         login_pwd_enc = excluded.login_pwd_enc,
+        sales_data_consent = CASE WHEN excluded.sales_data_consent = 1 THEN 1 ELSE store_vendor_credentials.sales_data_consent END,
         updated_at = excluded.updated_at
-    """, (store_id, vendor_id, nickname, login_id_enc, login_pwd_enc, int(is_first), now))
+    """, (store_id, vendor_id, nickname, login_id_enc, login_pwd_enc, int(is_first), int(sales_data_consent), now))
     conn.commit()
 
     cur.execute(
@@ -416,6 +433,35 @@ def delete_store_vendor_account(store_id: str, vendor_id: str, account_id: int) 
     conn.commit()
     conn.close()
     return deleted
+
+
+def list_consented_sales_data_accounts(vendor_id: str) -> list[dict]:
+    """판매 데이터 활용에 동의한 계정을 매장 구분 없이 전부 돌려준다(신규
+    "인기 판매 품목" 순위용 수집 스케줄러가 순회하는 대상). 자격증명은
+    여기서 복호화하지 않는다 - 호출부가 필요할 때 resolve_store_vendor_account로
+    다시 받아가게 한다(복호화 실패를 계정별로 독립적으로 처리하기 위함)."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, store_id, nickname FROM store_vendor_credentials WHERE vendor_id = ? AND sales_data_consent = 1",
+        (vendor_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [{"id": r[0], "store_id": r[1], "nickname": r[2]} for r in rows]
+
+
+def set_sales_data_consent(store_id: str, vendor_id: str, account_id: int, consent: bool) -> bool:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE store_vendor_credentials SET sales_data_consent = ? WHERE id = ? AND store_id = ? AND vendor_id = ?",
+        (int(consent), account_id, store_id, vendor_id),
+    )
+    updated = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
 
 
 def set_default_store_vendor_account(store_id: str, vendor_id: str, account_id: int) -> bool:

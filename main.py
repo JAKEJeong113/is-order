@@ -66,6 +66,7 @@ import orderqueen_bot
 import patch_notes
 import barcode_app_patch_notes
 import popularity
+import sales_ranking
 import product_ranking
 import store_expiry
 import store_reports
@@ -136,6 +137,7 @@ product_ranking.init_table(product_ranking.SNACK)
 product_ranking.init_price_tracking_tables()
 product_ranking.init_search_api_rate_limit_table()
 catalog_auto_import.init_import_exclusions_table()
+sales_ranking.init_sales_ranking_tables()
 biz_tools.init_table()
 consumables.init_table()
 mapping.init_catalog_table()
@@ -191,6 +193,31 @@ scheduler.add_job(
     functools.partial(product_ranking.refresh_products, product_ranking.SNACK),
     trigger=CronTrigger(hour=4, minute=10, timezone=KST),
     id="daily_snack_product_backfill",
+    replace_existing=True,
+)
+
+
+# 판매처별 인기 판매 품목 순위(사용자 요청): 판매 데이터 활용에 동의한
+# 오더퀸 계정을 매일 새벽에 순회해서 전날까지의 판매 데이터를 모은다.
+def _run_sales_ranking_collection() -> None:
+    try:
+        result = sales_ranking.collect_all_pending()
+    except Exception as e:
+        telegram_bot.alert_admin(f"판매 순위 데이터 수집 작업 자체 실패: {e}")
+        raise
+    if result["failed"]:
+        detail = "\n".join(
+            f"- {e['store_id']}(계정 {e['account_id']}): {e['error']}" for e in result["errors"][:10]
+        )
+        telegram_bot.alert_admin(
+            f"판매 순위 데이터 수집 중 {result['failed']}/{result['total']}개 계정 실패:\n{detail}"
+        )
+
+
+scheduler.add_job(
+    _run_sales_ranking_collection,
+    trigger=CronTrigger(hour=4, minute=20, timezone=KST),
+    id="daily_sales_ranking_collection",
     replace_existing=True,
 )
 
@@ -1001,6 +1028,10 @@ class OqAppCredentialsRequest(BaseModel):
     nickname: str = Field(..., min_length=1, max_length=50)
     login_id: str = Field(..., min_length=1, max_length=100)
     login_pwd: str = Field(..., min_length=1, max_length=100)
+    # "판매 데이터를 전체 가맹점 인기 순위 산출에 활용" 동의(옵트인, 기본
+    # 미동의) - 앱의 계정 저장 화면에서 같이 받는다. 미동의여도 바코드 등록
+    # 등 계정의 다른 기능은 그대로 쓸 수 있다(사용자 확인).
+    sales_data_consent: bool = False
 
 
 @app.post("/api/oq-app/credentials")
@@ -1010,7 +1041,7 @@ def api_oq_app_save_credentials(req: OqAppCredentialsRequest):
     있으면 그 계정의 아이디/비밀번호만 갱신한다."""
     account_id = vendors.add_store_vendor_account(
         _oq_app_store_id(req.device_id), _OQ_APP_VENDOR_ID, req.nickname,
-        req.login_id, req.login_pwd,
+        req.login_id, req.login_pwd, sales_data_consent=req.sales_data_consent,
     )
     return {"ok": True, "account_id": account_id}
 

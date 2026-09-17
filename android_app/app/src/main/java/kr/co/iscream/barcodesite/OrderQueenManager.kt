@@ -112,12 +112,16 @@ object OrderQueenManager {
         return accounts
     }
 
-    fun saveAccount(context: Context, nickname: String, loginId: String, loginPwd: String): Result<Int> {
+    fun saveAccount(
+        context: Context, nickname: String, loginId: String, loginPwd: String,
+        salesDataConsent: Boolean = false,
+    ): Result<Int> {
         val body = JSONObject()
             .put("device_id", getDeviceId(context))
             .put("nickname", nickname)
             .put("login_id", loginId)
             .put("login_pwd", loginPwd)
+            .put("sales_data_consent", salesDataConsent)
         return try {
             val res = request("/api/oq-app/credentials", "POST", body)
             if (res.optBoolean("ok", false)) {

@@ -256,6 +256,59 @@ def api_new_products(
     return {"items": items}
 
 
+_SALES_RANKING_CATEGORIES = ("icecream", "coupang", "wholesale")
+
+
+@app.get("/api/sales-ranking")
+def api_sales_ranking(
+    category: str = Query(..., description="icecream|coupang|wholesale"),
+    period: str = Query(..., description="week|month"),
+    limit: int = Query(20, ge=1, le=50),
+):
+    """"인기상품 순위" 메뉴 - 판매 데이터 활용에 동의한 매장들의 오더퀸 실제
+    판매량을 모아 판매처(아이스크림/쿠팡/도매몰)별·기간(이번 주/이번 달)별로
+    집계한 순위. 데이터는 본체(is-order)의 일 1회 배치(sales_ranking.py)가
+    쌓아두는 oq_sales_events 테이블을 읽기만 한다(이 사이트가 소유한
+    테이블이 아님 - catalog_items와 같은 패턴).
+
+    "이번 주"는 월요일부터 오늘까지, "이번 달"은 1일부터 오늘까지다(본체와
+    동일 기준 - sales_ranking._period_range 참고)."""
+    if category not in _SALES_RANKING_CATEGORIES:
+        return {"items": [], "period_from": None, "period_to": None}
+
+    today = datetime.now().date()
+    if period == "week":
+        start = today - timedelta(days=today.weekday())
+    elif period == "month":
+        start = today.replace(day=1)
+    else:
+        return {"items": [], "period_from": None, "period_to": None}
+
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT item_key, MAX(item_name) AS item_name, SUM(qty) AS total_qty
+            FROM oq_sales_events
+            WHERE category = ? AND sale_date >= ? AND sale_date <= ?
+            GROUP BY item_key
+            ORDER BY total_qty DESC
+            LIMIT ?
+            """,
+            (category, start.isoformat(), today.isoformat(), limit),
+        )
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    items = [
+        {"rank": i + 1, "item_name": r[1] or "(이름 없음)", "total_qty": r[2]}
+        for i, r in enumerate(rows)
+    ]
+    return {"items": items, "period_from": start.isoformat(), "period_to": today.isoformat()}
+
+
 @app.get("/healthz")
 def healthz():
     """DB 연결/데이터 상태를 바로 확인하기 위한 진단용 엔드포인트 - "검색은
