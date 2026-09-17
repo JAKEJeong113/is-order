@@ -1067,23 +1067,62 @@ def api_oq_app_list_accounts(device_id: str = Query(..., min_length=8, max_lengt
     return {"ok": True, "accounts": accounts}
 
 
-class OqAppConsentRequest(BaseModel):
+@app.get("/api/oq-app/accounts/{account_id}")
+def api_oq_app_get_account_detail(
+    account_id: int, device_id: str = Query(..., min_length=8, max_length=200),
+):
+    """설정 화면의 "설정"(수정) 버튼을 눌러 편집 폼을 열 때만 쓴다 - 계정명/
+    아이디를 미리 채워주기 위해 그 시점에만 아이디를 복호화해 내려준다
+    (비밀번호는 여기서도 절대 내려주지 않음 - 수정 폼에서 비밀번호 칸을
+    비워두면 기존 값을 그대로 유지하는 방식으로 처리)."""
+    store_id = _oq_app_store_id(device_id)
+    account = vendors.resolve_store_vendor_account(store_id, _OQ_APP_VENDOR_ID, account_id)
+    if not account:
+        return {"ok": False, "message": "계정을 찾을 수 없습니다."}
+    consent = next(
+        (a["sales_data_consent"] for a in vendors.list_store_vendor_accounts(store_id, _OQ_APP_VENDOR_ID)
+         if a["id"] == account_id),
+        False,
+    )
+    return {
+        "ok": True, "nickname": account["nickname"], "login_id": account["login_id"],
+        "sales_data_consent": consent,
+    }
+
+
+class OqAppAccountUpdateRequest(BaseModel):
     device_id: str = Field(..., min_length=8, max_length=200)
     account_id: int
-    sales_data_consent: bool
+    nickname: str = Field(..., min_length=1, max_length=50)
+    login_id: str = Field(..., min_length=1, max_length=100)
+    # 비워두면(None/빈 문자열) 기존 비밀번호를 그대로 유지한다 - 비밀번호는
+    # 조회 API로 다시 내려주지 않으므로 "안 바꿈"을 이렇게 표현한다.
+    login_pwd: str | None = Field(None, max_length=100)
+    sales_data_consent: bool = False
 
 
-@app.post("/api/oq-app/credentials/consent")
-def api_oq_app_set_consent(req: OqAppConsentRequest):
-    """이미 등록된 계정의 "판매 데이터 활용" 동의 여부를 나중에 바꾼다 -
-    이 동의 항목이 새로 생기기 전에 이미 계정을 등록해둔 사용자도 설정
-    화면에서 동의/철회할 수 있게 한다."""
-    updated = vendors.set_sales_data_consent(
-        _oq_app_store_id(req.device_id), _OQ_APP_VENDOR_ID, req.account_id, req.sales_data_consent,
-    )
-    if not updated:
+@app.put("/api/oq-app/credentials")
+def api_oq_app_update_credentials(req: OqAppAccountUpdateRequest):
+    """설정 화면의 "설정"(수정) 버튼 - 계정명/아이디/판매 데이터 활용 동의를
+    수정하고, 비밀번호는 입력했을 때만 바꾼다. 아이디나 비밀번호가 실제로
+    바뀌는 경우에만 다시 로그인 검증한다(안 바꿨는데 매번 몇~20여 초
+    기다리게 할 이유가 없음)."""
+    store_id = _oq_app_store_id(req.device_id)
+    login_pwd = req.login_pwd.strip() if req.login_pwd else None
+
+    existing = vendors.resolve_store_vendor_account(store_id, _OQ_APP_VENDOR_ID, req.account_id)
+    if not existing:
         return {"ok": False, "message": "계정을 찾을 수 없습니다."}
-    return {"ok": True}
+
+    if req.login_id != existing["login_id"] or login_pwd:
+        verify = orderqueen_bot.verify_login(req.login_id, login_pwd or existing["login_pwd"])
+        if not verify.get("ok"):
+            return {"ok": False, "message": verify.get("message") or "로그인에 실패했습니다."}
+
+    return vendors.update_store_vendor_account(
+        store_id, _OQ_APP_VENDOR_ID, req.account_id, req.nickname, req.login_id,
+        login_pwd, req.sales_data_consent,
+    )
 
 
 @app.get("/api/oq-app/credentials/status")

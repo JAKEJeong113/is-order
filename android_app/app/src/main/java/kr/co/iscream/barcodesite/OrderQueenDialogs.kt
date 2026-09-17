@@ -148,6 +148,23 @@ object OrderQueenDialogs {
                     LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
                 )
                 row.addView(TextView(activity).apply {
+                    text = "설정"
+                    textSize = 13f
+                    setTextColor(android.graphics.Color.parseColor("#08796F"))
+                    setPadding(0, 0, dp(activity, 14), 0)
+                    setOnClickListener {
+                        showEditAccountDialog(activity, acc.id) {
+                            thread {
+                                val updated = OrderQueenManager.fetchAccounts(activity)
+                                activity.runOnUiThread {
+                                    renderAccounts(updated)
+                                    onChanged()
+                                }
+                            }
+                        }
+                    }
+                })
+                row.addView(TextView(activity).apply {
                     text = "삭제"
                     textSize = 13f
                     setTextColor(android.graphics.Color.parseColor("#993C1D"))
@@ -169,33 +186,6 @@ object OrderQueenDialogs {
                     }
                 })
                 itemContainer.addView(row)
-
-                // 이 동의 항목이 생기기 전에 이미 등록된 계정도 나중에 켤 수
-                // 있게, 계정마다 현재 동의 상태를 보여주고 바로 토글한다.
-                itemContainer.addView(CheckBox(activity).apply {
-                    text = "판매 데이터 활용 동의"
-                    textSize = 11.5f
-                    isChecked = acc.salesDataConsent
-                    setOnCheckedChangeListener { cb, checked ->
-                        if (checked == acc.salesDataConsent) return@setOnCheckedChangeListener
-                        cb.isEnabled = false
-                        thread {
-                            val result = OrderQueenManager.setSalesDataConsent(activity, acc.id, checked)
-                            activity.runOnUiThread {
-                                cb.isEnabled = true
-                                result.onFailure { e ->
-                                    cb.isChecked = acc.salesDataConsent
-                                    Toast.makeText(activity, "변경 실패: ${e.message}", Toast.LENGTH_SHORT).show()
-                                }.onSuccess {
-                                    val updated = accounts.map { a ->
-                                        if (a.id == acc.id) a.copy(salesDataConsent = checked) else a
-                                    }
-                                    renderAccounts(updated)
-                                }
-                            }
-                        }
-                    }
-                })
                 listContainer.addView(itemContainer)
             }
         }
@@ -240,6 +230,109 @@ object OrderQueenDialogs {
         thread {
             val accounts = OrderQueenManager.fetchAccounts(activity)
             activity.runOnUiThread { renderAccounts(accounts) }
+        }
+    }
+
+    /** 계정 하나의 "설정"(수정) 다이얼로그 - 계정명/아이디/판매 데이터 활용
+     * 동의를 고칠 수 있고, 비밀번호는 바꾸고 싶을 때만 입력한다(빈칸이면
+     * 기존 비밀번호 유지). onSaved는 저장 성공 시 목록을 새로고침하도록
+     * 호출부(showSettingsDialog)가 넘겨준다. */
+    private fun showEditAccountDialog(activity: AppCompatActivity, accountId: Int, onSaved: () -> Unit) {
+        val padding = dp(activity, 20)
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding, padding, padding)
+        }
+
+        val loadingLabel = TextView(activity).apply {
+            text = "불러오는 중..."
+            alpha = 0.65f
+        }
+        root.addView(loadingLabel)
+
+        val nicknameInput = EditText(activity).apply { hint = "계정명"; visibility = View.GONE }
+        val idInput = EditText(activity).apply { hint = "오더퀸 아이디"; visibility = View.GONE }
+        val pwInput = EditText(activity).apply {
+            hint = "비밀번호 (변경 시에만 입력)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            visibility = View.GONE
+        }
+        val consentCheck = CheckBox(activity).apply {
+            text = "매장 판매 데이터를 전체 가맹점 인기 판매 순위 산출에 활용하는 데 동의합니다"
+            textSize = 12.5f
+            setPadding(0, dp(activity, 10), 0, 0)
+            visibility = View.GONE
+        }
+        val consentNote = TextView(activity).apply {
+            text = "동의하지 않아도 바코드 등록 기능은 그대로 사용할 수 있습니다."
+            textSize = 11f
+            alpha = 0.65f
+            setPadding(dp(activity, 4), dp(activity, 2), 0, 0)
+            visibility = View.GONE
+        }
+        root.addView(nicknameInput)
+        root.addView(idInput)
+        root.addView(pwInput)
+        root.addView(consentCheck)
+        root.addView(consentNote)
+
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle("계정 설정")
+            .setView(root)
+            .setPositiveButton("저장", null)
+            .setNegativeButton("취소", null)
+            .create()
+        dialog.show()
+
+        // 로딩 끝나기 전엔 저장을 못 누르게 막는다(아직 원래 값을 모르는
+        // 채로 저장하면 아이디/비밀번호를 빈 값으로 덮어쓸 위험이 있음).
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+
+        thread {
+            val result = OrderQueenManager.fetchAccountDetail(activity, accountId)
+            activity.runOnUiThread {
+                result.onSuccess { detail ->
+                    loadingLabel.visibility = View.GONE
+                    nicknameInput.visibility = View.VISIBLE
+                    idInput.visibility = View.VISIBLE
+                    pwInput.visibility = View.VISIBLE
+                    consentCheck.visibility = View.VISIBLE
+                    consentNote.visibility = View.VISIBLE
+                    nicknameInput.setText(detail.nickname)
+                    idInput.setText(detail.loginId)
+                    consentCheck.isChecked = detail.salesDataConsent
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                }.onFailure { e ->
+                    loadingLabel.text = "불러오기 실패: ${e.message}"
+                }
+            }
+        }
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val nickname = nicknameInput.text.toString().trim()
+            val loginId = idInput.text.toString().trim()
+            val loginPwd = pwInput.text.toString()
+            if (nickname.isEmpty() || loginId.isEmpty()) {
+                Toast.makeText(activity, "계정명/아이디를 입력해주세요.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val consent = consentCheck.isChecked
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).text = "확인 중…"
+            thread {
+                val result = OrderQueenManager.updateAccount(activity, accountId, nickname, loginId, loginPwd, consent)
+                activity.runOnUiThread {
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).text = "저장"
+                    result.onSuccess {
+                        dialog.dismiss()
+                        onSaved()
+                        Toast.makeText(activity, "저장했습니다.", Toast.LENGTH_SHORT).show()
+                    }.onFailure { e ->
+                        Toast.makeText(activity, "저장 실패: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
         }
     }
 

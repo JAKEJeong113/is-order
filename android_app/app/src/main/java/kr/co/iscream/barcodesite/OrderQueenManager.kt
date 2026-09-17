@@ -13,6 +13,10 @@ data class OqAccount(
     val salesDataConsent: Boolean = false,
 )
 
+/** "설정"(수정) 다이얼로그를 열 때만 받는 상세 정보 - 이때만 아이디를
+ * 복호화해서 내려준다(비밀번호는 이때도 절대 안 내려줌). */
+data class OqAccountDetail(val nickname: String, val loginId: String, val salesDataConsent: Boolean)
+
 /** 계정 하나에 대한 등록 시도 결과 - "모든 계정에 추가"로 여러 계정을
  * 골랐을 때 계정별로 성공/실패가 다를 수 있어 따로 담는다. */
 data class OqRegisterResult(val accountId: Int, val nickname: String?, val ok: Boolean, val message: String)
@@ -146,20 +150,47 @@ object OrderQueenManager {
         }
     }
 
-    /** 이미 등록된 계정의 "판매 데이터 활용" 동의를 나중에 바꾼다(이 동의
-     * 항목이 생기기 전에 이미 계정을 등록해둔 사용자용 - 설정 화면에서
-     * 계정별로 토글). */
-    fun setSalesDataConsent(context: Context, accountId: Int, consent: Boolean): Result<Unit> {
+    /** "설정"(수정) 다이얼로그를 열 때 계정명/아이디/동의 상태를 미리 채우기
+     * 위해 부른다(비밀번호는 여기서도 안 내려줌). */
+    fun fetchAccountDetail(context: Context, accountId: Int): Result<OqAccountDetail> {
+        return try {
+            val res = request("/api/oq-app/accounts/$accountId?device_id=${getDeviceId(context)}", "GET")
+            if (res.optBoolean("ok", false)) {
+                Result.success(
+                    OqAccountDetail(
+                        res.getString("nickname"), res.getString("login_id"),
+                        res.optBoolean("sales_data_consent", false),
+                    )
+                )
+            } else {
+                Result.failure(Exception(res.optString("message", "조회에 실패했습니다.")))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** "설정"(수정) 다이얼로그의 저장 - 계정명/아이디/동의는 항상 반영하고,
+     * loginPwd가 null/빈 문자열이면 기존 비밀번호를 그대로 둔다. 아이디나
+     * 비밀번호가 바뀐 경우 서버가 다시 로그인 검증을 하므로(성공 ~5초,
+     * 실패 시 최대 20여 초) saveAccount와 같은 여유 있는 타임아웃을 쓴다. */
+    fun updateAccount(
+        context: Context, accountId: Int, nickname: String, loginId: String,
+        loginPwd: String?, salesDataConsent: Boolean,
+    ): Result<Unit> {
         val body = JSONObject()
             .put("device_id", getDeviceId(context))
             .put("account_id", accountId)
-            .put("sales_data_consent", consent)
+            .put("nickname", nickname)
+            .put("login_id", loginId)
+            .put("login_pwd", if (loginPwd.isNullOrBlank()) JSONObject.NULL else loginPwd)
+            .put("sales_data_consent", salesDataConsent)
         return try {
-            val res = request("/api/oq-app/credentials/consent", "POST", body)
+            val res = request("/api/oq-app/credentials", "PUT", body, readTimeoutMs = 30000)
             if (res.optBoolean("ok", false)) {
                 Result.success(Unit)
             } else {
-                Result.failure(Exception(res.optString("message", "변경에 실패했습니다.")))
+                Result.failure(Exception(res.optString("message", "수정에 실패했습니다.")))
             }
         } catch (e: Exception) {
             Result.failure(e)

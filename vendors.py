@@ -370,6 +370,68 @@ def add_store_vendor_account(
     return account_id
 
 
+def update_store_vendor_account(
+    store_id: str, vendor_id: str, account_id: int, nickname: str, login_id: str,
+    login_pwd: str | None, sales_data_consent: bool,
+) -> dict:
+    """이미 있는 계정 하나를 id로 지정해서 계정명/아이디/동의 여부를 수정한다
+    (앱의 "설정" 버튼용 - add_store_vendor_account는 별명으로 계정을
+    찾아 upsert하는 방식이라 별명 자체를 바꾸는 수정에는 못 쓴다).
+    login_pwd가 None/빈 문자열이면 기존 비밀번호를 그대로 두고 나머지만
+    바꾼다 - 비밀번호는 조회 API로 절대 다시 내려주지 않으므로, 사용자가
+    "안 바꿈"을 표현할 방법이 빈칸으로 두는 것뿐이다."""
+    nickname = (nickname or "").strip()
+    if not nickname:
+        return {"ok": False, "message": "계정명을 입력해주세요."}
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT nickname FROM store_vendor_credentials WHERE id = ? AND store_id = ? AND vendor_id = ?",
+        (account_id, store_id, vendor_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return {"ok": False, "message": "계정을 찾을 수 없습니다."}
+
+    if nickname != row[0]:
+        cur.execute(
+            "SELECT COUNT(*) FROM store_vendor_credentials WHERE store_id = ? AND vendor_id = ? AND nickname = ? AND id != ?",
+            (store_id, vendor_id, nickname, account_id),
+        )
+        if cur.fetchone()[0] > 0:
+            conn.close()
+            return {"ok": False, "message": "이미 같은 이름의 계정이 있습니다."}
+
+    fernet = _get_fernet()
+    login_id_enc = fernet.encrypt(login_id.encode("utf-8")).decode("utf-8")
+    now = datetime.now().isoformat(timespec="seconds")
+
+    if login_pwd:
+        login_pwd_enc = fernet.encrypt(login_pwd.encode("utf-8")).decode("utf-8")
+        cur.execute(
+            """
+            UPDATE store_vendor_credentials
+            SET nickname = ?, login_id_enc = ?, login_pwd_enc = ?, sales_data_consent = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (nickname, login_id_enc, login_pwd_enc, int(sales_data_consent), now, account_id),
+        )
+    else:
+        cur.execute(
+            """
+            UPDATE store_vendor_credentials
+            SET nickname = ?, login_id_enc = ?, sales_data_consent = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (nickname, login_id_enc, int(sales_data_consent), now, account_id),
+        )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
 def set_store_vendor_credentials(store_id: str, vendor_id: str, login_id: str, login_pwd: str) -> None:
     """웹 /my-vendors의 단일 계정 저장용 - 기본 계정이 있으면 그 계정을 덮어쓰고,
     없으면 "기본"이라는 별명으로 새로 만든다(텔레그램에서 여러 계정을 등록해도
@@ -452,19 +514,6 @@ def list_consented_sales_data_accounts(vendor_id: str) -> list[dict]:
     rows = cur.fetchall()
     conn.close()
     return [{"id": r[0], "store_id": r[1], "nickname": r[2]} for r in rows]
-
-
-def set_sales_data_consent(store_id: str, vendor_id: str, account_id: int, consent: bool) -> bool:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE store_vendor_credentials SET sales_data_consent = ? WHERE id = ? AND store_id = ? AND vendor_id = ?",
-        (int(consent), account_id, store_id, vendor_id),
-    )
-    updated = cur.rowcount > 0
-    conn.commit()
-    conn.close()
-    return updated
 
 
 def set_default_store_vendor_account(store_id: str, vendor_id: str, account_id: int) -> bool:
