@@ -776,6 +776,9 @@ def _find_corner_code(page, corner_name: str) -> str | None:
     return None
 
 
+EXCLUDED_FALLBACK_CORNER_NAMES = {"이용안내"}
+
+
 def _find_largest_corner_code(page) -> str | None:
     """"상품"이라는 이름의 코너가 없는 매장도 있다(실측: 텔레그램 오류 알림
     으로 확인 - 코너 이름은 매장이 코너관리에서 직접 짓는 값이라 class_cd
@@ -785,14 +788,27 @@ def _find_largest_corner_code(page) -> str | None:
     코너에 있었다(실측 확인). 첫 코너 대신 실제로 메뉴가 가장 많이 등록된
     코너를 골라야 진짜 상품 코너를 맞힐 확률이 높다. "전체"(값 없음,
     필터 없음 - 오더퀸 자체 검증상 이 상태로는 등록 자체가 안 됨)는
-    제외한다."""
+    제외한다.
+
+    "이용안내"는 항목 수와 무관하게 코너 후보에서 무조건 제외한다 -
+    안내/쿠폰류 코너로 실제 판매 상품 코너가 아닌 것으로 확인됐다(사용자
+    확인). 다른 후보가 전혀 없을 때만(코너가 "이용안내" 하나뿐인 매장)
+    예외적으로 사용한다."""
     options = page.locator("select#cornerCd option")
     codes = []
+    excluded_codes = []
     for i in range(options.count()):
         o = options.nth(i)
         value = (o.get_attribute("value") or "").strip()
-        if value:
-            codes.append(value)
+        if not value:
+            continue
+        name = (o.text_content() or "").strip()
+        if name in EXCLUDED_FALLBACK_CORNER_NAMES:
+            excluded_codes.append(value)
+            continue
+        codes.append(value)
+    if not codes:
+        codes = excluded_codes
     if not codes:
         return None
     if len(codes) == 1:
