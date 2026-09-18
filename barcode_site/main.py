@@ -256,17 +256,17 @@ def api_new_products(
     return {"items": items}
 
 
-_SALES_RANKING_CATEGORIES = ("icecream", "coupang", "wholesale")
+_SALES_RANKING_CATEGORIES = ("icecream", "coupang", "beverage", "wholesale")
 
 
 @app.get("/api/sales-ranking")
 def api_sales_ranking(
-    category: str = Query(..., description="icecream|coupang|wholesale"),
+    category: str = Query(..., description="icecream|coupang|beverage|wholesale"),
     period: str = Query(..., description="week|month"),
     limit: int = Query(20, ge=1, le=50),
 ):
     """"인기상품 순위" 메뉴 - 판매 데이터 활용에 동의한 매장들의 오더퀸 실제
-    판매량을 모아 판매처(아이스크림/쿠팡/도매몰)별·기간(이번 주/이번 달)별로
+    판매량을 모아 판매처(아이스크림/쿠팡/음료/도매몰)별·기간(이번 주/이번 달)별로
     집계한 순위. 데이터는 본체(is-order)의 일 1회 배치(sales_ranking.py)가
     쌓아두는 oq_sales_events 테이블을 읽기만 한다(이 사이트가 소유한
     테이블이 아님 - catalog_items와 같은 패턴).

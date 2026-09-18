@@ -1,5 +1,5 @@
 # sales_ranking.py
-"""판매처(아이스크림/쿠팡/도매몰)별 주간·월간 인기 판매 품목 순위.
+"""판매처(아이스크림/쿠팡/음료/도매몰)별 주간·월간 인기 판매 품목 순위.
 
 여러 매장의 오더퀸 실제 판매 데이터를 모아서, 각 매장이 "요즘 뭐가 잘
 팔리나"를 매입 판단에 참고할 수 있게 제공하는 기능이다(사용자 요청).
@@ -34,9 +34,27 @@ from parser import parse_menu_sales_xlsx
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 
-CATEGORY_BY_IS_COUPANG = {0: "icecream", 1: "coupang", 2: "wholesale"}
-CATEGORIES = ("icecream", "coupang", "wholesale")
+CATEGORIES = ("icecream", "coupang", "beverage", "wholesale")
 PERIODS = ("week", "month")
+
+
+def _classify_category(cat) -> str | None:
+    """오더퀸 판매 데이터 한 줄을 판매처 카테고리로 분류한다. 쿠팡
+    소스(is_coupang=1)만 카탈로그 category 필드가 "음료수"인 것을 "음료"로
+    따로 뗀다(사용자 요청) - 실측 확인: 도매몰(is_coupang=2) 상품은
+    category 필드가 82%가 비어있어 신뢰할 수 없어서, 도매몰 크롤러가
+    음료 카테고리도 따로 크롤링하기 전까지는 그대로 "도매몰" 하나로
+    묶는다."""
+    if cat is None:
+        return None
+    is_coupang = int(cat.is_coupang)
+    if is_coupang == 0:
+        return "icecream"
+    if is_coupang == 1:
+        return "beverage" if (cat.category or "").strip() == "음료수" else "coupang"
+    if is_coupang == 2:
+        return "wholesale"
+    return None
 
 
 def get_conn():
@@ -135,7 +153,7 @@ def _collect_one_account(store_id: str, account_id: int) -> None:
             continue
 
         cat = catalog.get(barcode) if barcode else None
-        category = CATEGORY_BY_IS_COUPANG.get(int(cat.is_coupang)) if cat else None
+        category = _classify_category(cat)
         if not category:
             continue  # 미분류/문구완구 등은 순위 대상 아님
 
