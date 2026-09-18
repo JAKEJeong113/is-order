@@ -776,20 +776,41 @@ def _find_corner_code(page, corner_name: str) -> str | None:
     return None
 
 
-def _find_first_real_corner_code(page) -> str | None:
+def _find_largest_corner_code(page) -> str | None:
     """"상품"이라는 이름의 코너가 없는 매장도 있다(실측: 텔레그램 오류 알림
     으로 확인 - 코너 이름은 매장이 코너관리에서 직접 짓는 값이라 class_cd
-    처럼 매장마다 다를 수 있음). 값이 없는 첫 옵션("전체")은 실제 코너가
-    아니라 "필터 없음"을 뜻하는 항목이라 등록 자체가 안 되므로(오더퀸
-    자체 검증: "코너명이 전체일 경우 메뉴등록을 할 수 없습니다") 반드시
-    제외하고, 그 다음 첫 번째 실제 코너를 쓴다."""
+    처럼 매장마다 다를 수 있음). 이때 그냥 "첫 번째 실제 코너"를 골랐다가
+    사고가 났다 - 어느 매장은 "이용안내"가 첫 코너인데 쿠폰/봉투 같은
+    안내성 항목 14개만 있고, 실제 판매 상품 10,955개는 전부 "간식"
+    코너에 있었다(실측 확인). 첫 코너 대신 실제로 메뉴가 가장 많이 등록된
+    코너를 골라야 진짜 상품 코너를 맞힐 확률이 높다. "전체"(값 없음,
+    필터 없음 - 오더퀸 자체 검증상 이 상태로는 등록 자체가 안 됨)는
+    제외한다."""
     options = page.locator("select#cornerCd option")
+    codes = []
     for i in range(options.count()):
         o = options.nth(i)
         value = (o.get_attribute("value") or "").strip()
         if value:
-            return value
-    return None
+            codes.append(value)
+    if not codes:
+        return None
+    if len(codes) == 1:
+        return codes[0]
+
+    best_code = codes[0]
+    best_count = -1
+    for code in codes:
+        page.locator("select#cornerCd").select_option(code)
+        page.wait_for_timeout(600)
+        try:
+            count = int((page.locator("#data-cnt").inner_text() or "0").strip())
+        except Exception:
+            count = 0
+        if count > best_count:
+            best_count = count
+            best_code = code
+    return best_code
 
 
 def _barcode_in_current_corner(page, barcode: str) -> bool:
@@ -858,12 +879,26 @@ def push_menu_item_to_kiosk_screen(
             page.wait_for_timeout(500)
             _dismiss_popups(page)
 
+            # 코너를 하나 고르기 전에, 이 바코드가 "어느 코너에든" 이미
+            # 등록되어 있는지부터 전체(코너 필터 없음) 기준으로 먼저
+            # 확인한다 - 특정 코너 안에서만 확인하면 이미 다른 코너에 있는
+            # 걸 모르고 또 추가해버려 같은 상품이 여러 코너에 중복 등록되는
+            # 사고가 실측으로 발생했다(허쉬 생초코바가 "이용안내"/"간식"
+            # 두 코너에 겹쳐 들어가 키오스크에서 스캔하면 두 개로 뜸).
+            # 페이지를 막 열었을 때 코너 필터는 기본값("전체")이라 별도
+            # 선택 없이 바로 검색하면 전체 코너를 대상으로 검색된다.
+            if _barcode_in_current_corner(page, barcode):
+                if store_id:
+                    vendors.save_session_state(store_id, vendor_id, context.storage_state())
+                return {"ok": True, "message": "이미 화면(키오스크)에 등록되어 있습니다.", "already": True}
+
             corner_cd = _find_corner_code(page, KIOSK_SCREEN_CORNER_NAME)
             if not corner_cd:
-                # "상품"이라는 이름의 코너가 없는 매장 - 코너 이름은 매장마다
-                # 다르게 지을 수 있어서(실측 확인) "전체"(필터 없음, 등록
-                # 불가)만 제외하고 실제로 존재하는 첫 코너를 대신 쓴다.
-                corner_cd = _find_first_real_corner_code(page)
+                # "상품"이라는 이름의 코너가 없는 매장 - 실제 상품이 가장
+                # 많이 등록된 코너를 대신 찾는다(단순히 "첫 코너"를 쓰면
+                # 안내성 코너에 잘못 등록될 수 있음 - _find_largest_corner_code
+                # 참고).
+                corner_cd = _find_largest_corner_code(page)
             if not corner_cd:
                 return {
                     "ok": False,
@@ -873,11 +908,6 @@ def push_menu_item_to_kiosk_screen(
             page.locator("select#cornerCd").select_option(corner_cd)
             page.wait_for_timeout(800)
             _dismiss_popups(page)
-
-            if _barcode_in_current_corner(page, barcode):
-                if store_id:
-                    vendors.save_session_state(store_id, vendor_id, context.storage_state())
-                return {"ok": True, "message": "이미 화면(키오스크)에 등록되어 있습니다.", "already": True}
 
             page.locator(".btn-add").first.click(force=True)
             page.wait_for_timeout(1000)  # 모달의 초기 자동검색(필터 없음) 완료 대기 - 아래서 필터링된 결과로 덮어씀
