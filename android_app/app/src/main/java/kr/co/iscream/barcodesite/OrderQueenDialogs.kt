@@ -1,7 +1,10 @@
 package kr.co.iscream.barcodesite
 
+import android.Manifest
 import android.app.AlertDialog
+import android.content.pm.PackageManager
 import android.graphics.Typeface
+import android.os.Build
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -15,6 +18,8 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import kotlin.concurrent.thread
 
 /** 다중선택으로 한 번에 등록할 상품 하나(바코드/상품명/판매가) - 웹의
@@ -672,23 +677,11 @@ object OrderQueenDialogs {
         root.addView(accountsLabel)
         root.addView(allAccountsCheck)
         root.addView(accountsListContainer)
-        root.addView(hintText(activity, "상품 수 × 계정 수에 비례해 시간이 걸립니다(상품 하나당 계정 2개까지 약 30초)."))
-
-        val progress = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = items.size
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(activity, 14) }
-        }
-        val progressLabel = TextView(activity).apply {
-            textSize = 12f
-            alpha = 0.75f
-            visibility = View.GONE
-            setPadding(0, dp(activity, 6), 0, 0)
-        }
-        root.addView(progress)
-        root.addView(progressLabel)
+        root.addView(hintText(
+            activity,
+            "등록은 알림으로 진행 상황을 보여주는 백그라운드 작업으로 진행됩니다(앱을 나가도 계속됩니다). " +
+                "상품 수 × 계정 수에 비례해 시간이 걸립니다(상품 하나당 계정 2개까지 약 30초).",
+        ))
 
         val dialog = AlertDialog.Builder(activity)
             .setTitle("선택한 상품 오더퀸에 등록")
@@ -750,59 +743,27 @@ object OrderQueenDialogs {
                 return@setOnClickListener
             }
 
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = false
-            progress.progress = 0
-            progress.visibility = View.VISIBLE
-            progressLabel.visibility = View.VISIBLE
-            progressLabel.text = "상품 1/${items.size} 등록 중… (${items[0].name})"
-
-            thread {
-                val perItemResults = mutableListOf<Pair<OqBulkItem, Result<List<OqRegisterResult>>>>()
-                items.forEachIndexed { index, item ->
-                    activity.runOnUiThread {
-                        progressLabel.text = "상품 ${index + 1}/${items.size} 등록 중… (${item.name})"
-                    }
-                    val result = OrderQueenManager.registerItem(
-                        activity, item.barcode, item.name, item.price, classCd, className, accountIds,
-                    )
-                    perItemResults.add(item to result)
-                    activity.runOnUiThread { progress.progress = index + 1 }
-                }
-
-                activity.runOnUiThread {
-                    progress.visibility = View.GONE
-                    progressLabel.visibility = View.GONE
-                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
-                    dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = true
-
-                    val successCount = perItemResults.count { (_, r) -> r.getOrNull()?.all { it.ok } == true }
-                    if (successCount == items.size) {
-                        Toast.makeText(activity, "${items.size}개 상품을 모두 등록했습니다.", Toast.LENGTH_SHORT).show()
-                        dialog.dismiss()
-                    } else {
-                        val detail = perItemResults.joinToString("\n") { (item, r) ->
-                            r.fold(
-                                onSuccess = { results ->
-                                    if (results.all { it.ok }) {
-                                        "${item.name}: 성공"
-                                    } else {
-                                        val failed = results.filter { !it.ok }
-                                            .joinToString(", ") { it.nickname ?: "계정 ${it.accountId}" }
-                                        "${item.name}: 일부 실패 ($failed)"
-                                    }
-                                },
-                                onFailure = { e -> "${item.name}: 실패 - ${e.message}" },
-                            )
-                        }
-                        AlertDialog.Builder(activity)
-                            .setTitle("등록 결과 ($successCount/${items.size} 성공)")
-                            .setMessage(detail)
-                            .setPositiveButton("확인", null)
-                            .show()
-                    }
-                }
+            // 안드로이드 13+는 알림을 띄우려면 런타임 권한이 필요하다 - 거부해도
+            // 포그라운드 서비스 자체는 정상 동작하고(등록은 계속 진행됨) 진행
+            // 알림만 안 보이는 것뿐이라, 결과를 기다리지 않고 바로 등록을
+            // 시작한다.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
             }
+
+            // 상품 여러 개를 순차 등록하다 보면 계정 수에 비례해 몇 분씩 걸릴 수
+            // 있는데, 다이얼로그를 띄운 채로 기다리게 하면 그동안 사용자가 홈
+            // 화면으로 나갔을 때 안드로이드가 백그라운드 네트워크를 막아 등록이
+            // 통째로 실패하는 문제가 있었다(실측). 실제 등록은 포그라운드
+            // 서비스(OqRegisterService)에 맡기고 다이얼로그는 바로 닫아서,
+            // 사용자가 앱에 머무르든 나가든 알림으로 진행 상황과 결과를 볼 수
+            // 있게 한다.
+            OqRegisterService.start(activity, items, classCd, className, accountIds)
+            Toast.makeText(activity, "${items.size}개 상품 등록을 시작했습니다. 진행 상황은 알림으로 확인하세요.", Toast.LENGTH_LONG).show()
+            dialog.dismiss()
         }
     }
 }

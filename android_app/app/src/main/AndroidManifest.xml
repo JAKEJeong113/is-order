@@ -12,6 +12,15 @@
         android:name="android.hardware.camera.autofocus"
         android:required="false" />
 
+    <!-- 오더퀸 다중선택 등록(OqRegisterService)용 - 상품 여러 개를 순차
+         등록하는 동안 사용자가 홈 화면으로 나가면 안드로이드가 백그라운드
+         네트워크를 막아 등록이 통째로 실패하는 문제(실측: DNS 조회 자체가
+         실패)가 있었다. 포그라운드 서비스로 돌리면 알림이 떠 있는 동안은
+         이 제한을 받지 않는다. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -38,5 +47,12 @@
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.BarcodeSite" />
+
+        <!-- 오더퀸 다중선택 등록 작업 - OrderQueenDialogs.showRegisterMultipleDialog가
+             "등록"을 누르면 시작한다. -->
+        <service
+            android:name=".OqRegisterService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>
