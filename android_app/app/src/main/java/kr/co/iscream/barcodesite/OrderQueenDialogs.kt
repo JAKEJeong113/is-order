@@ -10,17 +10,22 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import kotlin.concurrent.thread
 
+/** 다중선택으로 한 번에 등록할 상품 하나(바코드/상품명/판매가) - 웹의
+ * "선택한 N개 오더퀸 등록" 버튼이 넘겨주는 목록의 원소. */
+data class OqBulkItem(val barcode: String, val name: String, val price: Int)
+
 /**
- * 오더퀸 자동등록 관련 다이얼로그 2개 - 설정(계정 여러 개 등록/삭제)과
- * 상품 등록(계정 선택 포함). 레이아웃 XML 없이 코드로 직접 구성한다(필드가
- * 몇 개 안 되는 단순한 폼이라 별도 XML을 두는 것보다 여기 한 파일로 모아두는
- * 쪽이 관리하기 쉽다).
+ * 오더퀸 자동등록 관련 다이얼로그 3개 - 설정(계정 여러 개 등록/삭제),
+ * 상품 등록(계정 선택 포함), 다중선택 상품 일괄 등록. 레이아웃 XML 없이
+ * 코드로 직접 구성한다(필드가 몇 개 안 되는 단순한 폼이라 별도 XML을
+ * 두는 것보다 여기 한 파일로 모아두는 쪽이 관리하기 쉽다).
  */
 object OrderQueenDialogs {
 
@@ -599,6 +604,202 @@ object OrderQueenDialogs {
                         dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
                         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = true
                         Toast.makeText(activity, "등록 실패: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    /** 검색결과에서 여러 상품을 체크해 한 번에 등록할 때 쓰는 다이얼로그.
+     * 상품마다 바코드/상품명/판매가는 다르지만, 분류와 등록할 계정은
+     * 목록 전체에 공통으로 하나만 고른다 - 같은 브랜드 검색 결과처럼
+     * 대개 같은 분류인 상품들을 한 번에 고르는 상황을 상정한 것으로,
+     * 분류가 다른 상품이 섞여 있으면 그런 것만 따로 개별 등록하면 된다. */
+    fun showRegisterMultipleDialog(activity: AppCompatActivity, items: List<OqBulkItem>) {
+        if (items.isEmpty()) return
+
+        val padding = dp(activity, 20)
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding, padding, 0)
+        }
+
+        root.addView(TextView(activity).apply {
+            text = "선택한 상품 ${items.size}개"
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, 0, 0, dp(activity, 8))
+        })
+
+        val itemsListView = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        items.forEach { item ->
+            itemsListView.addView(TextView(activity).apply {
+                text = "${item.name} · ${item.price}원"
+                textSize = 13f
+                setPadding(0, dp(activity, 3), 0, dp(activity, 3))
+            })
+        }
+        root.addView(ScrollView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(activity, 120))
+            addView(itemsListView)
+        })
+
+        root.addView(TextView(activity).apply {
+            text = "분류 (선택한 상품 전체에 동일하게 적용됩니다)"
+            textSize = 12f
+            alpha = 0.65f
+            setPadding(0, dp(activity, 14), 0, dp(activity, 4))
+        })
+        val classCodes = OrderQueenManager.DEFAULT_CLASS_CODES
+        val classNames = classCodes.keys.toList()
+        val spinner = Spinner(activity).apply {
+            adapter = ArrayAdapter<String>(activity, android.R.layout.simple_spinner_dropdown_item, classNames)
+        }
+        root.addView(spinner)
+
+        val accountsLabel = TextView(activity).apply {
+            text = "등록할 계정"
+            setPadding(0, dp(activity, 14), 0, dp(activity, 4))
+            visibility = View.GONE
+        }
+        val allAccountsCheck = CheckBox(activity).apply {
+            text = "모든 계정에 추가"
+            visibility = View.GONE
+        }
+        val accountsListContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        root.addView(accountsLabel)
+        root.addView(allAccountsCheck)
+        root.addView(accountsListContainer)
+        root.addView(hintText(activity, "상품 수 × 계정 수에 비례해 시간이 걸립니다(상품 하나당 계정 2개까지 약 30초)."))
+
+        val progress = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = items.size
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(activity, 14) }
+        }
+        val progressLabel = TextView(activity).apply {
+            textSize = 12f
+            alpha = 0.75f
+            visibility = View.GONE
+            setPadding(0, dp(activity, 6), 0, 0)
+        }
+        root.addView(progress)
+        root.addView(progressLabel)
+
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle("선택한 상품 오더퀸에 등록")
+            .setView(root)
+            .setPositiveButton("등록", null)
+            .setNegativeButton("취소", null)
+            .create()
+        dialog.show()
+
+        var loadedAccounts: List<OqAccount> = emptyList()
+        var accountPairs: List<Pair<OqAccount, CheckBox>> = emptyList()
+
+        fun applyAllAccountsState(checkedAll: Boolean) {
+            accountPairs.forEach { (_, cb) ->
+                cb.isEnabled = !checkedAll
+                if (checkedAll) cb.isChecked = true
+            }
+        }
+        allAccountsCheck.setOnCheckedChangeListener { _, checked -> applyAllAccountsState(checked) }
+
+        fun renderAccountsUi(accounts: List<OqAccount>) {
+            loadedAccounts = accounts
+            accountsListContainer.removeAllViews()
+            if (accounts.size <= 1) {
+                accountsLabel.visibility = View.GONE
+                allAccountsCheck.visibility = View.GONE
+                accountsListContainer.visibility = View.GONE
+                accountPairs = emptyList()
+                return
+            }
+            accountsLabel.visibility = View.VISIBLE
+            allAccountsCheck.visibility = View.VISIBLE
+            accountsListContainer.visibility = View.VISIBLE
+            accountPairs = accounts.map { acc ->
+                val cb = CheckBox(activity).apply { text = acc.nickname; isChecked = true; isEnabled = false }
+                accountsListContainer.addView(cb)
+                acc to cb
+            }
+            allAccountsCheck.isChecked = true
+        }
+
+        thread {
+            val accounts = OrderQueenManager.fetchAccounts(activity)
+            activity.runOnUiThread { renderAccountsUi(accounts) }
+        }
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val className = classNames[spinner.selectedItemPosition]
+            val classCd = classCodes[className] ?: classCodes.values.firstOrNull() ?: ""
+
+            val accountIds = when {
+                loadedAccounts.isEmpty() -> emptyList()
+                loadedAccounts.size == 1 -> listOf(loadedAccounts[0].id)
+                allAccountsCheck.isChecked -> loadedAccounts.map { it.id }
+                else -> accountPairs.filter { it.second.isChecked }.map { it.first.id }
+            }
+            if (accountIds.isEmpty()) {
+                Toast.makeText(activity, "등록할 계정을 선택해주세요.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = false
+            progress.progress = 0
+            progress.visibility = View.VISIBLE
+            progressLabel.visibility = View.VISIBLE
+            progressLabel.text = "상품 1/${items.size} 등록 중… (${items[0].name})"
+
+            thread {
+                val perItemResults = mutableListOf<Pair<OqBulkItem, Result<List<OqRegisterResult>>>>()
+                items.forEachIndexed { index, item ->
+                    activity.runOnUiThread {
+                        progressLabel.text = "상품 ${index + 1}/${items.size} 등록 중… (${item.name})"
+                    }
+                    val result = OrderQueenManager.registerItem(
+                        activity, item.barcode, item.name, item.price, classCd, className, accountIds,
+                    )
+                    perItemResults.add(item to result)
+                    activity.runOnUiThread { progress.progress = index + 1 }
+                }
+
+                activity.runOnUiThread {
+                    progress.visibility = View.GONE
+                    progressLabel.visibility = View.GONE
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                    dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = true
+
+                    val successCount = perItemResults.count { (_, r) -> r.getOrNull()?.all { it.ok } == true }
+                    if (successCount == items.size) {
+                        Toast.makeText(activity, "${items.size}개 상품을 모두 등록했습니다.", Toast.LENGTH_SHORT).show()
+                        dialog.dismiss()
+                    } else {
+                        val detail = perItemResults.joinToString("\n") { (item, r) ->
+                            r.fold(
+                                onSuccess = { results ->
+                                    if (results.all { it.ok }) {
+                                        "${item.name}: 성공"
+                                    } else {
+                                        val failed = results.filter { !it.ok }
+                                            .joinToString(", ") { it.nickname ?: "계정 ${it.accountId}" }
+                                        "${item.name}: 일부 실패 ($failed)"
+                                    }
+                                },
+                                onFailure = { e -> "${item.name}: 실패 - ${e.message}" },
+                            )
+                        }
+                        AlertDialog.Builder(activity)
+                            .setTitle("등록 결과 ($successCount/${items.size} 성공)")
+                            .setMessage(detail)
+                            .setPositiveButton("확인", null)
+                            .show()
                     }
                 }
             }

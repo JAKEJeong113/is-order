@@ -109,6 +109,27 @@ class MainActivity : AppCompatActivity() {
                 OrderQueenDialogs.showRegisterDialog(this@MainActivity, barcode, name, price)
             }
         }
+
+        // 검색결과 화면의 "선택" 다중선택 모드에서 넘어온다 - itemsJson은
+        // [{"barcode":"...","name":"...","price":1700}, ...] 형태의 JSON
+        // 문자열이다(JS 브리지는 문자열만 안전하게 주고받을 수 있어 객체
+        // 배열은 JSON으로 직렬화해서 넘긴다).
+        @JavascriptInterface
+        fun registerItems(itemsJson: String) {
+            val items = try {
+                val arr = org.json.JSONArray(itemsJson)
+                (0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    OqBulkItem(o.getString("barcode"), o.getString("name"), o.optInt("price", 0))
+                }
+            } catch (e: Exception) {
+                emptyList()
+            }
+            if (items.isEmpty()) return
+            runOnUiThread {
+                OrderQueenDialogs.showRegisterMultipleDialog(this@MainActivity, items)
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
