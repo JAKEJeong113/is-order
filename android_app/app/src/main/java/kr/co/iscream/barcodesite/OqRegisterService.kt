@@ -76,7 +76,7 @@ class OqRegisterService : Service() {
         )
     }
 
-    private fun progressNotification(text: String): Notification =
+    private fun progressNotification(text: String, completed: Int, total: Int): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("오더퀸에 등록 중")
@@ -84,10 +84,11 @@ class OqRegisterService : Service() {
             .setContentIntent(openAppPendingIntent())
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setProgress(total, completed, false)
             .build()
 
-    private fun updateProgressNotification(text: String) {
-        notificationManager().notify(NOTIF_ID, progressNotification(text))
+    private fun updateProgressNotification(text: String, completed: Int, total: Int) {
+        notificationManager().notify(NOTIF_ID, progressNotification(text, completed, total))
     }
 
     private fun showResultNotification(text: String) {
@@ -117,13 +118,13 @@ class OqRegisterService : Service() {
         }
 
         ensureChannel()
-        startForeground(NOTIF_ID, progressNotification("상품 1/${items.size} 등록 중… (${items[0].name})"))
+        startForeground(NOTIF_ID, progressNotification("상품 1/${items.size} 등록 중… (${items[0].name})", 0, items.size))
 
         Thread {
             val successNames = mutableListOf<String>()
             val failedDetails = mutableListOf<String>()
             items.forEachIndexed { index, item ->
-                updateProgressNotification("상품 ${index + 1}/${items.size} 등록 중… (${item.name})")
+                updateProgressNotification("상품 ${index + 1}/${items.size} 등록 중… (${item.name})", index, items.size)
                 val result = OrderQueenManager.registerItem(
                     this, item.barcode, item.name, item.price, classCd, className, accountIds,
                 )
@@ -147,6 +148,11 @@ class OqRegisterService : Service() {
                 "${successNames.size}/${items.size}개 성공. 실패 - ${failedDetails.joinToString(" / ")}"
             }
             showResultNotification(summary)
+            // 알림은 사용자가 실수로 스와이프해 지우면 등록 결과를 놓칠 수 있다
+            // (사용자 확인) - 앱을 다시 열었을 때 확실히 확인할 수 있게, 앱이
+            // 지금 떠 있으면 바로 팝업으로, 아니면 다음에 열 때 보여주도록
+            // OqRegisterResultBus에 결과를 전달한다.
+            OqRegisterResultBus.deliver(applicationContext, summary)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf(startId)
         }.start()

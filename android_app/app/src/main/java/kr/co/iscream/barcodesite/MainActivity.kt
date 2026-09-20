@@ -1,6 +1,7 @@
 package kr.co.iscream.barcodesite
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -211,6 +212,29 @@ class MainActivity : AppCompatActivity() {
                 }
             },
         )
+    }
+
+    // 다중선택 등록(OqRegisterService)이 끝났을 때 결과를 놓치지 않게
+    // 하는 곳 - 화면이 떠 있는 동안(onResume~onPause)만 콜백을 등록해둬서,
+    // 서비스가 끝나는 순간 앱이 보이고 있으면 바로 팝업을 띄우고, 아니면
+    // OqRegisterResultBus가 대신 들고 있다가 다음 onResume에서 꺼내온다.
+    override fun onResume() {
+        super.onResume()
+        OqRegisterResultBus.liveCallback = { summary -> showRegisterResultDialog(summary) }
+        OqRegisterResultBus.consumePending(this)?.let { showRegisterResultDialog(it) }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        OqRegisterResultBus.liveCallback = null
+    }
+
+    private fun showRegisterResultDialog(summary: String) {
+        AlertDialog.Builder(this)
+            .setTitle("오더퀸 등록 완료")
+            .setMessage(summary)
+            .setPositiveButton("확인", null)
+            .show()
     }
 
     // 설정에서 오더퀸 자동등록을 켜거나 끈 직후 호출된다. isAvailable()은
