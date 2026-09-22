@@ -181,6 +181,9 @@
     }
     .oq-register-btn:active{background:var(--mint-soft)}
     .result-price{font-size:15px; font-weight:800; color:var(--mint-dark); white-space:nowrap}
+    .result-price-change{font-size:13px; font-weight:800; white-space:nowrap; text-align:right}
+    .result-price-change .pc-old{color:var(--muted); font-weight:700; text-decoration:line-through; margin-right:3px}
+    .result-price-change .pc-new{color:var(--mint-dark)}
     .empty, .hint{color:var(--muted); font-size:13.5px; text-align:center; padding:18px 4px}
 
     /* 카탈로그에 없는 바코드를 스캔했을 때(오더퀸 자동등록 켜둔 경우) -
@@ -396,6 +399,20 @@
     <div class="results" id="newProductsList"></div>
   </div>
 
+  <!-- 가격인상 안내 - 쿠팡/도매몰/아이스크림 상품 중 최근(4주 이내) 추천판매가가
+       오른 상품을 보여주고, "오더퀸 등록"으로 바뀐 가격을 바로 반영할 수 있게 한다. -->
+  <button type="button" class="new-products-btn" id="priceIncreaseBtn">📈 가격인상 안내</button>
+
+  <div class="new-products-panel" id="priceIncreasePanel">
+    <div class="np-filter-row" id="piFilterRow">
+      <button type="button" class="np-filter-btn active" data-category="">전체</button>
+      <button type="button" class="np-filter-btn" data-category="0">아이스크림</button>
+      <button type="button" class="np-filter-btn" data-category="1">쿠팡</button>
+      <button type="button" class="np-filter-btn" data-category="2">도매몰</button>
+    </div>
+    <div class="results" id="priceIncreaseList"></div>
+  </div>
+
   <!-- 인기상품 순위 - 판매 데이터 활용에 동의한 매장들의 오더퀸 실제 판매량을
        모아 판매처별·기간별 인기 품목을 보여준다(매입 참고용). -->
   <button type="button" class="sales-ranking-btn" id="salesRankingBtn">📊 인기상품 순위</button>
@@ -477,6 +494,31 @@
           <div class="result-side">
             <span class="result-price">${formatPrice(item.recommended_price)}</span>
             ${oqAvailable && !inSelectMode ? `<button type="button" class="oq-register-btn" data-barcode="${item.barcode}" data-name="${escapeHtml(item.menu_name)}" data-price="${item.recommended_price || 0}">오더퀸 등록</button>` : ""}
+          </div>
+        </div>
+      `).join("");
+    }
+
+    // 가격인상 안내 - renderRows와 거의 같지만, 현재가 하나가 아니라
+    // 이전가->인상가를 같이 보여준다. "오더퀸 등록"을 누르면 그 상품의
+    // 등록가를 인상된 새 가격으로 바로 갱신한다(이미 등록된 상품 재등록 시
+    // 가격만 덮어쓰는 기존 동작 그대로 재사용).
+    function renderPriceIncreaseRows(items) {
+      if (items.length === 0) {
+        return '<p class="empty">최근 가격이 오른 상품이 없습니다.</p>';
+      }
+      const oqAvailable = !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
+      return items.map((item) => `
+        <div class="result-row" data-barcode="${item.barcode}">
+          <div>
+            <p class="result-name">${item.menu_name}</p>
+            <p class="result-barcode">${item.barcode}</p>
+          </div>
+          <div class="result-side">
+            <span class="result-price-change">
+              <span class="pc-old">${formatPrice(item.old_price)}</span>→<span class="pc-new">${formatPrice(item.new_price)}</span>
+            </span>
+            ${oqAvailable ? `<button type="button" class="oq-register-btn" data-barcode="${item.barcode}" data-name="${escapeHtml(item.menu_name)}" data-price="${item.new_price || 0}">오더퀸 등록</button>` : ""}
           </div>
         </div>
       `).join("");
@@ -1099,6 +1141,55 @@
       npFilterRow.querySelectorAll(".np-filter-btn").forEach((b) => b.classList.remove("active"));
       filterBtn.classList.add("active");
       loadNewProducts(filterBtn.dataset.category);
+    });
+
+    // 가격인상 안내 - 쿠팡/도매몰/아이스크림 상품 중 최근(4주 이내)
+    // 추천판매가가 오른 상품을 카테고리 필터로 훑어본다.
+    const priceIncreaseBtn = document.getElementById("priceIncreaseBtn");
+    const priceIncreasePanel = document.getElementById("priceIncreasePanel");
+    const priceIncreaseList = document.getElementById("priceIncreaseList");
+    const piFilterRow = document.getElementById("piFilterRow");
+    let piLoaded = false;
+    let piCurrentCategory = "";
+
+    priceIncreaseList.addEventListener("click", handleResultClick);
+
+    async function loadPriceIncreases(category) {
+      piCurrentCategory = category;
+      if (!priceIncreaseList.childElementCount) {
+        priceIncreaseList.innerHTML = '<p class="hint">불러오는 중...</p>';
+      } else {
+        priceIncreaseList.classList.add("loading");
+      }
+      try {
+        const url = category
+          ? `/api/price-increases?category=${encodeURIComponent(category)}`
+          : "/api/price-increases";
+        const res = await fetch(url);
+        const data = await res.json();
+        priceIncreaseList.innerHTML = renderPriceIncreaseRows(data.items || []);
+      } catch (e) {
+        priceIncreaseList.innerHTML = '<p class="empty">불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>';
+      } finally {
+        priceIncreaseList.classList.remove("loading");
+      }
+    }
+
+    priceIncreaseBtn.addEventListener("click", () => {
+      const willOpen = !priceIncreasePanel.classList.contains("open");
+      priceIncreasePanel.classList.toggle("open", willOpen);
+      if (willOpen && !piLoaded) {
+        piLoaded = true;
+        loadPriceIncreases(piCurrentCategory);
+      }
+    });
+
+    piFilterRow.addEventListener("click", (e) => {
+      const filterBtn = e.target.closest(".np-filter-btn");
+      if (!filterBtn) return;
+      piFilterRow.querySelectorAll(".np-filter-btn").forEach((b) => b.classList.remove("active"));
+      filterBtn.classList.add("active");
+      loadPriceIncreases(filterBtn.dataset.category);
     });
 
     // 인기상품 순위 - 판매처(카테고리) x 기간(이번 주/이번 달) 조합별로

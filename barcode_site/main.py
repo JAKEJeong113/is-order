@@ -56,6 +56,23 @@ CREATE TABLE IF NOT EXISTS pending_catalog_submissions (
 _conn.commit()
 _conn.close()
 
+# 가격인상안내용 - 본체(mapping.py/catalog_auto_import.py)가 추천판매가가
+# 실제로 오를 때만 기록하는 테이블. 이 사이트는 읽기만 하지만, 배포 순서와
+# 무관하게 안전하도록(pending_catalog_submissions와 같은 이유) 여기서도
+# CREATE TABLE IF NOT EXISTS로 만들어둔다.
+_conn = db_conn.get_conn()
+_conn.cursor().execute("""
+CREATE TABLE IF NOT EXISTS catalog_price_changes (
+    id SERIAL PRIMARY KEY,
+    barcode TEXT NOT NULL,
+    old_price INTEGER NOT NULL,
+    new_price INTEGER NOT NULL,
+    changed_at TEXT NOT NULL
+)
+""")
+_conn.commit()
+_conn.close()
+
 # 이 앱(무인 바코드 검색기) 전용 패치노트 - 본체(main.py, barcode_app_patch_notes.py)가
 # 쓰는 것과 같은 테이블을 여기서도(배포 순서 무관하게) 만들어두고 읽기만 한다.
 _conn = db_conn.get_conn()
@@ -252,6 +269,75 @@ def api_new_products(
             "recommended_price": recommended_price or 0,
         }
         for barcode, menu_name, recommended_price in rows
+    ]
+    return {"items": items}
+
+
+@app.get("/api/price-increases")
+def api_price_increases(
+    category: str | None = Query(None, description="본체 is_coupang 값(0=아이스크림,1=쿠팡,2=도매몰). 안 주면 전체."),
+    limit: int = Query(100, ge=1, le=300),
+):
+    """"가격인상 안내" 목록 - 최근(4주 이내) 추천판매가가 오른 상품을
+    보여주고, 점주가 "오더퀸 등록"으로 바뀐 가격을 바로 반영할 수 있게
+    한다. catalog_price_changes(본체가 가격이 실제로 오를 때만 기록)에서
+    바코드당 가장 최근 변경 1건만 골라 보여준다 - 같은 상품이 기간 안에
+    여러 번 올랐어도 목록엔 한 줄만 뜨고, 표시되는 이전가는 그 마지막
+    인상 직전 가격이다."""
+    cutoff = (datetime.now() - timedelta(days=28)).isoformat(timespec="seconds")
+
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        if category:
+            cur.execute(
+                """
+                WITH latest_changes AS (
+                    SELECT DISTINCT ON (p.barcode)
+                        p.barcode, c.menu_name, c.is_coupang, p.old_price, p.new_price, p.changed_at
+                    FROM catalog_price_changes p
+                    JOIN catalog_items c ON c.barcode = p.barcode
+                    WHERE p.changed_at >= ?
+                    ORDER BY p.barcode, p.changed_at DESC
+                )
+                SELECT barcode, menu_name, old_price, new_price
+                FROM latest_changes
+                WHERE is_coupang = ?
+                ORDER BY changed_at DESC
+                LIMIT ?
+                """,
+                (cutoff, int(category), limit),
+            )
+        else:
+            cur.execute(
+                """
+                WITH latest_changes AS (
+                    SELECT DISTINCT ON (p.barcode)
+                        p.barcode, c.menu_name, p.old_price, p.new_price, p.changed_at
+                    FROM catalog_price_changes p
+                    JOIN catalog_items c ON c.barcode = p.barcode
+                    WHERE p.changed_at >= ?
+                    ORDER BY p.barcode, p.changed_at DESC
+                )
+                SELECT barcode, menu_name, old_price, new_price
+                FROM latest_changes
+                ORDER BY changed_at DESC
+                LIMIT ?
+                """,
+                (cutoff, limit),
+            )
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    items = [
+        {
+            "barcode": barcode,
+            "menu_name": menu_name or "(이름 없음)",
+            "old_price": old_price or 0,
+            "new_price": new_price or 0,
+        }
+        for barcode, menu_name, old_price, new_price in rows
     ]
     return {"items": items}
 

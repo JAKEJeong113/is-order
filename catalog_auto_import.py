@@ -60,6 +60,7 @@ load_dotenv()
 
 import db_conn
 import godomall_bot
+import mapping
 import vendors
 import yamimall_bot
 from catalog_margin import compute_recommended_price
@@ -272,6 +273,9 @@ def _overwrite_price(barcode: str, recommended_price: int, notes: str) -> None:
     conn = db_conn.get_conn()
     try:
         cur = conn.cursor()
+        cur.execute("SELECT recommended_price FROM catalog_items WHERE barcode = ?", (barcode,))
+        row = cur.fetchone()
+        old_price = row[0] if row else None
         cur.execute(
             "UPDATE catalog_items SET recommended_price = ?, notes = ?, updated_at = ? WHERE barcode = ?",
             (recommended_price, notes, now, barcode),
@@ -279,6 +283,9 @@ def _overwrite_price(barcode: str, recommended_price: int, notes: str) -> None:
         conn.commit()
     finally:
         conn.close()
+    # 가격인상안내(바코드 사이트)용 - 도매처가 명시가로 덮어쓴 게 실제
+    # 인상이면 기록한다(인하/최초 등록은 record_price_change가 무시).
+    mapping.record_price_change(barcode, old_price, recommended_price)
 
 
 def _to_candidate(p: dict, vendor_name: str) -> dict:

@@ -265,6 +265,11 @@ class MainActivity : AppCompatActivity() {
                   typeof loadNewProducts === 'function' && typeof npCurrentCategory !== 'undefined') {
                 loadNewProducts(npCurrentCategory);
               }
+              var piPanel = document.getElementById('priceIncreasePanel');
+              if (piPanel && piPanel.classList.contains('open') &&
+                  typeof loadPriceIncreases === 'function' && typeof piCurrentCategory !== 'undefined') {
+                loadPriceIncreases(piCurrentCategory);
+              }
             })();
             """.trimIndent(),
             null,

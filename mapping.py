@@ -366,6 +366,12 @@ def upsert_catalog_item(item: "CoupangCatalogItem") -> None:
     now = datetime.now().isoformat(timespec="seconds")
     conn = db_conn.get_conn()
     cur = conn.cursor()
+    # 가격인상안내(바코드 사이트)용 - 덮어쓰기 전에 기존 추천판매가를 먼저
+    # 봐둔다. 신규 등록(기존 값 없음)이나 가격이 오르지 않은 경우는
+    # record_price_change가 알아서 무시한다.
+    cur.execute("SELECT recommended_price FROM catalog_items WHERE barcode = ?", (item.barcode,))
+    row = cur.fetchone()
+    old_price = row[0] if row else None
     set_clause = ", ".join(f"{c}=excluded.{c}" for c in _CATALOG_DB_COLUMNS if c != "barcode")
     cur.execute(f"""
     INSERT INTO catalog_items ({", ".join(_CATALOG_DB_COLUMNS)}, updated_at)
@@ -376,6 +382,7 @@ def upsert_catalog_item(item: "CoupangCatalogItem") -> None:
     conn.close()
     if item.is_coupang != 99:
         dismiss_unclassified_item(item.barcode)
+    record_price_change(item.barcode, old_price, item.recommended_price)
 
 
 def delete_catalog_item(barcode: str) -> bool:
@@ -399,6 +406,44 @@ def update_coupang_pack_qty(barcode: str, pack_qty: int) -> None:
     cur.execute(
         "UPDATE catalog_items SET pack_qty = ? WHERE barcode = ? AND is_coupang = 1",
         (pack_qty, barcode),
+    )
+    conn.commit()
+    conn.close()
+
+
+def init_price_changes_table() -> None:
+    """가격인상안내(바코드 사이트)용 - 추천판매가가 실제로 오른 이력만
+    쌓는다(신규 등록/가격 인하는 기록하지 않음 - record_price_change 참고)."""
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS catalog_price_changes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barcode TEXT NOT NULL,
+        old_price INTEGER NOT NULL,
+        new_price INTEGER NOT NULL,
+        changed_at TEXT NOT NULL
+    )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_catalog_price_changes_barcode ON catalog_price_changes (barcode, changed_at)")
+    conn.commit()
+    conn.close()
+
+
+def record_price_change(barcode: str, old_price: int | None, new_price: int | None) -> None:
+    """추천판매가가 실제로 올랐을 때만 기록한다(가격인상안내용). 최초 등록
+    (old_price가 비어있던 상품)이거나 가격이 그대로/내린 경우는 "인상"이
+    아니므로 기록하지 않는다. 이 함수를 부르는 쪽(upsert_catalog_item,
+    catalog_auto_import.py의 도매 명시가 덮어쓰기)이 catalog_items를 이미
+    갱신한 뒤 호출한다."""
+    if not old_price or not new_price or new_price <= old_price:
+        return
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO catalog_price_changes (barcode, old_price, new_price, changed_at) VALUES (?, ?, ?, ?)",
+        (barcode, old_price, new_price, now),
     )
     conn.commit()
     conn.close()
