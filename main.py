@@ -151,6 +151,7 @@ board.init_suggestions_table()
 web_cart.init_web_cart_table()
 cart_jobs.init_cart_jobs_table()
 orderqueen_bot.init_kiosk_screen_job_table()
+orderqueen_bot.init_category_cache_table()
 store_reports.init_store_report_tables()
 store_reports.init_manual_report_table()
 usage_stats.init_usage_events_table()
@@ -1167,10 +1168,13 @@ def api_oq_app_register_item(req: OqAppRegisterRequest):
     선택하면 account_ids에 여러 개가 담겨오고, 계정마다 순서대로 로그인+
     등록을 반복해서 각각 결과를 따로 담아 반환한다. (sync def라 FastAPI/
     Starlette가 별도 스레드 풀에서 실행하므로, 여기서 Playwright의 동기
-    API를 그대로 블로킹 호출해도 서버의 다른 요청 처리를 막지 않는다.)"""
-    if req.class_cd not in orderqueen_bot.CLASS_CODES.values():
-        return {"ok": False, "message": "알 수 없는 분류입니다."}
+    API를 그대로 블로킹 호출해도 서버의 다른 요청 처리를 막지 않는다.)
 
+    class_cd/class_name은 더 이상 고정된 5개 기본값으로 제한하지 않는다 -
+    매장마다 분류 구성이 달라서(사용자 피드백) 앱이 계정별로 실제 분류
+    목록(/api/oq-app/categories)을 받아와 그 안에서 고른 값을 그대로
+    보낸다. 실제 유효성 검사는 register_menu_item이 이 매장 드롭다운에서
+    이름/코드를 찾는 과정에서 대신한다."""
     store_id = _oq_app_store_id(req.device_id)
     resolved = [
         (aid, vendors.resolve_store_vendor_account(store_id, _OQ_APP_VENDOR_ID, aid))
@@ -1238,10 +1242,72 @@ def api_oq_app_register_item(req: OqAppRegisterRequest):
 
 @app.get("/api/oq-app/class-codes")
 def api_oq_app_class_codes():
-    """앱의 분류 선택 드롭다운을 채우는 용도 - 서버에 하드코딩된 값을
-    그대로 내려주면, 나중에 분류가 바뀌어도 앱을 다시 빌드하지 않고
-    서버만 고치면 반영된다."""
+    """(구버전 앱 호환용) 앱의 분류 선택 드롭다운을 채우던 예전 방식 -
+    매장마다 분류 구성이 달라(사용자 피드백) 계정별 실제 분류를 쓰는
+    /api/oq-app/categories로 대체됐다. 이 엔드포인트는 아직 이걸 쓰는
+    구버전 앱을 위해 남겨둔다."""
     return {"ok": True, "classes": orderqueen_bot.CLASS_CODES}
+
+
+@app.get("/api/oq-app/categories")
+def api_oq_app_get_categories(
+    device_id: str = Query(..., min_length=8, max_length=200), account_id: int = Query(...),
+):
+    """계정별로 저장된 분류 목록을 돌려준다("분류 설정" 화면, 오더퀸 등록
+    화면의 분류 드롭다운 둘 다 이걸 쓴다). 한 번도 동기화한 적이 없으면
+    빈 배열이 아니라 예전 기본값(CLASS_CODES)을 대신 내려줘서, 처음 쓰는
+    사용자도 빈 드롭다운을 보지 않게 한다."""
+    store_id = _oq_app_store_id(device_id)
+    categories = orderqueen_bot.list_categories(store_id, account_id)
+    if not categories:
+        categories = [
+            {"class_cd": cd, "class_name": nm} for nm, cd in orderqueen_bot.CLASS_CODES.items()
+        ]
+    return {"ok": True, "categories": categories}
+
+
+class OqAppCategorySyncRequest(BaseModel):
+    device_id: str = Field(..., min_length=8, max_length=200)
+    account_id: int
+
+
+class OqAppCategorySaveRequest(BaseModel):
+    device_id: str = Field(..., min_length=8, max_length=200)
+    account_id: int
+    categories: list[dict] = Field(..., min_length=1, max_length=50)
+
+
+@app.post("/api/oq-app/categories/sync")
+def api_oq_app_sync_categories(req: OqAppCategorySyncRequest):
+    """"분류 설정" 화면의 "동기화" 버튼 - 오더퀸 "매장 상품관리 > 분류관리"
+    페이지에서 이 계정의 실제 분류 목록을 다시 긁어와 저장한다(기존 저장값은
+    통째로 교체됨)."""
+    store_id = _oq_app_store_id(req.device_id)
+    account = vendors.resolve_store_vendor_account(store_id, _OQ_APP_VENDOR_ID, req.account_id)
+    if not account:
+        return {"ok": False, "message": "계정을 찾을 수 없습니다."}
+
+    result = orderqueen_bot.fetch_category_list(
+        account["login_id"], account["login_pwd"], store_id=f"{store_id}:{req.account_id}",
+    )
+    if not result.get("ok"):
+        return result
+
+    orderqueen_bot.save_categories(store_id, req.account_id, result["categories"])
+    return {"ok": True, "categories": orderqueen_bot.list_categories(store_id, req.account_id)}
+
+
+@app.put("/api/oq-app/categories")
+def api_oq_app_save_categories(req: OqAppCategorySaveRequest):
+    """"분류 설정" 화면에서 사용자가 직접 추가/수정/삭제/순서변경한 목록을
+    저장한다(동기화와 같은 저장 함수를 쓰되, 오더퀸을 다시 긁어오지 않고
+    앱이 보낸 값을 그대로 저장)."""
+    store_id = _oq_app_store_id(req.device_id)
+    for cat in req.categories:
+        if not str(cat.get("class_cd") or "").strip() or not str(cat.get("class_name") or "").strip():
+            return {"ok": False, "message": "분류 코드와 이름을 모두 입력해주세요."}
+    orderqueen_bot.save_categories(store_id, req.account_id, req.categories)
+    return {"ok": True, "categories": orderqueen_bot.list_categories(store_id, req.account_id)}
 
 
 class IsorderCartAddRequest(BaseModel):

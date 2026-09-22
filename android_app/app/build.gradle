@@ -24,8 +24,8 @@ android {
         // 2026-08 부터 신규 앱은 플레이스토어에 API 36(Android 16) 타겟이
         // 필수 - 첫 출시라 이 요건을 맞춰야 업로드가 된다.
         targetSdk 36
-        versionCode 14
-        versionName "1.0.12"
+        versionCode 15
+        versionName "1.0.13"
     }
 
     signingConfigs {

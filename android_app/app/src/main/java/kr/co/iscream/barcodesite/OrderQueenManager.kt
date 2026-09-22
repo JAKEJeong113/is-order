@@ -21,6 +21,10 @@ data class OqAccountDetail(val nickname: String, val loginId: String, val salesD
  * 골랐을 때 계정별로 성공/실패가 다를 수 있어 따로 담는다. */
 data class OqRegisterResult(val accountId: Int, val nickname: String?, val ok: Boolean, val message: String)
 
+/** 오더퀸 등록 화면의 "분류" 하나(코드/이름) - 매장마다 구성이 달라서
+ * 계정별로 따로 저장한다("분류 설정" 화면 참고). */
+data class OqCategory(val classCd: String, val className: String)
+
 /**
  * 오더퀸 자동등록 기능의 로컬 상태(기기 식별자/사용 여부)와 서버 API 호출을
  * 담당한다. 본체 사이트(is-cream.co.kr) 로그인과는 완전히 별개로 동작한다
@@ -191,6 +195,70 @@ object OrderQueenManager {
                 Result.success(Unit)
             } else {
                 Result.failure(Exception(res.optString("message", "수정에 실패했습니다.")))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun parseCategories(res: JSONObject): List<OqCategory> {
+        val arr = res.optJSONArray("categories") ?: org.json.JSONArray()
+        return (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            OqCategory(o.getString("class_cd"), o.getString("class_name"))
+        }
+    }
+
+    /** 이 계정에 저장된 분류 목록을 가져온다("분류 설정" 화면과 등록 화면의
+     * 분류 드롭다운 둘 다 이걸 쓴다). 한 번도 동기화 안 했으면 서버가 예전
+     * 기본값 5개를 대신 내려준다. */
+    fun fetchCategories(context: Context, accountId: Int): Result<List<OqCategory>> {
+        return try {
+            val res = request(
+                "/api/oq-app/categories?device_id=${getDeviceId(context)}&account_id=$accountId", "GET",
+            )
+            if (res.optBoolean("ok", false)) {
+                Result.success(parseCategories(res))
+            } else {
+                Result.failure(Exception(res.optString("message", "분류를 불러오지 못했습니다.")))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** "분류 설정" 화면의 "동기화" - 오더퀸에서 이 계정의 실제 분류를 다시
+     * 긁어와 저장한다(로그인이 들어가는 만큼 시간이 좀 걸림). */
+    fun syncCategories(context: Context, accountId: Int): Result<List<OqCategory>> {
+        val body = JSONObject().put("device_id", getDeviceId(context)).put("account_id", accountId)
+        return try {
+            val res = request("/api/oq-app/categories/sync", "POST", body, readTimeoutMs = 45000)
+            if (res.optBoolean("ok", false)) {
+                Result.success(parseCategories(res))
+            } else {
+                Result.failure(Exception(res.optString("message", "동기화에 실패했습니다.")))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** "분류 설정" 화면에서 사용자가 직접 추가/수정/삭제한 목록을 저장한다. */
+    fun saveCategories(context: Context, accountId: Int, categories: List<OqCategory>): Result<Unit> {
+        val arr = org.json.JSONArray()
+        categories.forEach { c ->
+            arr.put(JSONObject().put("class_cd", c.classCd).put("class_name", c.className))
+        }
+        val body = JSONObject()
+            .put("device_id", getDeviceId(context))
+            .put("account_id", accountId)
+            .put("categories", arr)
+        return try {
+            val res = request("/api/oq-app/categories", "PUT", body, readTimeoutMs = 20000)
+            if (res.optBoolean("ok", false)) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception(res.optString("message", "저장에 실패했습니다.")))
             }
         } catch (e: Exception) {
             Result.failure(e)

@@ -55,6 +55,14 @@ MENU_LIST_URL = "https://www.orderqueen.kr/backoffice_admin/MNU01020.itp"
 # 호출해야 실제로 매장에서 팔 수 있는 상태가 된다.
 SCREEN_MANAGEMENT_URL = "https://www.orderqueen.kr/backoffice_admin/MNU02030.itp"
 
+# "매장 상품관리 > 상품관리 > 분류관리" - 매장이 직접 만들고 이름 붙이는
+# 분류(카테고리) 목록. class_cd/class_name과 마찬가지로 매장마다 구성이
+# 완전히 다르다(실측 확인 - 아이스크림/음료수/간식/완구,문구 외에 마카롱/
+# 스토어드림/카페일분/다쿠아즈/팬시 등 매장 고유 분류를 쓰는 곳도 있음).
+# fetch_category_list로 이 페이지를 그대로 긁어와 앱의 분류 선택지를
+# 매장별 실제 구성에 맞춘다(사용자 피드백).
+CATEGORY_MGMT_URL = "https://www.orderqueen.kr/backoffice_admin/MNU01010.itp"
+
 # 코너 코드(cornerCd)는 매장마다 다를 수 있다(코너관리에서 매장이 직접
 # 만들고 이름 붙이는 구조 - class_cd와 같은 이유). 그래서 코드가 아니라
 # 이름으로 찾는다. 대부분 매장이 "상품"이라는 이름의 코너를 실제 판매
@@ -576,10 +584,14 @@ def register_menu_item(
 
     반환값: {"ok": True} 또는 {"ok": False, "message": "..."} - 오더퀸이
     자체적으로 띄우는 안내/오류 메시지(예: 바코드 중복)를 그대로 담아
-    돌려줘서 앱에서 사용자에게 정확한 이유를 보여줄 수 있게 한다."""
-    if class_cd not in CLASS_CODES.values():
-        raise ValueError(f"알 수 없는 분류 코드: {class_cd}")
+    돌려줘서 앱에서 사용자에게 정확한 이유를 보여줄 수 있게 한다.
 
+    class_cd는 더 이상 CLASS_CODES(하드코딩된 5개 기본값)로 제한하지
+    않는다 - 매장마다 분류 코드/이름 구성이 제각각이라(fetch_category_list로
+    매장별 실제 분류를 가져와 쓰는 방식으로 전환, 사용자 피드백) 여기서
+    막아버리면 그 매장만의 정상적인 분류 코드까지 거부하게 된다. 실제
+    유효성 검사는 아래에서 이 매장 드롭다운에 그 이름/코드가 있는지로
+    대신한다."""
     vendor_id = "orderqueen"
 
     with browser_limit.browser_semaphore, sync_playwright() as p:
@@ -983,6 +995,156 @@ def push_menu_item_to_kiosk_screen(
             return {"ok": True, "message": combined or "화면(키오스크)에 등록되었습니다."}
         finally:
             browser.close()
+
+
+def fetch_category_list(login_id: str, login_pw: str, store_id: str | None = None) -> dict:
+    """"매장 상품관리 > 상품관리 > 분류관리"(CATEGORY_MGMT_URL)에서 이
+    매장이 실제로 쓰는 분류(코드/이름/등록메뉴 수량) 전체를 긁어온다.
+    페이지가 10개씩 페이지네이션되어 있어(전체 개수는 #data-cnt) 자바스크립트
+    goPage(n)을 그대로 호출해 다음 페이지로 넘기며 모은다.
+
+    반환값: {"ok": True, "categories": [{"class_cd","class_name","active","menu_count"}, ...]}
+    또는 {"ok": False, "message": "..."}."""
+    vendor_id = "orderqueen"
+
+    with browser_limit.browser_semaphore, sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        )
+        try:
+            cached_state = vendors.get_session_state(store_id, vendor_id) if store_id else None
+            context = browser.new_context(storage_state=cached_state) if cached_state else browser.new_context()
+            page = context.new_page()
+            _block_heavy_resources(page)
+
+            def _open_logged_in() -> bool:
+                page.goto(CATEGORY_MGMT_URL, wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+                if "login.itp" in page.url:
+                    return False
+                page.wait_for_selector("#innerHtmlDiv table tbody tr", timeout=15000)
+                return True
+
+            if cached_state:
+                logged_in = _open_logged_in()
+                if not logged_in:
+                    context.clear_cookies()
+                    _login(page, login_id, login_pw)
+                    if not _open_logged_in():
+                        return {"ok": False, "message": "오더퀸 로그인에 실패했습니다."}
+            else:
+                _login(page, login_id, login_pw)
+                if not _open_logged_in():
+                    return {"ok": False, "message": "오더퀸 로그인에 실패했습니다."}
+
+            page.wait_for_timeout(300)
+            _dismiss_popups(page)
+
+            try:
+                total = int((page.locator("#data-cnt").inner_text() or "0").strip())
+            except Exception:
+                total = 0
+            total_pages = max(1, (total + 9) // 10) if total else 1
+
+            categories: list[dict] = []
+            for page_no in range(1, total_pages + 1):
+                if page_no > 1:
+                    page.evaluate(f"goPage({page_no})")
+                    page.wait_for_timeout(700)
+                rows = page.locator("#innerHtmlDiv table tbody tr")
+                for i in range(rows.count()):
+                    row = rows.nth(i)
+                    class_cd = (row.get_attribute("data-class-cd") or "").strip()
+                    class_name = (row.get_attribute("data-class-nm") or "").strip()
+                    if not class_cd or not class_name:
+                        continue
+                    status_text = (row.locator("td").nth(4).inner_text() or "").strip()
+                    menu_count_text = (row.locator("td").nth(5).inner_text() or "0").strip()
+                    try:
+                        menu_count = int(menu_count_text.replace(",", ""))
+                    except ValueError:
+                        menu_count = 0
+                    categories.append({
+                        "class_cd": class_cd,
+                        "class_name": class_name,
+                        "active": "사용" in status_text and "미사용" not in status_text,
+                        "menu_count": menu_count,
+                    })
+
+            if store_id:
+                vendors.save_session_state(store_id, vendor_id, context.storage_state())
+
+            if not categories:
+                return {"ok": False, "message": "등록된 분류를 찾지 못했습니다."}
+            return {"ok": True, "categories": categories}
+        finally:
+            browser.close()
+
+
+def init_category_cache_table() -> None:
+    conn = vendors.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS oq_account_categories (
+            store_id TEXT NOT NULL,
+            account_id INTEGER NOT NULL,
+            class_cd TEXT NOT NULL,
+            class_name TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (store_id, account_id, class_cd)
+        )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def save_categories(store_id: str, account_id: int, categories: list[dict]) -> None:
+    """이 계정의 분류 목록을 통째로 교체 저장한다 - 오더퀸에서 재동기화한
+    결과든, 앱에서 사용자가 직접 수정한 목록이든 같은 경로로 저장한다."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = vendors.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM oq_account_categories WHERE store_id = ? AND account_id = ?",
+            (store_id, account_id),
+        )
+        for order, cat in enumerate(categories):
+            class_cd = str(cat.get("class_cd") or "").strip()
+            class_name = str(cat.get("class_name") or "").strip()
+            if not class_cd or not class_name:
+                continue
+            cur.execute(
+                """
+                INSERT INTO oq_account_categories (store_id, account_id, class_cd, class_name, sort_order, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (store_id, account_id, class_cd, class_name, order, now),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_categories(store_id: str, account_id: int) -> list[dict]:
+    conn = vendors.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT class_cd, class_name FROM oq_account_categories
+            WHERE store_id = ? AND account_id = ?
+            ORDER BY sort_order ASC
+            """,
+            (store_id, account_id),
+        )
+        rows = cur.fetchall()
+        return [{"class_cd": r[0], "class_name": r[1]} for r in rows]
+    finally:
+        conn.close()
 
 
 # push_menu_item_to_kiosk_screen을 앱 요청과 같은 타이밍(동기)에 부르면

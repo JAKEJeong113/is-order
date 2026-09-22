@@ -49,6 +49,23 @@ object OrderQueenDialogs {
             setPadding(dp(activity, 4), dp(activity, topPaddingDp), dp(activity, 4), 0)
         }
 
+    /** 등록 다이얼로그의 분류 드롭다운을 채우려고, 기본 계정(없으면 첫
+     * 계정)에 저장된 분류 목록을 가져온다 - 매장마다 분류 구성이 달라서
+     * (사용자 피드백) 더 이상 고정된 5개 기본값을 쓰지 않는다. 계정이
+     * 여러 개일 때도 대표로 하나만 쓰는 단순화이지만, 실제 등록 시점에는
+     * register_menu_item이 각 매장 드롭다운에서 이름을 다시 찾아 매칭하므로
+     * 분류 구성이 다른 계정에 등록해도 안전하다. 저장된 분류가 없으면(한
+     * 번도 동기화 안 한 계정) null을 돌려줘 호출부가 기존 기본값을 그대로
+     * 쓰게 한다. */
+    private fun fetchDefaultAccountClassCodes(activity: AppCompatActivity, accounts: List<OqAccount>): Map<String, String>? {
+        val account = accounts.find { it.isDefault } ?: accounts.firstOrNull() ?: return null
+        val categories = OrderQueenManager.fetchCategories(activity, account.id).getOrNull()
+        if (categories.isNullOrEmpty()) return null
+        val map = LinkedHashMap<String, String>()
+        categories.forEach { map[it.className] = it.classCd }
+        return map
+    }
+
     // 다매장 점주는 매장마다 오더퀸 계정이 달라 계정을 여러 개 등록해야
     // 한다 - 계정명(별명)으로 구분해서 리스트로 관리하고, 계정이 하나라도
     // 있으면 "자동등록 사용" 상태로 본다(별도 온/오프 스위치 없음 - 전부
@@ -402,8 +419,8 @@ object OrderQueenDialogs {
             setPadding(0, dp(activity, 12), 0, dp(activity, 4))
         })
 
-        val classCodes = OrderQueenManager.DEFAULT_CLASS_CODES
-        val classNames = classCodes.keys.toList()
+        var classCodes: Map<String, String> = OrderQueenManager.DEFAULT_CLASS_CODES
+        var classNames: List<String> = classCodes.keys.toList()
         val spinner = Spinner(activity).apply {
             adapter = ArrayAdapter<String>(activity, android.R.layout.simple_spinner_dropdown_item, classNames)
         }
@@ -513,6 +530,14 @@ object OrderQueenDialogs {
         thread {
             val accounts = OrderQueenManager.fetchAccounts(activity)
             activity.runOnUiThread { renderAccountsUi(accounts) }
+            val fetched = if (accounts.isNotEmpty()) fetchDefaultAccountClassCodes(activity, accounts) else null
+            if (fetched != null) {
+                activity.runOnUiThread {
+                    classCodes = fetched
+                    classNames = fetched.keys.toList()
+                    spinner.adapter = ArrayAdapter<String>(activity, android.R.layout.simple_spinner_dropdown_item, classNames)
+                }
+            }
         }
 
         // 등록 소요 시간 예상치(ms) - 서버가 계정을 2개씩 병렬 처리하므로
@@ -654,8 +679,8 @@ object OrderQueenDialogs {
             alpha = 0.65f
             setPadding(0, dp(activity, 14), 0, dp(activity, 4))
         })
-        val classCodes = OrderQueenManager.DEFAULT_CLASS_CODES
-        val classNames = classCodes.keys.toList()
+        var classCodes: Map<String, String> = OrderQueenManager.DEFAULT_CLASS_CODES
+        var classNames: List<String> = classCodes.keys.toList()
         val spinner = Spinner(activity).apply {
             adapter = ArrayAdapter<String>(activity, android.R.layout.simple_spinner_dropdown_item, classNames)
         }
@@ -726,6 +751,14 @@ object OrderQueenDialogs {
         thread {
             val accounts = OrderQueenManager.fetchAccounts(activity)
             activity.runOnUiThread { renderAccountsUi(accounts) }
+            val fetched = if (accounts.isNotEmpty()) fetchDefaultAccountClassCodes(activity, accounts) else null
+            if (fetched != null) {
+                activity.runOnUiThread {
+                    classCodes = fetched
+                    classNames = fetched.keys.toList()
+                    spinner.adapter = ArrayAdapter<String>(activity, android.R.layout.simple_spinner_dropdown_item, classNames)
+                }
+            }
         }
 
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -764,6 +797,196 @@ object OrderQueenDialogs {
             OqRegisterService.start(activity, items, classCd, className, accountIds)
             Toast.makeText(activity, "${items.size}개 상품 등록을 시작했습니다. 진행 상황은 알림으로 확인하세요.", Toast.LENGTH_LONG).show()
             dialog.dismiss()
+        }
+    }
+
+    /** 설정 > "분류 설정" - 계정이 여러 개면 먼저 고르게 하고, 그 계정의
+     * 분류 목록 화면을 연다. */
+    fun showCategorySettingsDialog(activity: AppCompatActivity) {
+        thread {
+            val accounts = OrderQueenManager.fetchAccounts(activity)
+            activity.runOnUiThread {
+                if (accounts.isEmpty()) {
+                    Toast.makeText(
+                        activity,
+                        "등록된 오더퀸 계정이 없습니다. 먼저 \"오더퀸 자동등록 설정\"에서 계정을 추가해주세요.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@runOnUiThread
+                }
+                if (accounts.size == 1) {
+                    showCategoryListDialog(activity, accounts[0].id, accounts[0].nickname)
+                } else {
+                    AlertDialog.Builder(activity)
+                        .setTitle("분류 설정 - 계정 선택")
+                        .setItems(accounts.map { it.nickname }.toTypedArray()) { _, which ->
+                            showCategoryListDialog(activity, accounts[which].id, accounts[which].nickname)
+                        }
+                        .show()
+                }
+            }
+        }
+    }
+
+    /** 계정 하나의 분류(코드/이름) 목록을 보여주고 추가/수정/삭제하거나,
+     * 오더퀸에서 다시 불러와(동기화) 통째로 교체할 수 있게 한다. 여기서
+     * 저장한 목록이 오더퀸 등록 화면의 분류 드롭다운이 된다. */
+    private fun showCategoryListDialog(activity: AppCompatActivity, accountId: Int, nickname: String) {
+        val padding = dp(activity, 20)
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding, padding, 0)
+        }
+
+        val rowsContainer = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(ScrollView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(activity, 260))
+            addView(rowsContainer)
+        })
+
+        val addRowBtn = TextView(activity).apply {
+            text = "+ 분류 추가"
+            textSize = 13.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(android.graphics.Color.parseColor("#08796F"))
+            setPadding(0, dp(activity, 12), 0, dp(activity, 4))
+        }
+        root.addView(addRowBtn)
+
+        val syncBtn = TextView(activity).apply {
+            text = "오더퀸에서 다시 불러오기(동기화)"
+            textSize = 12.5f
+            setTextColor(android.graphics.Color.parseColor("#08796F"))
+            setPadding(0, dp(activity, 6), 0, dp(activity, 4))
+        }
+        root.addView(syncBtn)
+
+        root.addView(hintText(
+            activity,
+            "여기서 정리한 이름/코드가 오더퀸 등록 화면의 분류 선택지가 됩니다. " +
+                "분류명은 오더퀸에 실제 등록된 이름과 정확히 같아야 정상적으로 매칭됩니다.",
+        ))
+
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle("분류 설정 - $nickname")
+            .setView(root)
+            .setPositiveButton("저장", null)
+            .setNegativeButton("취소", null)
+            .create()
+        dialog.show()
+
+        val rowInputs = mutableListOf<Pair<EditText, EditText>>()
+
+        fun addRow(classCd: String, className: String) {
+            val row = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(activity, 4), 0, dp(activity, 4))
+            }
+            val cdInput = EditText(activity).apply {
+                setText(classCd)
+                hint = "코드"
+                textSize = 13f
+                layoutParams = LinearLayout.LayoutParams(dp(activity, 64), LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+            val nameInput = EditText(activity).apply {
+                setText(className)
+                hint = "분류명"
+                textSize = 13f
+            }
+            val pairRef = cdInput to nameInput
+            val deleteBtn = TextView(activity).apply {
+                text = "삭제"
+                textSize = 12f
+                alpha = 0.6f
+                setPadding(dp(activity, 10), 0, dp(activity, 2), 0)
+                setOnClickListener {
+                    rowsContainer.removeView(row)
+                    rowInputs.remove(pairRef)
+                }
+            }
+            row.addView(cdInput)
+            row.addView(nameInput, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(deleteBtn)
+            rowsContainer.addView(row)
+            rowInputs.add(pairRef)
+        }
+
+        fun renderCategories(categories: List<OqCategory>) {
+            rowsContainer.removeAllViews()
+            rowInputs.clear()
+            if (categories.isEmpty()) {
+                rowsContainer.addView(TextView(activity).apply {
+                    text = "저장된 분류가 없습니다. \"동기화\"로 오더퀸에서 불러오거나 직접 추가해주세요."
+                    textSize = 12.5f
+                    alpha = 0.65f
+                })
+            }
+            categories.forEach { addRow(it.classCd, it.className) }
+        }
+
+        renderCategories(listOf())
+        rowsContainer.addView(TextView(activity).apply {
+            text = "불러오는 중..."
+            textSize = 13f
+            alpha = 0.65f
+        })
+
+        thread {
+            val result = OrderQueenManager.fetchCategories(activity, accountId)
+            activity.runOnUiThread { renderCategories(result.getOrElse { emptyList() }) }
+        }
+
+        addRowBtn.setOnClickListener { addRow("", "") }
+
+        syncBtn.setOnClickListener {
+            AlertDialog.Builder(activity)
+                .setTitle("동기화")
+                .setMessage("오더퀸에서 이 계정의 실제 분류 목록을 다시 불러옵니다. 지금 목록은 덮어써집니다. 계속할까요?")
+                .setPositiveButton("동기화") { _, _ ->
+                    rowsContainer.removeAllViews()
+                    rowsContainer.addView(TextView(activity).apply {
+                        text = "오더퀸에서 불러오는 중… (몇십 초 걸릴 수 있어요)"
+                        textSize = 12.5f
+                        alpha = 0.65f
+                    })
+                    thread {
+                        val result = OrderQueenManager.syncCategories(activity, accountId)
+                        activity.runOnUiThread {
+                            result.onSuccess { renderCategories(it) }.onFailure {
+                                Toast.makeText(activity, "동기화 실패: ${it.message}", Toast.LENGTH_LONG).show()
+                                renderCategories(listOf())
+                            }
+                        }
+                    }
+                }
+                .setNegativeButton("취소", null)
+                .show()
+        }
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val categories = rowInputs.mapNotNull { (cdInput, nameInput) ->
+                val cd = cdInput.text.toString().trim()
+                val nm = nameInput.text.toString().trim()
+                if (cd.isEmpty() || nm.isEmpty()) null else OqCategory(cd, nm)
+            }
+            if (categories.isEmpty()) {
+                Toast.makeText(activity, "분류를 한 개 이상 입력해주세요.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+            thread {
+                val result = OrderQueenManager.saveCategories(activity, accountId, categories)
+                activity.runOnUiThread {
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                    result.onSuccess {
+                        Toast.makeText(activity, "저장했습니다.", Toast.LENGTH_SHORT).show()
+                        dialog.dismiss()
+                    }.onFailure {
+                        Toast.makeText(activity, "저장 실패: ${it.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
         }
     }
 }

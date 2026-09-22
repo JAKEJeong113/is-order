@@ -163,7 +163,18 @@ class MainActivity : AppCompatActivity() {
 
         val settingsBtn = findViewById<View>(R.id.settingsBtn)
         settingsBtn.setOnClickListener {
-            OrderQueenDialogs.showSettingsDialog(this) { refreshVisibleListsForOqAvailability() }
+            // 오더퀸 자동등록 설정 하나뿐이던 것에 "분류 설정"이 새로 생겨서,
+            // 톱니바퀴를 누르면 바로 계정 목록으로 들어가는 대신 메뉴를 하나
+            // 보여주고 고르게 한다.
+            AlertDialog.Builder(this)
+                .setTitle("설정")
+                .setItems(arrayOf("오더퀸 자동등록 설정", "분류 설정")) { _, which ->
+                    when (which) {
+                        0 -> OrderQueenDialogs.showSettingsDialog(this) { refreshVisibleListsForOqAvailability() }
+                        1 -> OrderQueenDialogs.showCategorySettingsDialog(this)
+                    }
+                }
+                .show()
         }
         findViewById<View>(R.id.helpBtn).setOnClickListener {
             CoachMarkTutorial.start(this, webView, coachMarkRoot, settingsBtn)
