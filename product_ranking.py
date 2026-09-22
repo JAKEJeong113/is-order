@@ -313,6 +313,7 @@ def _parse_coupang_product(raw: dict) -> dict:
         "price": raw.get("productPrice"),
         "reference_url": raw.get("productUrl"),
         "product_name": raw.get("productName"),
+        "is_rocket": bool(raw.get("isRocket", False)),
     }
 
 
@@ -347,12 +348,21 @@ def _fetch_coupang_products(keyword: str, limit: int = 1) -> list[dict]:
         raise RuntimeError(f"쿠팡 상품검색 실패: {result}")
 
     products = (result.get("data") or {}).get("productData") or []
-    return [_parse_coupang_product(p) for p in products]
+    # 일반판매자(마켓플레이스) 상품은 로켓상품(로켓배송/판매자로켓 등 "로켓"
+    # 배지가 붙는 상품)보다 품절/가격 변동/판매자 교체가 훨씬 잦고 신뢰도가
+    # 떨어진다(사용자 요청) - 검색 결과 단계에서부터 로켓상품이 아닌 건
+    # 아예 후보로 보지 않는다. API 응답에 매 상품마다 isRocket이 실려온다
+    # (실측 확인).
+    return [p for p in (_parse_coupang_product(p) for p in products) if p["is_rocket"]]
 
 
 def search_coupang_product(keyword: str) -> dict | None:
-    """검색어로 쿠팡 상품을 검색해서 1순위 상품의 이미지/가격/상품 URL을 가져온다."""
-    products = _fetch_coupang_products(keyword, limit=1)
+    """검색어로 쿠팡 상품을 검색해서 로켓상품 중 1순위(=원래 검색 순위가
+    가장 높은 것)의 이미지/가격/상품 URL을 가져온다. limit을 1이 아니라
+    여유 있게 주는 이유는, 로켓상품이 아닌 결과를 걸러낸 뒤에도 실제로
+    쓸 수 있는 후보가 남게 하기 위함이다(실측: 키워드에 따라 1위가
+    로켓상품이 아닌 경우가 흔함)."""
+    products = _fetch_coupang_products(keyword, limit=PRICE_CHECK_ID_MATCH_CANDIDATES)
     return products[0] if products else None
 
 
