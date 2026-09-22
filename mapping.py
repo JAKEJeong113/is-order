@@ -388,6 +388,22 @@ def delete_catalog_item(barcode: str) -> bool:
     return deleted
 
 
+def update_coupang_pack_qty(barcode: str, pack_qty: int) -> None:
+    """product_ranking.snapshot_prices가 쿠팡 상품명에서 파싱한 묶음 수량을
+    반영한다(개당 매입가 추적용). is_coupang=1(쿠팡) 상품에만 적용되도록
+    WHERE 절에 넣는다 - 도매몰 상품의 pack_qty는 발주 단위(1타 개수) 등
+    이미 다른 의미로 쓰이고 있어서, 여기서 잘못 덮어쓰면 발주 수량 계산이
+    깨진다."""
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE catalog_items SET pack_qty = ? WHERE barcode = ? AND is_coupang = 1",
+        (pack_qty, barcode),
+    )
+    conn.commit()
+    conn.close()
+
+
 def list_catalog_items(limit: int = 20, is_coupang: int | None = None) -> list[dict]:
     """관리 페이지 기본 목록용 - 최근 수정된 순으로 일부만(전체 카탈로그가
     1000개 넘게 쌓여도 목록이 무거워지지 않게). is_coupang을 주면 그 구분

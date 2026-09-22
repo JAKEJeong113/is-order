@@ -282,9 +282,28 @@ def _notify_price_alerts() -> None:
     telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
 
 
+def _notify_margin_warnings(pt: product_ranking.ProductType, warnings: list[dict]) -> None:
+    """도매몰과 달리 매입가를 직접 크롤링할 수 없는 쿠팡 상품 대상 - 방금
+    계산한 개당 매입가가 카탈로그 추천판매가 이상이면(마진 없음/역마진)
+    대표님께 바로 알린다(사용자 요청). 프랜차이즈 전체발송 여부를 고르는
+    최저가 알림과 달리 순수 내부 점검용이라, 별도 승인 절차 없이 즉시
+    관리자에게만 보낸다."""
+    if not warnings or not telegram_bot.ADMIN_CHAT_ID:
+        return
+    lines = [f"⚠️ 마진 경고 ({pt.key})\n"]
+    for w in warnings:
+        lines.append(
+            f"• {w['item_name']}: 추천판매가 {w['recommended_price']:,}원 <= "
+            f"예상 매입가 {w['unit_cost']:,}원({w['pack_qty']}개입 기준)"
+        )
+    lines.append("\n카탈로그의 추천판매가를 다시 확인해주세요.")
+    telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
+
+
 def _run_price_snapshot_and_notify(pt: product_ranking.ProductType) -> None:
     try:
-        product_ranking.snapshot_prices(pt, limit=15)
+        result = product_ranking.snapshot_prices(pt, limit=15)
+        _notify_margin_warnings(pt, result.get("margin_warnings") or [])
         _notify_price_alerts()
     except Exception as e:
         telegram_bot.alert_admin(f"가격 스냅샷/알림 작업 실패 ({pt.table_name}): {e}")

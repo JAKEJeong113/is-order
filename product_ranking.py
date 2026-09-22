@@ -218,6 +218,12 @@ def init_price_tracking_tables() -> None:
     )
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_price_history_item ON price_history (product_type, item_key, recorded_at)")
+    existing_history_cols = {row[1] for row in cur.execute("PRAGMA table_info(price_history)").fetchall()}
+    if "pack_qty" not in existing_history_cols:
+        # 상품명에서 파싱한 묶음 수량(예: "20개입" -> 20) - 개당 매입가를
+        # 나중에도(포장이 바뀌기 전 이력까지) 정확히 재계산할 수 있게 매
+        # 기록 시점의 값을 같이 남긴다. 파싱 안 되는 단품은 NULL(=1개로 간주).
+        cur.execute("ALTER TABLE price_history ADD COLUMN pack_qty INTEGER")
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS pending_price_alerts (
@@ -664,6 +670,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     recorded = 0
     rate_limited = False
     new_lows = []
+    margin_warnings = []
     now = datetime.now().isoformat(timespec="seconds")
 
     for item_key, stored_name, stored_price, pending_price, pending_count, stored_product_id in targets:
@@ -777,9 +784,23 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
         )
         prior_low = cur.fetchone()[0]
 
+        # 개당 매입가 추적(사용자 요청) - 쿠팡(is_coupang=1) 상품만 대상으로,
+        # 이번에 신뢰하고 쓴 상품명에서 묶음 수량("20개입" 등)을 파싱해 개당
+        # 매입가를 계산한다. 도매몰 상품은 pack_qty가 이미 발주 단위(1타
+        # 개수)라는 다른 의미로 쓰이고 있어 이 경로에서는 절대 건드리지
+        # 않는다(mapping.update_coupang_pack_qty가 is_coupang=1 조건으로
+        # 한 번 더 막아준다).
+        pack_qty = None
+        unit_cost = new_price
+        if entry and entry.is_coupang == 1:
+            pack_qty = product_match.extract_unit_qty(found_name) or product_match.extract_unit_qty(stored_name or "")
+            if pack_qty and pack_qty > 1:
+                unit_cost = round(new_price / pack_qty)
+                mapping.update_coupang_pack_qty(item_key, pack_qty)
+
         cur.execute(
-            "INSERT INTO price_history (product_type, item_key, price, recorded_at) VALUES (?, ?, ?, ?)",
-            (pt.key, item_key, new_price, now),
+            "INSERT INTO price_history (product_type, item_key, price, recorded_at, pack_qty) VALUES (?, ?, ?, ?, ?)",
+            (pt.key, item_key, new_price, now, pack_qty),
         )
         # 이번에 실제로 신뢰하고 쓴 결과의 productId로 갱신/백필한다 - 처음
         # 매칭 때는 없었거나(기존 행) id_match가 아니었던 행도, 유사도 검증을
@@ -791,6 +812,17 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
             (new_price, new_product_id, item_key),
         )
         recorded += 1
+
+        # 도매몰처럼 매입가를 직접 크롤링할 수 없는 쿠팡 상품은, 방금 구한
+        # 개당 매입가를 카탈로그의 추천판매가와 비교해 마진이 없거나
+        # 역마진이면 관리자에게 알린다(사용자 요청 - "추천판매가가 매입가
+        # 대비 너무 낮은 경우"가 실제로 확인됨).
+        if entry and entry.is_coupang == 1 and entry.recommended_price and entry.recommended_price <= unit_cost:
+            margin_warnings.append({
+                "item_key": item_key, "item_name": stored_name,
+                "recommended_price": entry.recommended_price,
+                "unit_cost": unit_cost, "pack_qty": pack_qty or 1,
+            })
 
         if prior_low is not None and new_price < prior_low:
             cur.execute("""
@@ -809,6 +841,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     return {
         "ok": True, "checked": checked, "recorded": recorded,
         "rate_limited": rate_limited, "new_lows": new_lows,
+        "margin_warnings": margin_warnings,
     }
 
 
@@ -816,13 +849,19 @@ def get_price_history(pt: ProductType, item_key: str) -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-    SELECT price, recorded_at FROM price_history
+    SELECT price, recorded_at, pack_qty FROM price_history
     WHERE product_type = ? AND item_key = ?
     ORDER BY recorded_at ASC
     """, (pt.key, item_key))
     rows = cur.fetchall()
     conn.close()
-    return [{"price": r[0], "recorded_at": r[1]} for r in rows]
+    return [
+        {
+            "price": r[0], "recorded_at": r[1], "pack_qty": r[2],
+            "unit_cost": round(r[0] / r[2]) if r[2] and r[2] > 1 else r[0],
+        }
+        for r in rows
+    ]
 
 
 def list_recent_price_alerts(limit: int = 200) -> list[dict]:
