@@ -290,11 +290,12 @@ def _notify_margin_warnings(pt: product_ranking.ProductType, warnings: list[dict
     관리자에게만 보낸다."""
     if not warnings or not telegram_bot.ADMIN_CHAT_ID:
         return
-    lines = [f"⚠️ 마진 경고 ({pt.key})\n"]
+    lines = [f"⚠️ 마진 경고 ({pt.key}, 20% 이하)\n"]
     for w in warnings:
+        margin_text = f"{w['margin_pct']}%" if w["margin_pct"] >= 0 else f"역마진 {w['margin_pct']}%"
         lines.append(
-            f"• {w['item_name']}: 추천판매가 {w['recommended_price']:,}원 <= "
-            f"예상 매입가 {w['unit_cost']:,}원({w['pack_qty']}개입 기준)"
+            f"• {w['item_name']}: 추천판매가 {w['recommended_price']:,}원 / "
+            f"예상 매입가 {w['unit_cost']:,}원({w['pack_qty']}개입 기준) -> 마진 {margin_text}"
         )
     lines.append("\n카탈로그의 추천판매가를 다시 확인해주세요.")
     telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))

@@ -814,15 +814,20 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
         recorded += 1
 
         # 도매몰처럼 매입가를 직접 크롤링할 수 없는 쿠팡 상품은, 방금 구한
-        # 개당 매입가를 카탈로그의 추천판매가와 비교해 마진이 없거나
-        # 역마진이면 관리자에게 알린다(사용자 요청 - "추천판매가가 매입가
-        # 대비 너무 낮은 경우"가 실제로 확인됨).
-        if entry and entry.is_coupang == 1 and entry.recommended_price and entry.recommended_price <= unit_cost:
-            margin_warnings.append({
-                "item_key": item_key, "item_name": stored_name,
-                "recommended_price": entry.recommended_price,
-                "unit_cost": unit_cost, "pack_qty": pack_qty or 1,
-            })
+        # 개당 매입가를 카탈로그의 추천판매가와 비교해 마진율이 낮으면(역마진
+        # 포함 20% 이하 - 사용자 요청) 관리자에게 알린다. 마진율 정의는
+        # catalog_margin.py(도매몰 추천판매가 계산)와 같은 "총이익률" 방식
+        # (판매가 기준: (판매가-원가)/판매가)으로 통일한다 - 역마진이면 이
+        # 값 자체가 음수로 나와 자연히 20% 이하 조건에 포함된다.
+        if entry and entry.is_coupang == 1 and entry.recommended_price:
+            margin_pct = round((entry.recommended_price - unit_cost) / entry.recommended_price * 100, 1)
+            if margin_pct <= 20:
+                margin_warnings.append({
+                    "item_key": item_key, "item_name": stored_name,
+                    "recommended_price": entry.recommended_price,
+                    "unit_cost": unit_cost, "pack_qty": pack_qty or 1,
+                    "margin_pct": margin_pct,
+                })
 
         if prior_low is not None and new_price < prior_low:
             cur.execute("""
