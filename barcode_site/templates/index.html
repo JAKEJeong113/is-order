@@ -396,7 +396,14 @@
       <button type="button" class="np-filter-btn" data-category="0">아이스크림</button>
       <button type="button" class="np-filter-btn" data-category="2">도매몰</button>
     </div>
+    <div class="results-toolbar" id="npToolbar" style="display:none">
+      <span class="rt-label" id="npToolbarLabel"></span>
+      <button type="button" class="rt-toggle-btn" id="npSelectToggle">다중선택</button>
+    </div>
     <div class="results" id="newProductsList"></div>
+    <div class="oq-bulk-bar" id="npBulkBar" style="display:none">
+      <button type="button" id="npBulkBtn">선택한 0개 오더퀸 등록</button>
+    </div>
   </div>
 
   <!-- 가격인상 안내 - 쿠팡/도매몰/아이스크림 상품 중 최근(4주 이내) 추천판매가가
@@ -410,7 +417,14 @@
       <button type="button" class="np-filter-btn" data-category="1">쿠팡</button>
       <button type="button" class="np-filter-btn" data-category="2">도매몰</button>
     </div>
+    <div class="results-toolbar" id="piToolbar" style="display:none">
+      <span class="rt-label" id="piToolbarLabel"></span>
+      <button type="button" class="rt-toggle-btn" id="piSelectToggle">다중선택</button>
+    </div>
     <div class="results" id="priceIncreaseList"></div>
+    <div class="oq-bulk-bar" id="piBulkBar" style="display:none">
+      <button type="button" id="piBulkBtn">선택한 0개 오더퀸 등록</button>
+    </div>
   </div>
 
   <!-- 인기상품 순위 - 판매 데이터 활용에 동의한 매장들의 오더퀸 실제 판매량을
@@ -469,10 +483,10 @@
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
-    // 검색 결과와 "신제품 안내" 목록이 같은 형태(바코드/상품명/추천판매가)라
-    // 행 하나 그리는 로직과 바코드 복사·오더퀸 등록 버튼을 그대로 재사용한다.
-    // opts.selectable을 준 곳(검색 결과)만 다중선택 체크박스를 지원한다 -
-    // "신제품 안내" 목록은 지금처럼 행마다 개별 등록 버튼만 쓴다.
+    // 검색 결과/신제품 안내/가격인상 안내가 전부 같은 형태(바코드/상품명 +
+    // 가격 표시)라 행 하나 그리는 로직과 바코드 복사·오더퀸 등록 버튼을
+    // 그대로 재사용한다. opts.selectMode/opts.selected를 주면(다중선택
+    // 컨트롤러가 넘겨줌) 체크박스 모드로 그린다.
     function renderRows(items, opts = {}) {
       if (items.length === 0) {
         return '<p class="empty">표시할 상품이 없습니다.</p>';
@@ -482,11 +496,12 @@
       // 일반 브라우저에는 아예 없음). 본체 사이트 로그인과 무관하게 앱
       // 자체 설정으로 동작한다.
       const oqAvailable = !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
-      const inSelectMode = !!(opts.selectable && oqAvailable && resultsSelectMode);
+      const selected = opts.selected || new Map();
+      const inSelectMode = !!(opts.selectMode && oqAvailable);
 
       return items.map((item) => `
-        <div class="result-row${selectedItems.has(item.barcode) ? " picked" : ""}" data-barcode="${item.barcode}">
-          ${inSelectMode ? `<span class="result-check${selectedItems.has(item.barcode) ? " on" : ""}"></span>` : ""}
+        <div class="result-row${selected.has(item.barcode) ? " picked" : ""}" data-barcode="${item.barcode}">
+          ${inSelectMode ? `<span class="result-check${selected.has(item.barcode) ? " on" : ""}"></span>` : ""}
           <div>
             <p class="result-name">${item.menu_name}</p>
             <p class="result-barcode">${item.barcode}</p>
@@ -503,13 +518,17 @@
     // 이전가->인상가를 같이 보여준다. "오더퀸 등록"을 누르면 그 상품의
     // 등록가를 인상된 새 가격으로 바로 갱신한다(이미 등록된 상품 재등록 시
     // 가격만 덮어쓰는 기존 동작 그대로 재사용).
-    function renderPriceIncreaseRows(items) {
+    function renderPriceIncreaseRows(items, opts = {}) {
       if (items.length === 0) {
         return '<p class="empty">최근 가격이 오른 상품이 없습니다.</p>';
       }
       const oqAvailable = !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
+      const selected = opts.selected || new Map();
+      const inSelectMode = !!(opts.selectMode && oqAvailable);
+
       return items.map((item) => `
-        <div class="result-row" data-barcode="${item.barcode}">
+        <div class="result-row${selected.has(item.barcode) ? " picked" : ""}" data-barcode="${item.barcode}">
+          ${inSelectMode ? `<span class="result-check${selected.has(item.barcode) ? " on" : ""}"></span>` : ""}
           <div>
             <p class="result-name">${item.menu_name}</p>
             <p class="result-barcode">${item.barcode}</p>
@@ -518,91 +537,110 @@
             <span class="result-price-change">
               <span class="pc-old">${formatPrice(item.old_price)}</span>→<span class="pc-new">${formatPrice(item.new_price)}</span>
             </span>
-            ${oqAvailable ? `<button type="button" class="oq-register-btn" data-barcode="${item.barcode}" data-name="${escapeHtml(item.menu_name)}" data-price="${item.new_price || 0}">오더퀸 등록</button>` : ""}
+            ${oqAvailable && !inSelectMode ? `<button type="button" class="oq-register-btn" data-barcode="${item.barcode}" data-name="${escapeHtml(item.menu_name)}" data-price="${item.new_price || 0}">오더퀸 등록</button>` : ""}
           </div>
         </div>
       `).join("");
     }
 
-    // 오더퀸 다중선택 등록 상태 - 검색 결과 화면(#results)에서만 쓴다.
-    // selectedItems는 재검색해도 안 사라지게 barcode -> {barcode,name,price}로
-    // 값 자체를 들고 있는다(체크박스 렌더링만 다시 하면 되므로 행 DOM을
-    // 참조할 필요가 없음).
-    let resultsSelectMode = false;
-    let lastSearchItems = [];
-    const selectedItems = new Map();
-    const resultsToolbar = document.getElementById("resultsToolbar");
-    const resultsToolbarLabel = document.getElementById("resultsToolbarLabel");
-    const resultsSelectToggle = document.getElementById("resultsSelectToggle");
-    const oqBulkBar = document.getElementById("oqBulkBar");
-    const oqBulkBtn = document.getElementById("oqBulkBtn");
+    // 다중선택 등록 컨트롤러 - 검색결과/신제품안내/가격인상안내 세 목록이
+    // 전부 같은 흐름(토글로 선택 모드 진입 -> 체크 -> 하단 바에서 일괄등록)을
+    // 쓴다. 목록마다 다른 건 행을 그리는 방법(renderList)과 등록에 쓸
+    // 가격을 어느 필드에서 가져올지(getPrice)뿐이라 여기 하나로 묶는다.
+    function createSelectableList({ listEl, toolbarEl, labelEl, toggleBtn, bulkBarEl, bulkBtnEl, renderList, getPrice }) {
+      let selectMode = false;
+      let items = [];
+      const selected = new Map();
 
-    function renderSearchResults() {
-      resultsEl.innerHTML = renderRows(lastSearchItems, { selectable: true });
-    }
-
-    function updateSelectionUi() {
-      const count = selectedItems.size;
-      resultsToolbarLabel.textContent = resultsSelectMode
-        ? (count > 0 ? `${count}개 선택됨` : "등록할 상품을 선택하세요")
-        : "";
-      resultsSelectToggle.textContent = resultsSelectMode ? "선택 취소" : "다중선택";
-      resultsSelectToggle.classList.toggle("active", resultsSelectMode);
-      oqBulkBar.style.display = resultsSelectMode && count > 0 ? "flex" : "none";
-      oqBulkBtn.textContent = `선택한 ${count}개 오더퀸 등록`;
-    }
-
-    // 검색 결과가 여러 개일 때(예: 브랜드명 검색) 한 번에 여러 상품을
-    // 오더퀸에 등록할 수 있게 한다. 평소엔 지금처럼 행마다 개별 "오더퀸
-    // 등록" 버튼만 쓰고, "선택" 버튼을 눌렀을 때만 체크박스 모드로 바뀐다.
-    function updateResultsToolbar() {
-      const oqAvailable = !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
-      if (!oqAvailable || lastSearchItems.length === 0) {
-        resultsToolbar.style.display = "none";
-        resultsSelectMode = false;
-        selectedItems.clear();
-        oqBulkBar.style.display = "none";
-        return;
+      function oqAvailable() {
+        return !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
       }
-      resultsToolbar.style.display = "flex";
-      updateSelectionUi();
-    }
 
-    function exitSelectMode() {
-      resultsSelectMode = false;
-      selectedItems.clear();
-      updateSelectionUi();
-      renderSearchResults();
-    }
-
-    resultsSelectToggle.addEventListener("click", () => {
-      resultsSelectMode = !resultsSelectMode;
-      if (!resultsSelectMode) selectedItems.clear();
-      updateSelectionUi();
-      renderSearchResults();
-    });
-
-    function toggleItemSelected(barcode) {
-      const item = lastSearchItems.find((i) => i.barcode === barcode);
-      if (!item) return;
-      if (selectedItems.has(barcode)) {
-        selectedItems.delete(barcode);
-      } else {
-        selectedItems.set(barcode, item);
+      function render() {
+        listEl.innerHTML = renderList(items, { selectMode, selected });
       }
-      updateSelectionUi();
-      renderSearchResults();
+
+      function updateToolbarUi() {
+        const count = selected.size;
+        labelEl.textContent = selectMode
+          ? (count > 0 ? `${count}개 선택됨` : "등록할 상품을 선택하세요")
+          : "";
+        toggleBtn.textContent = selectMode ? "선택 취소" : "다중선택";
+        toggleBtn.classList.toggle("active", selectMode);
+        bulkBarEl.style.display = selectMode && count > 0 ? "flex" : "none";
+        bulkBtnEl.textContent = `선택한 ${count}개 오더퀸 등록`;
+      }
+
+      function refreshToolbarVisibility() {
+        if (!oqAvailable() || items.length === 0) {
+          toolbarEl.style.display = "none";
+          selectMode = false;
+          selected.clear();
+          bulkBarEl.style.display = "none";
+          return;
+        }
+        toolbarEl.style.display = "flex";
+        updateToolbarUi();
+      }
+
+      // 목록이 새로 로딩될 때(검색/필터 변경) 부른다 - 이전 선택은 이제
+      // 화면에 없는 상품 기준이라 의미가 없으므로 선택 모드/선택 항목을
+      // 초기화한다. 실제로 목록을 그리는 건 호출부가 이어서 render()를
+      // 부르거나(성공) 자체 안내 문구로 덮어쓴다(로딩중/오류).
+      function setItems(newItems) {
+        items = newItems;
+        selected.clear();
+        selectMode = false;
+        refreshToolbarVisibility();
+      }
+
+      // 선택 모드일 때 행 탭을 체크 토글로 처리한다. 선택 모드가 아니면
+      // false를 돌려줘서 호출부가 기존 동작(바코드 복사)으로 넘어가게 한다.
+      function handleRowClick(barcode) {
+        if (!selectMode) return false;
+        const item = items.find((i) => i.barcode === barcode);
+        if (item) {
+          if (selected.has(barcode)) selected.delete(barcode);
+          else selected.set(barcode, item);
+          updateToolbarUi();
+          render();
+        }
+        return true;
+      }
+
+      toggleBtn.addEventListener("click", () => {
+        selectMode = !selectMode;
+        if (!selectMode) selected.clear();
+        updateToolbarUi();
+        render();
+      });
+
+      bulkBtnEl.addEventListener("click", () => {
+        if (selected.size === 0) return;
+        if (window.AndroidOrderQueen && typeof window.AndroidOrderQueen.registerItems === "function") {
+          const payload = Array.from(selected.values()).map((it) => ({
+            barcode: it.barcode, name: it.menu_name, price: getPrice(it) || 0,
+          }));
+          window.AndroidOrderQueen.registerItems(JSON.stringify(payload));
+        }
+        selectMode = false;
+        selected.clear();
+        updateToolbarUi();
+        render();
+      });
+
+      return { setItems, render, handleRowClick };
     }
 
-    oqBulkBtn.addEventListener("click", () => {
-      if (selectedItems.size === 0) return;
-      if (window.AndroidOrderQueen && typeof window.AndroidOrderQueen.registerItems === "function") {
-        const items = Array.from(selectedItems.values()).map((it) => ({
-          barcode: it.barcode, name: it.menu_name, price: it.recommended_price || 0,
-        }));
-        window.AndroidOrderQueen.registerItems(JSON.stringify(items));
-      }
-      exitSelectMode();
+    const resultsSelectable = createSelectableList({
+      listEl: resultsEl,
+      toolbarEl: document.getElementById("resultsToolbar"),
+      labelEl: document.getElementById("resultsToolbarLabel"),
+      toggleBtn: document.getElementById("resultsSelectToggle"),
+      bulkBarEl: document.getElementById("oqBulkBar"),
+      bulkBtnEl: document.getElementById("oqBulkBtn"),
+      renderList: (items, opts) => renderRows(items, opts),
+      getPrice: (it) => it.recommended_price,
     });
 
     // 카탈로그에 없는 바코드를 스캔/검색했을 때(숫자 바코드가 확실하고
@@ -648,11 +686,7 @@
       resultsEl.innerHTML = '<p class="hint">검색 중...</p>';
       // 새 검색이 시작되면 이전 검색 결과 기준으로 골라둔 선택은 의미가
       // 없어지므로 선택 모드/선택 항목을 초기화한다.
-      resultsSelectMode = false;
-      selectedItems.clear();
-      lastSearchItems = [];
-      resultsToolbar.style.display = "none";
-      oqBulkBar.style.display = "none";
+      resultsSelectable.setItems([]);
 
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
@@ -662,9 +696,8 @@
         if (items.length === 0 && oqAvailable && isPlausibleBarcode(query)) {
           resultsEl.innerHTML = renderNewItemForm(query);
         } else {
-          lastSearchItems = items;
-          resultsEl.innerHTML = renderRows(items, { selectable: true });
-          updateResultsToolbar();
+          resultsSelectable.setItems(items);
+          resultsSelectable.render();
         }
       } catch (e) {
         resultsEl.innerHTML = '<p class="empty">조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>';
@@ -774,6 +807,10 @@
       submitBtn.textContent = "등록 요청됨 ✓";
     }
 
+    // 목록 컨테이너 -> 그 목록의 다중선택 컨트롤러. 검색결과/신제품안내/
+    // 가격인상안내 셋 다 만들어진 뒤(아래에서) 채워진다.
+    const selectableControllers = new Map();
+
     function handleResultClick(e) {
       const niBtn = e.target.closest("#niSubmitBtn");
       if (niBtn) {
@@ -793,17 +830,16 @@
       const row = e.target.closest(".result-row");
       if (!row || !row.dataset.barcode) return;
 
-      // 검색 결과 목록에서 선택 모드일 때는 행 탭이 바코드 복사 대신
-      // 체크 토글로 동작한다("신제품 안내" 목록은 선택 모드가 없으므로
-      // e.currentTarget으로 검색 결과 쪽인지부터 구분한다).
-      if (e.currentTarget === resultsEl && resultsSelectMode) {
-        toggleItemSelected(row.dataset.barcode);
-        return;
-      }
+      // 선택 모드일 때는 행 탭이 바코드 복사 대신 체크 토글로 동작한다.
+      // 선택 모드가 아니면 handleRowClick이 false를 돌려줘서 기존 동작
+      // (바코드 복사)으로 넘어간다.
+      const controller = selectableControllers.get(e.currentTarget);
+      if (controller && controller.handleRowClick(row.dataset.barcode)) return;
       copyBarcode(row.dataset.barcode, row);
     }
 
     resultsEl.addEventListener("click", handleResultClick);
+    selectableControllers.set(resultsEl, resultsSelectable);
 
     // 입력창 지우기(X) 버튼 - 글자가 있을 때만 보이고, 누르면 입력값과
     // 검색 결과를 함께 비운다.
@@ -816,11 +852,7 @@
       input.value = "";
       updateClearBtn();
       resultsEl.innerHTML = "";
-      resultsSelectMode = false;
-      selectedItems.clear();
-      lastSearchItems = [];
-      resultsToolbar.style.display = "none";
-      oqBulkBar.style.display = "none";
+      resultsSelectable.setItems([]);
       input.focus();
     });
     updateClearBtn();
@@ -1101,6 +1133,18 @@
 
     newProductsList.addEventListener("click", handleResultClick);
 
+    const npSelectable = createSelectableList({
+      listEl: newProductsList,
+      toolbarEl: document.getElementById("npToolbar"),
+      labelEl: document.getElementById("npToolbarLabel"),
+      toggleBtn: document.getElementById("npSelectToggle"),
+      bulkBarEl: document.getElementById("npBulkBar"),
+      bulkBtnEl: document.getElementById("npBulkBtn"),
+      renderList: (items, opts) => renderRows(items, opts),
+      getPrice: (it) => it.recommended_price,
+    });
+    selectableControllers.set(newProductsList, npSelectable);
+
     async function loadNewProducts(category) {
       npCurrentCategory = category;
       // 이미 표시된 목록이 있으면 지우지 않고 흐리게만 만든다 - 필터를
@@ -1118,7 +1162,8 @@
           : "/api/new-products";
         const res = await fetch(url);
         const data = await res.json();
-        newProductsList.innerHTML = renderRows(data.items || []);
+        npSelectable.setItems(data.items || []);
+        npSelectable.render();
       } catch (e) {
         newProductsList.innerHTML = '<p class="empty">불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>';
       } finally {
@@ -1154,6 +1199,18 @@
 
     priceIncreaseList.addEventListener("click", handleResultClick);
 
+    const piSelectable = createSelectableList({
+      listEl: priceIncreaseList,
+      toolbarEl: document.getElementById("piToolbar"),
+      labelEl: document.getElementById("piToolbarLabel"),
+      toggleBtn: document.getElementById("piSelectToggle"),
+      bulkBarEl: document.getElementById("piBulkBar"),
+      bulkBtnEl: document.getElementById("piBulkBtn"),
+      renderList: (items, opts) => renderPriceIncreaseRows(items, opts),
+      getPrice: (it) => it.new_price,
+    });
+    selectableControllers.set(priceIncreaseList, piSelectable);
+
     async function loadPriceIncreases(category) {
       piCurrentCategory = category;
       if (!priceIncreaseList.childElementCount) {
@@ -1167,7 +1224,8 @@
           : "/api/price-increases";
         const res = await fetch(url);
         const data = await res.json();
-        priceIncreaseList.innerHTML = renderPriceIncreaseRows(data.items || []);
+        piSelectable.setItems(data.items || []);
+        piSelectable.render();
       } catch (e) {
         priceIncreaseList.innerHTML = '<p class="empty">불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>';
       } finally {
