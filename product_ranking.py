@@ -754,7 +754,14 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     쪽(main.py 스케줄러)에서 조절한다.
 
     반환하는 new_lows: 이번 배치에서 역대 최저가를 갱신한 상품 목록
-    (pending_price_alerts에도 같이 기록됨)."""
+    (pending_price_alerts에도 같이 기록됨).
+
+    manual_override = 1(관리자가 직접 링크를 지정한 상품)만 추적한다 -
+    자동검색(refresh_products)으로 채워진 상품은 검색 API가 고른 옵션/
+    후보가 실제로 맞는 상품인지 보장이 없어서(수량 옵션 오매칭 등), 가격
+    추적의 정확도를 관리자가 육안으로 확인한 링크로만 한정해달라는 요청
+    (2026-09-23)에 따른 것. 자동검색 자체(신제품 발견/표시)는 그대로
+    유지되고, 반복 가격조회 대상에서만 제외된다."""
     try:
         catalog = mapping.load_catalog()
     except Exception as e:
@@ -765,7 +772,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     cur = conn.cursor()
     cur.execute(f"""
     SELECT item_key, item_name, price, pending_price, pending_count, coupang_product_id FROM {pt.table_name}
-    WHERE reference_url IS NOT NULL AND deleted = 0
+    WHERE reference_url IS NOT NULL AND deleted = 0 AND manual_override = 1
     ORDER BY price_checked_at ASC NULLS FIRST
     LIMIT ?
     """, (limit,))
