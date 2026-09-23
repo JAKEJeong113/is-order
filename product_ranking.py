@@ -244,6 +244,19 @@ def init_price_tracking_tables() -> None:
         # 'similarity'(이름 유사도 + 다중 확인 통과) - 나중에 핫딜 위젯이
         # "대표님 승인 없이 즉시 노출해도 되는 알림"을 구분하는 데 쓴다.
         cur.execute("ALTER TABLE pending_price_alerts ADD COLUMN match_method TEXT NOT NULL DEFAULT 'similarity'")
+
+    # 마진 경고 중 "상품명에서 묶음 수량을 못 읽은" 경우 전용 연속확인
+    # 카운터 - _check_margin 참고. 이름에 수량이 없으면 검색이 그날 우연히
+    # 수량 미표기 상품(다른 판매단위)을 매칭해온 것인지 실제 문제인지
+    # 구분할 수 없어서, 여러 스캔 주기에 걸쳐 계속 같은 문제가 보여야만
+    # 경고한다.
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS margin_warning_streaks (
+        barcode TEXT PRIMARY KEY,
+        streak INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+    )
+    """)
     conn.commit()
     conn.close()
 
@@ -652,6 +665,42 @@ def _extract_coupang_pack_qty(text: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+# 상품명에서 묶음 수량을 못 읽었을 때(pack_qty=None) 마진 경고를 몇 번
+# 연속으로 봐야 실제로 알릴지. 이 경우 방금 찾은 가격이 진짜 개당가인지
+# (검색이 우연히 수량 미표기의 다른 판매단위 상품을 골라온 건 아닌지)
+# 확신할 수 없어서, 한 번만 보고 바로 알리지 않는다(실측 사례: "피크닉
+# 사과"로 검색했더니 수량 표기가 아예 없는 "피크닉 사과 주스" 22,890원이
+# 매칭되어 역마진으로 오탐한 적이 있었음 - 검색 결과가 매번 똑같지
+# 않으므로 여러 스캔 주기에 걸쳐 계속 재현돼야 진짜 문제로 본다).
+MARGIN_WARNING_UNPARSED_CONFIRMATIONS_REQUIRED = 2
+
+
+def _bump_margin_streak(barcode: str) -> int:
+    """이 바코드의 "수량 미확인 마진 경고" 연속 횟수를 1 늘리고 그 값을
+    돌려준다."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    INSERT INTO margin_warning_streaks (barcode, streak, updated_at)
+    VALUES (?, 1, ?)
+    ON CONFLICT(barcode) DO UPDATE SET streak = margin_warning_streaks.streak + 1, updated_at = excluded.updated_at
+    RETURNING streak
+    """, (barcode, now))
+    streak = cur.fetchone()[0]
+    conn.commit()
+    conn.close()
+    return streak
+
+
+def _reset_margin_streak(barcode: str) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM margin_warning_streaks WHERE barcode = ?", (barcode,))
+    conn.commit()
+    conn.close()
+
+
 def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     """이미 매칭된 상품들의 오늘자 가격을 순환 조회해서 price_history에
     쌓는다. reference_url/image_url/partners_link는 절대 건드리지 않는다 -
@@ -836,15 +885,33 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
         # catalog_margin.py(도매몰 추천판매가 계산)와 같은 "총이익률" 방식
         # (판매가 기준: (판매가-원가)/판매가)으로 통일한다 - 역마진이면 이
         # 값 자체가 음수로 나와 자연히 20% 이하 조건에 포함된다.
+        #
+        # pack_qty를 상품명에서 못 읽은 경우(수량 미표기)는 방금 구한
+        # unit_cost가 진짜 개당가인지 확신할 수 없어서(검색이 그날 우연히
+        # 수량 미표기의 다른 판매단위 상품을 골라왔을 수 있음 - 실측
+        # 사례 있음), 바로 알리지 않고 여러 스캔 주기에 걸쳐 연속으로 같은
+        # 문제가 재현돼야만 알린다. pack_qty를 정상적으로 읽었을 때는
+        # 확실한 정보이므로 예전처럼 바로 알린다.
         if entry and entry.is_coupang == 1 and entry.recommended_price:
             margin_pct = round((entry.recommended_price - unit_cost) / entry.recommended_price * 100, 1)
+            has_reliable_qty = bool(pack_qty and pack_qty > 1)
             if margin_pct <= 20:
-                margin_warnings.append({
-                    "item_key": item_key, "item_name": stored_name,
-                    "recommended_price": entry.recommended_price,
-                    "unit_cost": unit_cost, "pack_qty": pack_qty or 1,
-                    "margin_pct": margin_pct,
-                })
+                should_warn = has_reliable_qty
+                if not has_reliable_qty:
+                    streak = _bump_margin_streak(item_key)
+                    should_warn = streak >= MARGIN_WARNING_UNPARSED_CONFIRMATIONS_REQUIRED
+                    if should_warn:
+                        _reset_margin_streak(item_key)
+                if should_warn:
+                    margin_warnings.append({
+                        "item_key": item_key, "item_name": stored_name,
+                        "recommended_price": entry.recommended_price,
+                        "unit_cost": unit_cost, "pack_qty": pack_qty or 1,
+                        "margin_pct": margin_pct,
+                        "confirmed_qty": has_reliable_qty,
+                    })
+            elif not has_reliable_qty:
+                _reset_margin_streak(item_key)
 
         if prior_low is not None and new_price < prior_low:
             cur.execute("""

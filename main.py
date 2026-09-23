@@ -294,9 +294,13 @@ def _notify_margin_warnings(pt: product_ranking.ProductType, warnings: list[dict
     lines = [f"⚠️ 마진 경고 ({pt.key}, 20% 이하)\n"]
     for w in warnings:
         margin_text = f"{w['margin_pct']}%" if w["margin_pct"] >= 0 else f"역마진 {w['margin_pct']}%"
+        # confirmed_qty=False는 상품명에서 묶음 수량을 못 읽어 여러 스캔
+        # 주기에 걸쳐 재현된 경우만 여기 도달한다(1회성 오탐 가능성은
+        # 낮지만, 상품명 자체가 불확실했다는 걸 관리자가 알 수 있게 표시).
+        qty_note = "" if w.get("confirmed_qty", True) else " (상품명에 수량 표기 없음 - 재확인 필요)"
         lines.append(
             f"• {w['item_name']}: 추천판매가 {w['recommended_price']:,}원 / "
-            f"예상 매입가 {w['unit_cost']:,}원({w['pack_qty']}개입 기준) -> 마진 {margin_text}"
+            f"예상 매입가 {w['unit_cost']:,}원({w['pack_qty']}개입 기준) -> 마진 {margin_text}{qty_note}"
         )
     lines.append("\n카탈로그의 추천판매가를 다시 확인해주세요.")
     telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
