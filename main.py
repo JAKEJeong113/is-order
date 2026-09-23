@@ -1892,6 +1892,25 @@ register_product_routes(product_ranking.BEVERAGE, slug="beverage", page_template
 register_product_routes(product_ranking.SNACK, slug="snack", page_template="snacks.html", admin_template="snack_admin.html")
 
 
+@app.get("/hotdeals", response_class=HTMLResponse)
+def hotdeals_page(request: Request):
+    if not get_current_web_user(request):
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("hotdeals.html", {"request": request, "active_page": "hotdeals"})
+
+
+@app.get("/api/hotdeals")
+def api_hotdeals(user: dict = Depends(require_web_user)):
+    """음료/과자 통틀어 "지금 이 순간도 역대 최저가에 머물러 있는" 상품만
+    보여준다(타임세일 성격 - 사용자 요청). 저장된 목록이 아니라 매 조회마다
+    실시간으로 다시 걸러서 돌려주므로, 다음 가격 스캔에서 값이 오르면
+    그 즉시 목록에서 빠진다(product_ranking.list_active_hotdeals 참고)."""
+    usage_stats.log_event(f"web:{user['email']}", "hotdeals_view")
+    items = product_ranking.list_active_hotdeals(product_ranking.BEVERAGE) + product_ranking.list_active_hotdeals(product_ranking.SNACK)
+    items.sort(key=lambda it: it["detected_at"] or "", reverse=True)
+    return {"items": items}
+
+
 @app.get("/admin/biz-tools", response_class=HTMLResponse)
 def admin_biz_tools_page(request: Request, _: bool = Depends(require_admin)):
     return templates.TemplateResponse("tool_admin.html", {"request": request})

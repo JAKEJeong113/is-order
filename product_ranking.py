@@ -953,6 +953,45 @@ def get_price_history(pt: ProductType, item_key: str) -> list[dict]:
     ]
 
 
+def list_active_hotdeals(pt: ProductType, limit: int = 30) -> list[dict]:
+    """"핫딜 안내" 페이지용 - 타임세일 성격이라 가격이 다시 오르면 그 즉시
+    사라져야 한다(사용자 요청). 그래서 "한 번 감지된 걸 계속 보여주는" 방식이
+    아니라, 조회할 때마다 "지금 이 순간도 역대 최저가에 머물러 있는 상품"만
+    실시간으로 걸러서 돌려준다 - 다음 가격 스캔에서 가격이 오르면(캐시된
+    price가 바뀌면) 그 즉시 이 목록에서도 빠진다.
+
+    pending_price_alerts와 INNER JOIN해서 "실제로 역대 최저가 갱신이 감지된
+    적 있는" 상품만 후보로 삼는다(가격을 한 번밖에 안 검사한 상품이 우연히
+    "현재가=최저가"인 것과 구분하기 위함). match_method='product_id'(쿠팡
+    상품 고유 ID로 확정 대조된 것)만 쓴다 - 이름 유사도 매칭은 실측으로
+    다른 상품이 잘못 매칭되는 사례가 있어(예: "피크닉 사과" 검색에 수량
+    표기도 없는 "피크닉 사과 주스"가 매칭됨), 공개 페이지에 엉뚱한 상품
+    사진/링크가 뜨는 걸 막기 위해 확정 매칭만 노출한다."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"""
+    SELECT t.item_key, t.item_name, t.image_url, t.partners_link, t.price, MAX(a.created_at) AS detected_at
+    FROM {pt.table_name} t
+    JOIN pending_price_alerts a
+        ON a.product_type = ? AND a.item_key = t.item_key
+        AND a.match_method = 'product_id' AND a.new_price = t.price
+    WHERE t.partners_link IS NOT NULL AND t.deleted = 0
+      AND t.price = (SELECT MIN(price) FROM price_history WHERE product_type = ? AND item_key = t.item_key)
+    GROUP BY t.item_key, t.item_name, t.image_url, t.partners_link, t.price
+    ORDER BY detected_at DESC
+    LIMIT ?
+    """, (pt.key, pt.key, limit))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "item_key": r[0], "item_name": r[1], "image_url": r[2], "partners_link": r[3],
+            "price": r[4], "detected_at": r[5], "product_type": pt.key,
+        }
+        for r in rows
+    ]
+
+
 def list_recent_price_alerts(limit: int = 200) -> list[dict]:
     """관리자 페이지에서 최근 감지된 최저가 알림을 상태(대기/알림전송/전체발송/생략)
     구분 없이 전부 최신순으로 보여줄 때 쓴다."""
