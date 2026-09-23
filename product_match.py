@@ -48,12 +48,6 @@ def _extract_unit_qty(text: str) -> int | None:
     return int(m.group(1) or m.group(2))
 
 
-def extract_unit_qty(text: str) -> int | None:
-    """상품명에서 묶음 수량("20개입", "x10개" 등)을 파싱한다 - 이 모듈
-    바깥(product_ranking.py의 개당 매입가 계산 등)에서 쓰는 공개 버전."""
-    return _extract_unit_qty(text)
-
-
 def similarity(name_a: str, name_b: str) -> float:
     """0~1 사이 유사도. bigram Jaccard + 용량/수량 일치 보너스."""
     ba, bb = _bigrams(name_a), _bigrams(name_b)

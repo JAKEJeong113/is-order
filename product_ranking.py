@@ -49,6 +49,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -634,6 +635,22 @@ PRICE_CHECK_EXTREME_CONFIRMATIONS_REQUIRED = 3
 
 SEARCH_DELAY_SECONDS_PRICE_CHECK = 2.0
 
+# 개당 매입가 계산용 - 쿠팡 상품명은 도매몰과 묶음수량 표기 관습이 다르다
+# (실측 확인: 도매몰은 "20개입"처럼 반드시 "입"이 붙지만, 쿠팡은 "피크닉
+# 사과맛, 200ml, 24개"/"갈아만든배, 340ml, 24개"처럼 "입" 없이 그냥
+# "24개"만 붙는 경우가 흔함). product_match.py의 도매몰용 정규식
+# (UNIT_QTY_RE, "개입"/"x개"만 인식)로는 이런 쿠팡 이름에서 수량을 아예
+# 못 읽어서, 24개들이 묶음 가격을 그대로 낱개 가격으로 오인해 역마진으로
+# 잘못 경고하는 사고가 있었다. "입" 유무와 무관하게 "숫자+개"를 잡되,
+# 단어 경계(\b)로 "2개월"처럼 수량이 아닌 숫자+개 조합(한글 음절도
+# 정규식상 단어문자라 "개"와 "월" 사이엔 경계가 없어 걸러짐)은 제외한다.
+_COUPANG_PACK_QTY_RE = re.compile(r"(\d+)\s*개(?:입)?\b")
+
+
+def _extract_coupang_pack_qty(text: str) -> int | None:
+    m = _COUPANG_PACK_QTY_RE.search(text or "")
+    return int(m.group(1)) if m else None
+
 
 def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     """이미 매칭된 상품들의 오늘자 가격을 순환 조회해서 price_history에
@@ -793,7 +810,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
         pack_qty = None
         unit_cost = new_price
         if entry and entry.is_coupang == 1:
-            pack_qty = product_match.extract_unit_qty(found_name) or product_match.extract_unit_qty(stored_name or "")
+            pack_qty = _extract_coupang_pack_qty(found_name) or _extract_coupang_pack_qty(stored_name or "")
             if pack_qty and pack_qty > 1:
                 unit_cost = round(new_price / pack_qty)
                 mapping.update_coupang_pack_qty(item_key, pack_qty)
