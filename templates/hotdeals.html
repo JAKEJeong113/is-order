@@ -62,6 +62,7 @@
       margin-top: 6px;
     }
     .bev-price { font-weight: 700; font-size: 13px; color: var(--hot); }
+    .hd-unit { font-size: 11px; color: var(--mint-text); font-weight: 700; margin-top: 4px; }
     .hd-detected { font-size: 10.5px; color: var(--muted); margin-top: 3px; }
     .buy-badge {
       font-size: 11px; padding: 3px 9px; border-radius: 999px;
@@ -165,6 +166,12 @@
         const imgTag = item.image_url
           ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(name)}" loading="lazy">`
           : "";
+        // 몇 개들이인지 상품명에서 확실히 읽은 경우에만 개당가를 보여준다
+        // (수량을 못 읽은 상품은 pack_qty/unit_cost가 없어 표기를 생략함 -
+        // 사용자 요청: "몇개이고 개당 얼마" 주석).
+        const unitText = (item.pack_qty && item.pack_qty > 1 && item.unit_cost)
+          ? `<div class="hd-unit">${item.pack_qty}개입 · 개당 ${item.unit_cost.toLocaleString()}원</div>`
+          : "";
         return `
           <div class="bev-card" data-item-key="${escapeHtml(item.item_key)}" data-product-type="${escapeHtml(item.product_type)}">
             <a class="bev-card-link" href="${escapeHtml(item.partners_link)}" target="_blank" rel="noopener">
@@ -177,6 +184,7 @@
                   <span class="bev-price">${priceText}</span>
                   <span class="buy-badge">구매하기</span>
                 </div>
+                ${unitText}
                 <div class="hd-detected">${formatDetected(item.detected_at)}</div>
               </div>
             </a>

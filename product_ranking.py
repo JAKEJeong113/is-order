@@ -966,11 +966,24 @@ def list_active_hotdeals(pt: ProductType, limit: int = 30) -> list[dict]:
     상품 고유 ID로 확정 대조된 것)만 쓴다 - 이름 유사도 매칭은 실측으로
     다른 상품이 잘못 매칭되는 사례가 있어(예: "피크닉 사과" 검색에 수량
     표기도 없는 "피크닉 사과 주스"가 매칭됨), 공개 페이지에 엉뚱한 상품
-    사진/링크가 뜨는 걸 막기 위해 확정 매칭만 노출한다."""
+    사진/링크가 뜨는 걸 막기 위해 확정 매칭만 노출한다.
+
+    pack_qty/unit_cost도 같이 내려준다("이 가격이 몇 개들이인지, 개당
+    얼마인지" 사용자 요청) - 최저가(t.price)를 기록했던 그 순간의
+    price_history 행에서 pack_qty를 그대로 가져온다(현재 catalog_items의
+    pack_qty를 쓰지 않는 이유: 그 값은 이후 다른 상품 매칭으로 갱신됐을 수
+    있어서, "이 최저가 자체가 몇 개들이였는지"는 그 시점 기록이 더
+    정확함). 수량을 못 읽은 상품은 pack_qty가 NULL로 내려가고, 화면에서는
+    개당가 표기를 생략한다."""
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(f"""
-    SELECT t.item_key, t.item_name, t.image_url, t.partners_link, t.price, MAX(a.created_at) AS detected_at
+    SELECT t.item_key, t.item_name, t.image_url, t.partners_link, t.price, MAX(a.created_at) AS detected_at,
+        (
+            SELECT ph.pack_qty FROM price_history ph
+            WHERE ph.product_type = ? AND ph.item_key = t.item_key AND ph.price = t.price
+            ORDER BY ph.recorded_at DESC LIMIT 1
+        ) AS pack_qty
     FROM {pt.table_name} t
     JOIN pending_price_alerts a
         ON a.product_type = ? AND a.item_key = t.item_key
@@ -980,16 +993,19 @@ def list_active_hotdeals(pt: ProductType, limit: int = 30) -> list[dict]:
     GROUP BY t.item_key, t.item_name, t.image_url, t.partners_link, t.price
     ORDER BY detected_at DESC
     LIMIT ?
-    """, (pt.key, pt.key, limit))
+    """, (pt.key, pt.key, pt.key, limit))
     rows = cur.fetchall()
     conn.close()
-    return [
-        {
+    result = []
+    for r in rows:
+        price, pack_qty = r[4], r[6]
+        unit_cost = round(price / pack_qty) if pack_qty and pack_qty > 1 else None
+        result.append({
             "item_key": r[0], "item_name": r[1], "image_url": r[2], "partners_link": r[3],
-            "price": r[4], "detected_at": r[5], "product_type": pt.key,
-        }
-        for r in rows
-    ]
+            "price": price, "detected_at": r[5], "product_type": pt.key,
+            "pack_qty": pack_qty, "unit_cost": unit_cost,
+        })
+    return result
 
 
 def list_recent_price_alerts(limit: int = 200) -> list[dict]:
