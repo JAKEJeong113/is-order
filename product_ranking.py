@@ -376,14 +376,53 @@ def _fetch_coupang_products(keyword: str, limit: int = 1) -> list[dict]:
     return [p for p in (_parse_coupang_product(p) for p in products) if p["is_rocket"]]
 
 
+
+# 쿠팡 상품 하나에 구매 수량 옵션이 여러 개 있는 경우가 흔하다(예: 야채타임
+# 6개/10개/16개/20개, 새우깡 20개 등 - 사용자 확인). 검색 API가 돌려주는
+# "기본" 가격은 이 중 어느 옵션인지 보장이 없어서, 무인매장이 실제로 사입할
+# 만한 대량 옵션과 동떨어진(소용량) 값이 기본으로 잡히는 문제가 있었다.
+# 그래서 검색 결과 후보 중 상품명에 "10개 이상"으로 읽히는 옵션이 있으면
+# 그걸 우선 쓰고, 여러 개면 그중 가장 작은 걸(불필요하게 큰 박스로 튀지
+# 않게) 고른다. 후보가 전부 10개 미만/수량 미표기면 기존처럼 1순위를 쓴다.
+COUPANG_PREFERRED_MIN_PACK_QTY = 10
+
+
+def _pick_preferred_candidate(candidates: list[dict], reference_name: str) -> dict | None:
+    """실측으로 확인된 함정: "야채타임"/"새우깡" 같은 검색어에 "인기 과자
+    혼합 10종 세트(...), 10개, 봉지과자"처럼 완전히 다른 상품 여러 개를
+    묶은 "N종 세트" 상품이 섞여 나올 수 있는데, 이 "10개"는 "이 상품
+    10개입"이 아니라 "10가지 다른 과자를 묶었다"는 뜻이라 수량 우선
+    로직이 이런 걸 집으면 안 된다(실측: 두 검색어 모두에서 상위 후보로
+    나왔고, 대상 상품명과의 유사도가 0.00이었음 - 세트 상품명 자체에
+    검색어가 아예 안 들어있는 경우가 많아 유사도로 걸러진다). 그래서
+    수량으로 비교하기 전에 먼저 검색어/기존 상품명과 이름이 어느 정도
+    닮은 후보로만 추려서(product_match.MIN_GROUP_SCORE 이상), 그 안에서만
+    "10개 이상" 옵션을 찾는다. 닮은 후보가 하나도 없으면(방어적으로) 원래
+    후보군 전체에서, 그것도 없으면 1순위를 그대로 쓴다."""
+    if not candidates:
+        return None
+    similar = [
+        c for c in candidates
+        if product_match.similarity(reference_name, c.get("product_name") or "") >= product_match.MIN_GROUP_SCORE
+    ]
+    pool = similar or candidates
+    qualifying = [
+        c for c in pool
+        if (_extract_coupang_pack_qty(c.get("product_name") or "") or 0) >= COUPANG_PREFERRED_MIN_PACK_QTY
+    ]
+    if qualifying:
+        return min(qualifying, key=lambda c: _extract_coupang_pack_qty(c["product_name"]))
+    return pool[0]
+
+
 def search_coupang_product(keyword: str) -> dict | None:
-    """검색어로 쿠팡 상품을 검색해서 로켓상품 중 1순위(=원래 검색 순위가
-    가장 높은 것)의 이미지/가격/상품 URL을 가져온다. limit을 1이 아니라
-    여유 있게 주는 이유는, 로켓상품이 아닌 결과를 걸러낸 뒤에도 실제로
-    쓸 수 있는 후보가 남게 하기 위함이다(실측: 키워드에 따라 1위가
-    로켓상품이 아닌 경우가 흔함)."""
+    """검색어로 쿠팡 상품을 검색해서 로켓상품 중 가장 적합한 것(검색어와
+    이름이 닮은 후보 중 10개 이상 옵션 우선, 없으면 1순위)의 이미지/가격/
+    상품 URL을 가져온다. limit을 1이 아니라 여유 있게 주는 이유는, 로켓상품이
+    아닌 결과를 걸러내고 수량 옵션까지 비교한 뒤에도 실제로 쓸 수 있는
+    후보가 남게 하기 위함이다."""
     products = _fetch_coupang_products(keyword, limit=PRICE_CHECK_ID_MATCH_CANDIDATES)
-    return products[0] if products else None
+    return _pick_preferred_candidate(products, keyword)
 
 
 # snapshot_prices가 productId 대조에 쓸 후보 개수. 너무 크면 API 응답이
@@ -777,7 +816,10 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
                 None,
             )
 
-        result = id_match or candidates[0]
+        # id_match(이미 확정된 상품)면 그대로 쓰고, 아직 확정된 적 없으면
+        # (재검색 첫 성공 등) 여기서도 10개 이상 옵션을 우선한다 - 검색
+        # 순위 1위가 소용량 옵션인 경우가 흔해서(실측: 야채타임/새우깡 등).
+        result = id_match or _pick_preferred_candidate(candidates, stored_name or "")
         if not result.get("price"):
             conn.commit()
             time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
