@@ -184,8 +184,23 @@ def api_search(q: str = Query(..., min_length=1, max_length=100), limit: int = Q
 
     # LIKE/ILIKE 특수문자(%, _, \)를 리터럴로 취급하도록 이스케이프한다 -
     # 안 하면 "50%" 같은 검색어가 와일드카드로 해석돼 엉뚱하게 매칭된다.
-    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    like = f"%{escaped}%"
+    def _escape(s: str) -> str:
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    # "라라스윗 토피넛"처럼 공백으로 여러 단어를 띄어 검색해도, 상품명이
+    # "라라스윗 저당 토피넛콘"처럼 그 사이에 다른 단어가 끼어 있으면 예전
+    # 로직(검색어 전체를 하나의 연속된 부분문자열로 취급)은 못 찾았다.
+    # 단어 단위로 쪼개서 각 단어가 (바코드/상품명/검색키워드) 중 어딘가에
+    # 전부 포함되면(AND) 매칭되도록 바꾼다 - 단어 하나짜리 검색은 기존과
+    # 동일하게 동작한다.
+    tokens = query.split()
+    conditions = []
+    params: list[str] = []
+    for token in tokens:
+        like = f"%{_escape(token)}%"
+        conditions.append("(barcode LIKE ? ESCAPE '\\' OR menu_name ILIKE ? ESCAPE '\\' OR search_keyword ILIKE ? ESCAPE '\\')")
+        params.extend([like, like, like])
+    where_clause = " AND ".join(conditions)
 
     conn = db_conn.get_conn()
     try:
@@ -194,16 +209,14 @@ def api_search(q: str = Query(..., min_length=1, max_length=100), limit: int = Q
         # search_catalog와 동일한 우선순위 규칙) - Postgres는 boolean을
         # false=0/true=1로 정렬하므로 (barcode = ?) DESC 하나로 충분하다.
         cur.execute(
-            """
+            f"""
             SELECT barcode, menu_name, recommended_price
             FROM catalog_items
-            WHERE barcode LIKE ? ESCAPE '\\'
-               OR menu_name ILIKE ? ESCAPE '\\'
-               OR search_keyword ILIKE ? ESCAPE '\\'
+            WHERE {where_clause}
             ORDER BY (barcode = ?) DESC, menu_name ASC
             LIMIT ?
             """,
-            (like, like, like, query, limit),
+            (*params, query, limit),
         )
         rows = cur.fetchall()
     finally:
