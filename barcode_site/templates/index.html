@@ -181,6 +181,7 @@
     }
     .oq-register-btn:active{background:var(--mint-soft)}
     .result-price{font-size:15px; font-weight:800; color:var(--mint-dark); white-space:nowrap}
+    .result-cu-price{font-size:11px; font-weight:600; color:var(--muted); white-space:nowrap}
     .result-price-change{font-size:13px; font-weight:800; white-space:nowrap; text-align:right}
     .result-price-change .pc-old{color:var(--muted); font-weight:700; text-decoration:line-through; margin-right:3px}
     .result-price-change .pc-new{color:var(--mint-dark)}
@@ -511,6 +512,7 @@
           </div>
           <div class="result-side">
             <span class="result-price">${formatPrice(item.recommended_price)}</span>
+            ${item.cu_price ? `<span class="result-cu-price">CU ${formatPrice(item.cu_price)}</span>` : ""}
             ${oqAvailable && !inSelectMode ? `<button type="button" class="oq-register-btn" data-barcode="${item.barcode}" data-name="${escapeHtml(item.menu_name)}" data-price="${item.recommended_price || 0}">오더퀸 등록</button>` : ""}
           </div>
         </div>

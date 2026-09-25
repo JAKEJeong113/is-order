@@ -73,6 +73,22 @@ CREATE TABLE IF NOT EXISTS catalog_price_changes (
 _conn.commit()
 _conn.close()
 
+# CU 편의점 판매가(본체 cu_price_crawl.py가 채움) - 검색 결과에 같이 보여주기
+# 위해 읽기만 한다. 위와 같은 이유로 여기서도 CREATE TABLE IF NOT EXISTS로
+# 만들어둔다.
+_conn = db_conn.get_conn()
+_conn.cursor().execute("""
+CREATE TABLE IF NOT EXISTS cu_retail_prices (
+    barcode TEXT PRIMARY KEY,
+    item_name TEXT,
+    price INTEGER,
+    category TEXT,
+    updated_at TEXT
+)
+""")
+_conn.commit()
+_conn.close()
+
 # 이 앱(무인 바코드 검색기) 전용 패치노트 - 본체(main.py, barcode_app_patch_notes.py)가
 # 쓰는 것과 같은 테이블을 여기서도(배포 순서 무관하게) 만들어두고 읽기만 한다.
 _conn = db_conn.get_conn()
@@ -208,12 +224,16 @@ def api_search(q: str = Query(..., min_length=1, max_length=100), limit: int = Q
         # 바코드가 정확히 일치하는 상품을 최상단에 올린다(본체 product_ranking.
         # search_catalog와 동일한 우선순위 규칙) - Postgres는 boolean을
         # false=0/true=1로 정렬하므로 (barcode = ?) DESC 하나로 충분하다.
+        # cu_retail_prices(본체가 CU 편의점 크롤링으로 채움)를 바코드로 LEFT
+        # JOIN해서, 편의점에서 판매 중인 상품이면 편의점판매가도 같이 준다
+        # (사용자 요청, 2026-09-25).
         cur.execute(
             f"""
-            SELECT barcode, menu_name, recommended_price
-            FROM catalog_items
+            SELECT c.barcode, c.menu_name, c.recommended_price, cu.price
+            FROM catalog_items c
+            LEFT JOIN cu_retail_prices cu ON cu.barcode = c.barcode
             WHERE {where_clause}
-            ORDER BY (barcode = ?) DESC, menu_name ASC
+            ORDER BY (c.barcode = ?) DESC, c.menu_name ASC
             LIMIT ?
             """,
             (*params, query, limit),
@@ -227,8 +247,9 @@ def api_search(q: str = Query(..., min_length=1, max_length=100), limit: int = Q
             "barcode": barcode,
             "menu_name": menu_name or "(이름 없음)",
             "recommended_price": recommended_price or 0,
+            "cu_price": cu_price,
         }
-        for barcode, menu_name, recommended_price in rows
+        for barcode, menu_name, recommended_price, cu_price in rows
     ]
     return {"items": items}
 
