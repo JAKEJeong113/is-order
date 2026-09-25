@@ -214,7 +214,7 @@ def api_search(q: str = Query(..., min_length=1, max_length=100), limit: int = Q
     params: list[str] = []
     for token in tokens:
         like = f"%{_escape(token)}%"
-        conditions.append("(barcode LIKE ? ESCAPE '\\' OR menu_name ILIKE ? ESCAPE '\\' OR search_keyword ILIKE ? ESCAPE '\\')")
+        conditions.append("(c.barcode LIKE ? ESCAPE '\\' OR c.menu_name ILIKE ? ESCAPE '\\' OR c.search_keyword ILIKE ? ESCAPE '\\')")
         params.extend([like, like, like])
     where_clause = " AND ".join(conditions)
 
