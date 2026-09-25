@@ -57,6 +57,7 @@ import cart_jobs
 import catalog_auto_import
 import catalog_cache
 import catalog_crawler
+import cu_price_crawl
 import icemoa_import
 import consumables
 import db_conn
@@ -145,6 +146,7 @@ mapping.init_catalog_table()
 mapping.init_unclassified_queue_table()
 mapping.init_pending_submissions_table()
 mapping.init_price_changes_table()
+cu_price_crawl.init_cu_retail_prices_table()
 store_expiry.init_store_expiry_tables()
 patch_notes.init_patch_notes_table()
 barcode_app_patch_notes.init_barcode_app_patch_notes_table()
@@ -286,6 +288,57 @@ scheduler.add_job(
     _run_weekly_icemoa_import,
     trigger=CronTrigger(day_of_week="mon", hour=5, minute=10, timezone=KST),
     id="weekly_icemoa_catalog_import",
+    replace_existing=True,
+)
+
+# CU(BGF리테일) 편의점 판매가 참고 크롤링 - 로그인/JS 렌더링 없이 순수
+# POST API라 도매몰 크롤링보다도 가볍다(cu_price_crawl.py 참고). 무인매장은
+# 편의점보다 매입가를 같거나 낮게 잡는다는 전제(사용자 확인, 2026-09-25)로,
+# "편의점판매가 >= 추천판매가"가 성립해야 정상이다.
+#
+# 쿠팡(is_coupang=1) 분류 상품은 도매몰 계산 로직을 절대 적용하지 않도록
+# 이미 막아뒀는데(catalog_auto_import.py 참고 - 쿠팡은 마진을 낮게 잡는
+# 경우가 많아 도매몰식 계산값이 너무 높게 나올 위험), 그 대신 여기서 쿠팡
+# 검색 API로 매입가를 구해 같은 마진 계산을 적용한 후보값을 만들고, CU
+# 편의점판매가로 "그 값이 편의점가보다 낮은지" 검증한다. catalog_items에는
+# 절대 쓰지 않고 텔레그램 보고만 한다(아이스모아 가격 차이 보고와 동일한
+# 철학 - 계산으로 추정한 값을 검증 없이 자동 반영하지 않음).
+def _run_weekly_cu_price_check() -> None:
+    try:
+        saved = cu_price_crawl.refresh_cu_retail_prices()
+        candidates = cu_price_crawl.find_unpriced_coupang_candidates()
+        print(
+            f"[CU_PRICE_CRAWL] 주간 CU 편의점가 갱신 완료: {saved}개 저장, "
+            f"추천판매가 없는 쿠팡 상품 {len(candidates)}건 확인"
+        )
+        if candidates and telegram_bot.ADMIN_CHAT_ID:
+            lines = ["🏪 추천판매가 없는 쿠팡 상품 - 계산값/편의점가 비교\n"]
+            for c in candidates:
+                if not c["ok"]:
+                    lines.append(f"• {c['name']}({c['barcode']}): 확인 불가 - {c['reason']}")
+                    continue
+                if c["cu_price"] is None:
+                    lines.append(
+                        f"• {c['name']}({c['barcode']}): 계산값 {c['computed_price']:,}원"
+                        f"(매입가 {c['unit_cost']:,}원, 마진 {c['margin_pct']}%) - CU에서 매칭 안 됨"
+                    )
+                else:
+                    mark = "✅" if c["valid"] else "⚠️"
+                    lines.append(
+                        f"{mark} {c['name']}({c['barcode']}): 계산값 {c['computed_price']:,}원 "
+                        f"vs CU \"{c['cu_item_name']}\" {c['cu_price']:,}원"
+                    )
+            lines.append("\n확인 후 필요하면 카탈로그에서 직접 추천판매가를 입력해주세요.")
+            telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
+    except Exception as e:
+        telegram_bot.alert_admin(f"CU 편의점가 갱신/비교(주간) 실패: {e}")
+        raise
+
+
+scheduler.add_job(
+    _run_weekly_cu_price_check,
+    trigger=CronTrigger(day_of_week="mon", hour=5, minute=20, timezone=KST),
+    id="weekly_cu_price_check",
     replace_existing=True,
 )
 
