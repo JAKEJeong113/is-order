@@ -37,6 +37,12 @@ godomall_bot 사용), 자체제작 플랫폼(야미몰/yamimall, 또요몰/douyo
     위함이다. 명시가끼리 여러 개면 위 규칙대로 최고가를 쓴다.
   - 이미 있고 값이 채워져 있는데, 이번 결과가 "계산값"뿐이라면 -> 안 건드리고
     건너뛴다(관리자가 손댔을 수 있는 값을 추정치로 덮지 않는다).
+  - 바코드가 카탈로그에 이미 is_coupang=1("쿠팡" 분류)로 있으면 -> 값이
+    비어있어도 절대 채우거나 덮어쓰지 않는다(사용자 확인, 2026-09-25).
+    쿠팡은 온라인 최저가 경쟁 때문에 마진을 낮게 잡는 경우가 많아서, 이
+    모듈의 박스가÷개수+마진 계산값이 실제보다 훨씬 높게 나올 수 있다
+    (도윤상사/mud5에서 실제로 겹치는 사례 확인). 크롤링/이름-바코드 매칭
+    자체는 그대로 하되 가격만 안 건드린다.
 
 특정 (바코드, 도매처) 조합 배제(catalog_import_source_exclusions 테이블):
   도매처가 상품 상세페이지에 바코드를 잘못 기재해둔 경우(실측: 또요몰에서
@@ -213,15 +219,16 @@ def _pick_winner(candidates: list[dict]) -> dict:
     return max(pool, key=lambda c: c["price"])
 
 
-def _get_existing_recommended_price(barcode: str) -> int | None:
-    """바코드가 카탈로그에 없으면 None, 있으면 현재 recommended_price(0일 수도
-    있음)를 반환한다 - "없음"과 "0원으로 저장돼있음"을 구분해야 한다."""
+def _get_existing_catalog_state(barcode: str) -> tuple[int, int] | None:
+    """바코드가 카탈로그에 없으면 None, 있으면 (recommended_price, is_coupang)을
+    반환한다 - recommended_price는 0일 수도 있어 "없음"과 "0원으로 저장돼있음"을
+    구분해야 한다."""
     conn = db_conn.get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT recommended_price FROM catalog_items WHERE barcode = ?", (barcode,))
+        cur.execute("SELECT recommended_price, is_coupang FROM catalog_items WHERE barcode = ?", (barcode,))
         row = cur.fetchone()
-        return row[0] if row else None
+        return (row[0], row[1]) if row else None
     finally:
         conn.close()
 
@@ -345,7 +352,7 @@ def _collect_vendor_candidates(vendor_id: str, limit: int | None, on_candidate=N
 def _write_winners(by_barcode: dict[str, list[dict]]) -> dict:
     summary: dict[str, list[dict]] = {
         "added": [], "updated": [], "overwritten": [],
-        "skipped_existing_price": [], "skipped_parse_fail": [],
+        "skipped_existing_price": [], "skipped_parse_fail": [], "skipped_coupang_category": [],
     }
 
     for barcode, candidates in by_barcode.items():
@@ -374,7 +381,22 @@ def _write_winners(by_barcode: dict[str, list[dict]]) -> dict:
             f"{compare_note} · {datetime.now().date().isoformat()}"
         )
 
-        existing_price = _get_existing_recommended_price(barcode)
+        existing = _get_existing_catalog_state(barcode)
+        existing_price = existing[0] if existing else None
+
+        # 쿠팡(is_coupang=1) 분류 상품은 이 도매몰 계산 로직(박스가÷개수+마진)을
+        # 절대 적용하지 않는다(사용자 확인, 2026-09-25) - 도윤상사(mud5)에 실제로
+        # 쿠팡 분류 상품이 겹치는 게 확인됐는데, 쿠팡은 온라인 최저가 경쟁 때문에
+        # 마진을 낮게 잡아둔 경우가 많아서 도매몰식 계산값이 기존 값보다 훨씬
+        # 높게 나올 수 있다 - 값이 비어있어도 채우지 않고 현재 값을 그대로
+        # 유지한다(크롤링/매칭 자체는 계속하되 가격만 건드리지 않음).
+        if existing is not None and existing[1] == 1:
+            summary["skipped_coupang_category"].append({
+                "barcode": barcode, "name": clean_name,
+                "existing_price": existing_price, "would_be": winner["price"],
+            })
+            continue
+
         if existing_price is None:
             _insert_new_item(
                 barcode, clean_name, winner.get("unit_qty", 1), winner["price"], notes,
@@ -424,7 +446,7 @@ def import_all_vendors(vendor_ids: tuple[str, ...] = DEFAULT_VENDORS, limit: int
     저장되어 있게 한다.)"""
     by_barcode: dict[str, list[dict]] = {}
     summary: dict[str, list[dict]] = {
-        "added": [], "updated": [], "overwritten": [],
+        "added": [], "updated": [], "overwritten": [], "skipped_coupang_category": [],
         "skipped_existing_price": [], "skipped_parse_fail": [], "failed_vendors": [],
     }
 
@@ -434,7 +456,10 @@ def import_all_vendors(vendor_ids: tuple[str, ...] = DEFAULT_VENDORS, limit: int
         except Exception as e:
             print(f"[CATALOG_IMPORT] {barcode} 체크포인트 실패(건너뛰고 계속): {e}")
             return
-        for key in ("added", "updated", "overwritten", "skipped_existing_price", "skipped_parse_fail"):
+        for key in (
+            "added", "updated", "overwritten", "skipped_coupang_category",
+            "skipped_existing_price", "skipped_parse_fail",
+        ):
             summary[key].extend(vendor_summary[key])
 
     for vendor_id in vendor_ids:

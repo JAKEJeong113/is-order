@@ -237,9 +237,11 @@ def _run_weekly_catalog_auto_import() -> None:
         added = len(summary["added"])
         updated = len(summary["updated"])
         overwritten = len(summary.get("overwritten", []))
+        skipped_coupang = len(summary.get("skipped_coupang_category", []))
         print(
             f"[CATALOG_AUTO_IMPORT] 주간 도매몰 카탈로그 자동등록 완료: "
-            f"신규 {added}개, 빈 값 채움 {updated}개, 도매 명시가로 덮어씀 {overwritten}개"
+            f"신규 {added}개, 빈 값 채움 {updated}개, 도매 명시가로 덮어씀 {overwritten}개, "
+            f"쿠팡 분류라 가격 미적용 {skipped_coupang}개"
         )
     except Exception as e:
         telegram_bot.alert_admin(f"도매몰 카탈로그 자동등록(주간) 실패: {e}")
