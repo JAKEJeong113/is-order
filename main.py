@@ -256,16 +256,27 @@ scheduler.add_job(
 # 아이스모아(icemoa.com) - 아이스크림 바코드/가격 참고사이트: 로그인 없는
 # 정적 조회 페이지 하나만 받으면 돼서 도매몰 크롤링보다 훨씬 가볍다(icemoa_import.py
 # 참고). 같은 주간 배치로 묶되, 위 도매몰 크롤링과 겹치지 않게 10분 뒤로 둔다.
+#
+# 도매몰과 달리 가격이 기존과 다른 상품은 자동으로 반영하지 않는다(사용자
+# 요청, 2026-09-25 - 이 출처의 신뢰도를 아직 검증 전이라 관리자가 직접 보고
+# 판단하겠다는 뜻) - icemoa_import가 돌려주는 price_diffs를 텔레그램으로만
+# 보고하고 DB는 건드리지 않는다.
 def _run_weekly_icemoa_import() -> None:
     try:
         summary = icemoa_import.import_icemoa_catalog()
         print(
-            f"[ICEMOA_IMPORT] 주간 아이스모아 카탈로그 갱신 완료: "
+            f"[ICEMOA_IMPORT] 주간 아이스모아 카탈로그 확인 완료: "
             f"신규 {len(summary['added'])}개, 빈 값 채움 {len(summary['updated'])}개, "
-            f"가격 갱신 {len(summary['overwritten'])}개"
+            f"가격 다름(미반영) {len(summary['price_diffs'])}개"
         )
+        diffs = summary.get("price_diffs") or []
+        if diffs and telegram_bot.ADMIN_CHAT_ID:
+            lines = ["🍦 아이스모아 가격 차이 발견(카탈로그에 미반영 - 확인 필요)\n"]
+            for d in diffs:
+                lines.append(f"• {d['name']}({d['barcode']}): {d['old_price']:,}원 → {d['new_price']:,}원")
+            telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
     except Exception as e:
-        telegram_bot.alert_admin(f"아이스모아 카탈로그 갱신(주간) 실패: {e}")
+        telegram_bot.alert_admin(f"아이스모아 카탈로그 확인(주간) 실패: {e}")
         raise
 
 

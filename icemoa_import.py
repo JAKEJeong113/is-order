@@ -10,11 +10,15 @@
 컬럼 자체가 이미 소비자 판매가라(도매 사입가가 아님) catalog_auto_import.py
 처럼 박스가÷개수로 마진을 계산할 필요 없이 그대로 recommended_price로 쓴다.
 
-병합 규칙(catalog_auto_import.py와 같은 철학 - 사용자 확인된 정책 재사용):
+병합 규칙(사용자 확인된 정책, 2026-09-25):
   - DB에 없는 바코드 -> 새로 추가(is_coupang=0)
   - 있는데 recommended_price가 비어있음(0/NULL) -> 그 값만 채움
-  - 있고 값도 있는데 이번 값과 다르면 -> 이 사이트가 "가격 정보" 그 자체가
-    목적이라 명시가로 취급해 덮어씀 + 가격인상안내용 기록(mapping.record_price_change)
+  - 있고 값도 있는데 이번 값과 다르면 -> DB는 건드리지 않고(자동 반영 안 함)
+    텔레그램으로만 "이 상품이 이렇게 다릅니다" 목록을 보고한다(관리자가
+    직접 보고 판단). 도매몰(catalog_auto_import.py)의 "명시가 자동 덮어쓰기"와
+    달리, 이 사이트는 출처 신뢰도를 아직 검증하기 전이라 자동 반영하지 않기로
+    함(사용자 요청) - main.py의 _run_weekly_icemoa_import가 이 목록을 받아
+    전송한다.
   - 값이 같으면 안 건드림(불필요한 updated_at 갱신 방지)
 menu_name/search_keyword 등 관리자가 손댔을 수 있는 다른 필드는 신규 추가 때만
 채우고, 이미 있는 상품은 절대 덮어쓰지 않는다.
@@ -38,7 +42,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import db_conn
-import mapping
 from godomall_bot import _validate_barcode_checksum
 
 DATA_URL = "https://icemoa.com/im/im_data/data.html"
@@ -140,34 +143,16 @@ def _fill_empty_price(barcode: str, price: int, box_qty: int, notes: str) -> Non
         conn.close()
 
 
-def _overwrite_price(barcode: str, price: int, notes: str) -> None:
-    """가격인상안내(바코드 사이트)용 - 덮어쓰기 전에 기존 가격을 먼저 봐서
-    실제로 오른 경우만 mapping.record_price_change가 기록한다."""
-    now = datetime.now().isoformat(timespec="seconds")
-    conn = db_conn.get_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT recommended_price FROM catalog_items WHERE barcode = ?", (barcode,))
-        row = cur.fetchone()
-        old_price = row[0] if row else None
-        cur.execute(
-            "UPDATE catalog_items SET recommended_price = ?, notes = ?, updated_at = ? WHERE barcode = ?",
-            (price, notes, now, barcode),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    mapping.record_price_change(barcode, old_price, price)
-
-
 def import_icemoa_catalog() -> dict:
-    """전체 실행 - main.py 스케줄러에서 주기 호출한다."""
+    """전체 실행 - main.py 스케줄러에서 주기 호출한다. 가격이 기존과 다른
+    상품은 DB에 쓰지 않고 summary["price_diffs"]로만 돌려준다 - 호출부가
+    텔레그램으로 보고한다(모듈 설명의 병합 규칙 참고)."""
     rows = _fetch_rows()
     by_barcode: dict[str, list[dict]] = {}
     for r in rows:
         by_barcode.setdefault(r["barcode"], []).append(r)
 
-    summary: dict[str, list[dict]] = {"added": [], "updated": [], "overwritten": [], "skipped": []}
+    summary: dict[str, list[dict]] = {"added": [], "updated": [], "price_diffs": [], "skipped": []}
     today = datetime.now().date().isoformat()
 
     for barcode, candidates in by_barcode.items():
@@ -183,9 +168,7 @@ def import_icemoa_catalog() -> dict:
             _fill_empty_price(barcode, winner["price"], winner["box_qty"], notes)
             summary["updated"].append({"barcode": barcode, "name": winner["name"], "price": winner["price"]})
         elif existing_price != winner["price"]:
-            notes = f"아이스모아 가격 갱신(기존 {existing_price}원 → {winner['price']}원) · {today}"
-            _overwrite_price(barcode, winner["price"], notes)
-            summary["overwritten"].append({
+            summary["price_diffs"].append({
                 "barcode": barcode, "name": winner["name"],
                 "old_price": existing_price, "new_price": winner["price"],
             })
@@ -198,7 +181,9 @@ def import_icemoa_catalog() -> dict:
 if __name__ == "__main__":
     result = import_icemoa_catalog()
     print(
-        f"아이스모아 카탈로그 반영 완료: 신규 {len(result['added'])}개, "
-        f"빈 값 채움 {len(result['updated'])}개, 가격 갱신 {len(result['overwritten'])}개, "
+        f"아이스모아 카탈로그 확인 완료: 신규 {len(result['added'])}개, "
+        f"빈 값 채움 {len(result['updated'])}개, 가격 다름(미반영) {len(result['price_diffs'])}개, "
         f"변동없음 {len(result['skipped'])}개"
     )
+    for d in result["price_diffs"]:
+        print(f"  - {d['name']}({d['barcode']}): {d['old_price']}원 -> {d['new_price']}원")
