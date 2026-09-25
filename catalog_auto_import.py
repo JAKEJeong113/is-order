@@ -1,8 +1,9 @@
 # catalog_auto_import.py
 """도매몰 전체 상품을 바코드까지 크롤링해서 catalog_items에 자동 등록한다.
 현재 지원: 고도몰 계열(과자생각/ccdome, 삼봉몰/3bong, 현동몰/hdinter -
-godomall_bot 사용), 자체제작 플랫폼(야미몰/yamimall, 또요몰/douyou -
-yamimall_bot 사용). 플랫폼마다 바코드가 저장된 필드명과 크롤러 시그니처가
+godomall_bot 사용), 자체제작 플랫폼(야미몰/yamimall, 또요몰/douyou,
+도윤상사/mud5 - yamimall_bot 사용, 로그인 폼/URL 패턴/"바코드" 라벨까지
+동일한 걸 실측 확인함). 플랫폼마다 바코드가 저장된 필드명과 크롤러 시그니처가
 달라서 _crawl_vendor_products에서 vendor_id로 분기한다.
 
 무마켓(moomarket)은 상품 상세페이지에 바코드/모델명 정보 자체가 없어서(실측
@@ -69,13 +70,13 @@ ROUND_UNIT = 100
 MARGIN_RANGE = (40, 50)
 
 _GODOMALL_VENDORS = ("ccdome", "3bong", "hdinter")
-_CUSTOM_PLATFORM_VENDORS = ("yamimall", "douyou")
+_CUSTOM_PLATFORM_VENDORS = ("yamimall", "douyou", "mud5")
 
 # 주기적(예: 주 1회) 자동등록 대상 - 바코드를 확인할 수 있는 도매처만.
-# 과자생각(ccdome)/삼봉몰(3bong)/또요몰(douyou)/야미몰(yamimall).
+# 과자생각(ccdome)/삼봉몰(3bong)/또요몰(douyou)/야미몰(yamimall)/도윤상사(mud5).
 # moomarket은 바코드 정보 자체가 없어서 제외(위 모듈 설명 참고). hdinter
 # (현동몰)는 아직 요청받지 않아 기본 목록엔 안 넣되 CLI 개별 실행은 가능.
-DEFAULT_VENDORS = ("ccdome", "3bong", "douyou", "yamimall")
+DEFAULT_VENDORS = ("ccdome", "3bong", "douyou", "yamimall", "mud5")
 
 # 야미몰 스타일 "(1500)상품명" - 상품명 맨 앞에 이미 판매가가 박혀있는 경우.
 _EXPLICIT_PRICE_RE = re.compile(r"^\((\d{3,6})\)")
