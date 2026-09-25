@@ -368,13 +368,21 @@ def _block_heavy_resources(page) -> None:
 
 def crawl_full_catalog(
     username: str, password: str, base_url: str = YAMIMALL_URL,
-    category_codes: list[str] | None = None, max_pages: int = 60,
+    category_codes: list[str] | None = None, max_pages: int = 60, use_port_suffix: bool = True,
 ) -> list[dict]:
     """카테고리별 '전체보기' 코드를 모두 순회해서 전체 상품을 수집한다.
     같은 플랫폼을 쓰는 다른 스토어(또요몰 등)를 위해 base_url/category_codes를
     바꿔 넣을 수 있게 했다 (기본값은 기존 야미몰 동작 그대로).
     카테고리 하나에도 페이지가 여러 장일 수 있어(또요몰 젤리 카테고리 하나가 11페이지+)
-    각 카테고리마다 새 상품이 없어질 때까지 페이지를 끝까지 넘긴다."""
+    각 카테고리마다 새 상품이 없어질 때까지 페이지를 끝까지 넘긴다.
+
+    use_port_suffix=False로 주면 list.php를 ":443" 없이 base_url 그대로 접속한다
+    - 도윤상사(mud5)는 base_url이 http://라 ":443"을 붙이면 프로토콜/포트가
+      어긋나 접속 자체가 실패한다(실측: ERR_INVALID_HTTP_RESPONSE). 반면
+      base_url 그대로 접속해도 카테고리 필터가 정상 적용되는 걸 실측으로
+      확인해서, 이 사이트만 접미사 없이 접속하도록 옵션으로 뺐다(야미몰/
+      또요몰은 기존처럼 ":443"이 꼭 필요해서 기본값은 그대로 True)."""
+    port_suffix = ":443" if use_port_suffix else ""
     codes = category_codes if category_codes is not None else FULL_CATALOG_CATEGORY_CODES
     products: dict[str, dict] = {}
 
@@ -403,7 +411,7 @@ def crawl_full_catalog(
                 for page_no in range(1, max_pages + 1):
                     try:
                         page.goto(
-                            f"{base_url}:443/shop/list.php?code={code}&page={page_no}",
+                            f"{base_url}{port_suffix}/shop/list.php?code={code}&page={page_no}",
                             wait_until="domcontentloaded",
                             timeout=30000,
                         )
@@ -495,7 +503,7 @@ def _is_valid_upc_e(code: str) -> bool:
 def crawl_catalog_with_barcode(
     username: str, password: str, base_url: str = YAMIMALL_URL,
     category_codes: list[str] | None = None, max_pages: int = 60, detail_limit: int | None = None,
-    on_item=None,
+    on_item=None, use_port_suffix: bool = True,
 ) -> list[dict]:
     """crawl_full_catalog(목록 페이지만 훑음)과 달리 상품 상세페이지까지
     들어가서 "바코드" 필드와, 있으면 "권장소비자가"(공급사가 이미 제시한
@@ -510,7 +518,10 @@ def crawl_catalog_with_barcode(
     on_item을 주면 상품 하나를 찾을 때마다 바로 호출한다 - 크롤링이
     중간에 죽어도(godomall_bot과 같은 이유) 그때까지 찾은 것만이라도
     즉시 DB에 반영하기 위함(호출부인 catalog_auto_import.py가 담당)."""
-    listing = crawl_full_catalog(username, password, base_url=base_url, category_codes=category_codes, max_pages=max_pages)
+    listing = crawl_full_catalog(
+        username, password, base_url=base_url, category_codes=category_codes,
+        max_pages=max_pages, use_port_suffix=use_port_suffix,
+    )
     products_by_url = {p["product_url"]: p for p in listing if p.get("product_url")}
 
     # page.close()+new_page()로 페이지만 재생성하는 것만으로는 부족했다

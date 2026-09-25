@@ -61,6 +61,12 @@ VENDORS = {
     },
     "mud5": {
         "name": "도윤상사", "base_url": "http://www.mud5.kr", "free_shipping_threshold": 100000,
+        # base_url이 http://인데 yamimall_bot의 list.php 접속 방식은 기본적으로
+        # ":443"을 붙인다(야미몰/또요몰 호스팅 특성상 필요) - http://에 :443을
+        # 붙이면 프로토콜/포트가 어긋나 접속 자체가 실패한다(실측:
+        # ERR_INVALID_HTTP_RESPONSE). mud5는 base_url 그대로 접속해도 카테고리
+        # 필터가 정상 동작하는 걸 확인해서 접미사를 끈다.
+        "list_page_use_port_suffix": False,
         # 야미몰/또요몰과 동일한 플랫폼(자체 제작 도매몰) - 로그인 폼 필드(#login_id/
         # #login_pw), list.php?code=.../item.php?code=... URL 패턴, "바코드" 라벨
         # 필드까지 실측으로 전부 동일하게 확인됨. 이 사이트는 대분류 코드(...000)

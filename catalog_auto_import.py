@@ -168,6 +168,7 @@ def _crawl_vendor_products(
         return yamimall_bot.crawl_catalog_with_barcode(
             login_id, login_pwd, base_url=meta["base_url"],
             category_codes=meta.get("catalog_category_code"), detail_limit=limit, on_item=on_item,
+            use_port_suffix=meta.get("list_page_use_port_suffix", True),
         )
     raise ValueError(f"{vendor_id}는 아직 바코드 자동등록을 지원하지 않습니다")
 
