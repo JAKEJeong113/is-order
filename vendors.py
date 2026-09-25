@@ -146,7 +146,15 @@ def list_vendors() -> list[dict]:
 
     result = []
     for vendor_id, meta in VENDORS.items():
-        if vendor_id not in CART_SUPPORTED_VENDORS:
+        # "base_url"이 없는 항목(orderqueen)은 발주처(도매몰)가 아니라 POS
+        # 조회용 외부 계정이라 여기 목록에서 제외한다(모듈 상단 주석 참고).
+        # CART_SUPPORTED_VENDORS로 필터링하지 않는 이유: 이 목록은 "계정을
+        # 저장할 수 있는 도매처" 전체를 보여주기 위한 것이고, 실제 자동담기
+        # 가능 여부는 main.py:1039 등에서 CART_SUPPORTED_VENDORS로 별도
+        # 체크한다 - 크롤링/가격비교 전용 도매처(예: mud5)도 계정은 저장할
+        # 수 있어야 한다(사용자 확인, 2026-09-25 - 이전엔 CART_SUPPORTED_VENDORS로
+        # 걸러서 samwon/mud5처럼 자동담기 미지원 도매처가 이 목록에 아예 안 뜸).
+        if "base_url" not in meta:
             continue
         row = rows.get(vendor_id)
         result.append({
