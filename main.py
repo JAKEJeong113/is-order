@@ -297,41 +297,37 @@ scheduler.add_job(
 # "편의점판매가 >= 추천판매가"가 성립해야 정상이다.
 #
 # 쿠팡(is_coupang=1) 분류 상품은 도매몰 계산 로직을 절대 적용하지 않도록
-# 이미 막아뒀는데(catalog_auto_import.py 참고 - 쿠팡은 마진을 낮게 잡는
-# 경우가 많아 도매몰식 계산값이 너무 높게 나올 위험), 그 대신 여기서 쿠팡
-# 검색 API로 매입가를 구해 같은 마진 계산을 적용한 후보값을 만들고, CU
-# 편의점판매가로 "그 값이 편의점가보다 낮은지" 검증한다. catalog_items에는
-# 절대 쓰지 않고 텔레그램 보고만 한다(아이스모아 가격 차이 보고와 동일한
-# 철학 - 계산으로 추정한 값을 검증 없이 자동 반영하지 않음).
+# 이미 막아뒀다(catalog_auto_import.py 참고 - 실제로 9/11 또요몰 크롤링이
+# 쿠팡 분류 34개 상품에 도매몰 마진 기준 명시가를 잘못 덮어써 편의점가보다
+# 비싸지는 사고가 있었음, 되돌림 처리함). 대신 쿠팡 분류 상품의 가격은
+# 여기서 전용 로직(사용자 확인, 2026-09-26)으로만 계산한다: 1차로 쿠팡
+# 매입가 기준 20~30% 마진, 2차로 편의점가 상한 적용. CU 편의점가로
+# 교차검증되는 경우에만 실제로 반영하고(cu_price_crawl.fix_coupang_prices),
+# 검증 불가능한 건(CU 매칭 없음/매입가보다 싼 편의점가 - 검색 키워드가
+# 지저분해서 쿠팡 검색이 엉뚱한 상품에 매칭된 경우 실측 확인됨)은 절대
+# 반영하지 않고 텔레그램으로만 보고한다.
 def _run_weekly_cu_price_check() -> None:
     try:
         saved = cu_price_crawl.refresh_cu_retail_prices()
-        candidates = cu_price_crawl.find_unpriced_coupang_candidates()
+        results = cu_price_crawl.fix_coupang_prices()
+        applied = [r for r in results if r["ok"]]
+        needs_review = [r for r in results if not r["ok"]]
         print(
             f"[CU_PRICE_CRAWL] 주간 CU 편의점가 갱신 완료: {saved}개 저장, "
-            f"추천판매가 없는 쿠팡 상품 {len(candidates)}건 확인"
+            f"쿠팡 상품 가격 반영 {len(applied)}건, 확인 필요 {len(needs_review)}건"
         )
-        if candidates and telegram_bot.ADMIN_CHAT_ID:
-            lines = ["🏪 추천판매가 없는 쿠팡 상품 - 계산값/편의점가 비교\n"]
-            for c in candidates:
-                if not c["ok"]:
-                    lines.append(f"• {c['name']}({c['barcode']}): 확인 불가 - {c['reason']}")
-                    continue
-                if c["cu_price"] is None:
-                    lines.append(
-                        f"• {c['name']}({c['barcode']}): 계산값 {c['computed_price']:,}원"
-                        f"(매입가 {c['unit_cost']:,}원, 마진 {c['margin_pct']}%) - CU에서 매칭 안 됨"
-                    )
-                else:
-                    mark = "✅" if c["valid"] else "⚠️"
-                    lines.append(
-                        f"{mark} {c['name']}({c['barcode']}): 계산값 {c['computed_price']:,}원 "
-                        f"vs CU \"{c['cu_item_name']}\" {c['cu_price']:,}원"
-                    )
-            lines.append("\n확인 후 필요하면 카탈로그에서 직접 추천판매가를 입력해주세요.")
+        if (applied or needs_review) and telegram_bot.ADMIN_CHAT_ID:
+            lines = ["🏪 쿠팡 상품 추천판매가 계산 결과(매입가 20~30% 마진, 편의점가 상한)\n"]
+            for r in applied:
+                cap_note = f" (편의점가 {r['cu_price']:,}원으로 제한)" if r["capped"] else ""
+                lines.append(f"✅ {r['name']}({r['barcode']}): {r['final_price']:,}원 반영{cap_note}")
+            for r in needs_review:
+                lines.append(f"⚠️ {r['name']}({r['barcode']}): 미반영 - {r['reason']}")
+            if needs_review:
+                lines.append("\n확인 필요 항목은 카탈로그에서 직접 추천판매가를 입력해주세요.")
             telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
     except Exception as e:
-        telegram_bot.alert_admin(f"CU 편의점가 갱신/비교(주간) 실패: {e}")
+        telegram_bot.alert_admin(f"CU 편의점가 갱신/쿠팡 가격 계산(주간) 실패: {e}")
         raise
 
 
