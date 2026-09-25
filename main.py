@@ -57,6 +57,7 @@ import cart_jobs
 import catalog_auto_import
 import catalog_cache
 import catalog_crawler
+import icemoa_import
 import consumables
 import db_conn
 import godomall_bot
@@ -249,6 +250,29 @@ scheduler.add_job(
     _run_weekly_catalog_auto_import,
     trigger=CronTrigger(day_of_week="mon", hour=5, minute=0, timezone=KST),
     id="weekly_wholesale_catalog_auto_import",
+    replace_existing=True,
+)
+
+# 아이스모아(icemoa.com) - 아이스크림 바코드/가격 참고사이트: 로그인 없는
+# 정적 조회 페이지 하나만 받으면 돼서 도매몰 크롤링보다 훨씬 가볍다(icemoa_import.py
+# 참고). 같은 주간 배치로 묶되, 위 도매몰 크롤링과 겹치지 않게 10분 뒤로 둔다.
+def _run_weekly_icemoa_import() -> None:
+    try:
+        summary = icemoa_import.import_icemoa_catalog()
+        print(
+            f"[ICEMOA_IMPORT] 주간 아이스모아 카탈로그 갱신 완료: "
+            f"신규 {len(summary['added'])}개, 빈 값 채움 {len(summary['updated'])}개, "
+            f"가격 갱신 {len(summary['overwritten'])}개"
+        )
+    except Exception as e:
+        telegram_bot.alert_admin(f"아이스모아 카탈로그 갱신(주간) 실패: {e}")
+        raise
+
+
+scheduler.add_job(
+    _run_weekly_icemoa_import,
+    trigger=CronTrigger(day_of_week="mon", hour=5, minute=10, timezone=KST),
+    id="weekly_icemoa_catalog_import",
     replace_existing=True,
 )
 
