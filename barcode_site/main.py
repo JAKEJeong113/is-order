@@ -89,6 +89,42 @@ CREATE TABLE IF NOT EXISTS cu_retail_prices (
 _conn.commit()
 _conn.close()
 
+# "신제품 안내"/"가격인상 안내" 기준시점(사용자 요청, 2026-09-26: "곧 어플을
+# 출시할 계획이야. 지금까지는 가격을 맞추는 가격이기때문에 ... 안내중인
+# 상품들은 없는 것으로 해주고 출시 기준시점부터 변경되는 것들만 안내를
+# 해줘"). 오늘까지 있었던 가격 보정 작업(도매몰/쿠팡/CU 가격 재계산 등)이
+# updated_at/catalog_price_changes에 대량으로 찍혀서, 이 기준시점 이전
+# 변경분은 "신제품"/"가격인상"으로 보여주지 않는다 - api_new_products/
+# api_price_increases가 기존 28일 컷오프와 이 값 중 더 최근인 쪽을 쓴다
+# (28일 컷오프 자체는 그대로 유지 - 기준시점 이후엔 원래 로직으로 자연히
+# 돌아감). 단일 행(id=1)만 쓴다.
+_conn = db_conn.get_conn()
+_conn.cursor().execute("""
+CREATE TABLE IF NOT EXISTS app_notice_baseline (
+    id INTEGER PRIMARY KEY,
+    baseline_at TEXT NOT NULL
+)
+""")
+_conn.commit()
+_conn.close()
+
+
+def _notice_cutoff(days: int = 28) -> str:
+    """신제품/가격인상 안내에 쓸 컷오프 시각 - 기존 N일 전 시각과
+    app_notice_baseline(출시 기준시점) 중 더 최근인 쪽을 쓴다."""
+    default_cutoff = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT baseline_at FROM app_notice_baseline WHERE id = 1")
+        row = cur.fetchone()
+    finally:
+        conn.close()
+    if row and row[0] > default_cutoff:
+        return row[0]
+    return default_cutoff
+
+
 # 이 앱(무인 바코드 검색기) 전용 패치노트 - 본체(main.py, barcode_app_patch_notes.py)가
 # 쓰는 것과 같은 테이블을 여기서도(배포 순서 무관하게) 만들어두고 읽기만 한다.
 _conn = db_conn.get_conn()
@@ -265,7 +301,7 @@ def api_new_products(
     기준으로 쓴다 - 새로 추가되는 상품은 그 순간 updated_at이 찍히므로
     "신제품"의 근사치로 충분하지만, 기존 상품을 관리자가 단순히 편집만 해도
     같이 올라온다는 점은 감안해야 한다."""
-    cutoff = (datetime.now() - timedelta(days=28)).isoformat(timespec="seconds")
+    cutoff = _notice_cutoff()
 
     conn = db_conn.get_conn()
     try:
@@ -318,7 +354,7 @@ def api_price_increases(
     바코드당 가장 최근 변경 1건만 골라 보여준다 - 같은 상품이 기간 안에
     여러 번 올랐어도 목록엔 한 줄만 뜨고, 표시되는 이전가는 그 마지막
     인상 직전 가격이다."""
-    cutoff = (datetime.now() - timedelta(days=28)).isoformat(timespec="seconds")
+    cutoff = _notice_cutoff()
 
     conn = db_conn.get_conn()
     try:
