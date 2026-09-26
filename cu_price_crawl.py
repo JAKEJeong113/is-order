@@ -387,8 +387,13 @@ def compute_and_apply_coupang_price(barcode: str, menu_name: str, search_keyword
             이어지지 않는다.
       CU 매칭 자체가 없는 상품(편의점에서 안 파는 상품으로 추정)은 비교 기준이
       없어 1차 계산값(매입가 기준 20~30% 마진, COUPANG_MARGIN_RANGE)을 그대로
-      쓴다. 매입가를 아예 구할 수 없는 상품(도매몰에도 없고 쿠팡 검색 결과도
-      없음)만 "확인 필요"로 보고하고 미반영한다."""
+      쓴다 - 단, 매입가 출처가 도매몰 실측이 아니라 "쿠팡 검색"뿐이면 이마저도
+      적용하지 않고 "확인 필요"로만 보고한다(실측 확인, 2026-09-26: 편의점가
+      교차검증이 없으면 검색 키워드가 멀쩡해 보이는 상품도 쿠팡 검색이 엉뚱한
+      대용량 상품에 매칭돼 매입가가 10배 넘게 부풀려지는 사고를 걸러낼 방법이
+      없다 - 실제로 142개 상품이 이 경로로 잘못 반영됐다가 전부 되돌림).
+      매입가를 아예 구할 수 없는 상품(도매몰에도 없고 쿠팡 검색 결과도 없음)도
+      "확인 필요"로 보고하고 미반영한다."""
     wholesale_cost = get_coupang_wholesale_cost(barcode)
     cost_source = None
     if wholesale_cost:
@@ -415,6 +420,20 @@ def compute_and_apply_coupang_price(barcode: str, menu_name: str, search_keyword
     today = datetime.now().date().isoformat()
     cu = get_cu_price(barcode)
     if not cu:
+        # 편의점가로 교차검증할 수 없는 상태에서, 매입가 출처가 "쿠팡 검색"
+        # (도매몰 실측이 아님)이면 절대 적용하지 않는다 - 실측으로 확인됨:
+        # 검색 키워드가 멀쩡해 보여도(예: "맥콜", "레쓰비") 쿠팡 검색이
+        # 대용량/엉뚱한 상품에 매칭돼 매입가가 10배 넘게 부풀려지는 사고가
+        # 편의점가 교차검증 없이는 걸러지지 않는다는 게 실측으로 확인됐다
+        # (2026-09-26 - 142개 상품에 이 경로로 잘못된 값이 반영됐다가 전부
+        # 되돌림). 도매몰에서 실측한 매입가(cost_source가 벤더명)는 신뢰도가
+        # 달라 편의점가 없이도 그대로 적용한다.
+        if cost_source == "쿠팡 검색":
+            return {
+                "barcode": barcode, "name": menu_name, "ok": False,
+                "reason": f"편의점 미매칭 + 매입가 출처가 쿠팡 검색뿐이라 검증 불가(매입가 {round(unit_cost)}원)",
+                "unit_cost": round(unit_cost), "cost_source": cost_source,
+            }
         notes = f"매입가 {round(unit_cost)}원({cost_source}) 기준 {margin_pct}% 마진 계산(편의점 미매칭) · {today}"
         _apply_coupang_price(barcode, margin_price, notes)
         return {
