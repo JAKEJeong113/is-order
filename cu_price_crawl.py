@@ -190,25 +190,30 @@ def _apply_coupang_price(barcode: str, price: int, notes: str) -> None:
     mapping.record_price_change(barcode, old_price, price)
 
 
+def _margin_pct(price: float, unit_cost: float) -> float:
+    return (price - unit_cost) / price * 100
+
+
 def compute_and_apply_coupang_price(barcode: str, menu_name: str, search_keyword: str | None) -> dict:
     """쿠팡(is_coupang=1) 분류 상품 하나의 추천판매가를 계산한다(사용자 확인된
-    2단계 로직, 2026-09-26):
-      1차 - 쿠팡 검색 API로 현재 매입가를 구해 20~30% 마진을 적용한다
-            (catalog_margin.compute_recommended_price, 도매몰보다 낮은 마진 -
-            모듈 상단 COUPANG_MARGIN_RANGE 설명 참고).
-      2차 - CU 편의점판매가로 상한을 씌운다(1차 계산값보다 낮으면 편의점가로
-            낮춤 - "편의점판매가 <= 추천판매가는 있을 수 없다"는 전제).
-
-    CU 편의점가로 검증(2차)할 수 있을 때만 실제로 catalog_items에 반영한다.
-    검색 키워드가 지저분한 상품(예: menu_name에 "1300", "24" 같은 가격/수량이
-    섞여 있는 경우 - search_keyword가 비어있어 이런 menu_name을 그대로 검색어로
-    쓰게 됨)은 쿠팡 검색이 완전히 엉뚱한 상품(매입가가 몇 배 부풀려진 대용량
-    묶음 등)에 매칭될 수 있다는 게 실측으로 확인됐다(마이구미포도가 매입가
-    4,000원으로, 드림카카오72가 19,080원으로 잡히는 등 - 원래 판매가의 몇 배).
-    이때 CU 편의점가도 매입가보다 훨씬 싸게 나와(cu_price < unit_cost) 검증
-    자체가 불가능해지므로, 이 경우는 반영하지 않고 "확인 필요"로만 보고한다
-    - 검증 안 된 1차 계산값만으로 실제 가격을 덮어쓰는 게 이번에 사고로
-    이어졌기 때문에, 반드시 CU 값으로 교차검증된 경우에만 적용한다."""
+    로직, 2026-09-26 최종 확정):
+      1차 - 쿠팡 검색 API로 현재 매입가를 구한다.
+      2차 - CU 편의점판매가가 있으면 그 값을 기준으로 확정한다("그냥 현재
+            가격을 유지하라는 뜻이 아니다" - 항상 아래 규칙으로 값을 정한다):
+              - 편의점가 그대로 썼을 때 마진이 19% 이하 -> 편의점가와 동일.
+              - 편의점가보다 100원 낮췄을 때도 마진이 20% 이상 유지 ->
+                편의점가 - 100원.
+              - 그 외(편의점가 마진은 19% 넘지만 100원 낮추면 20% 밑으로
+                떨어짐) -> 편의점가와 동일(100원 낮추지 않음).
+            매입가 추정이 실제로 잘못됐어도(예: 검색 키워드가 지저분해서
+            엉뚱한 대용량 상품에 매칭 - 마이구미포도/드림카카오72 등에서
+            실측 확인된 사례) 마진이 극단적으로 마이너스가 나와 자연히
+            "편의점가와 동일"로 수렴하므로, 최종값이 편의점가를 넘는 사고로는
+            이어지지 않는다.
+      CU 매칭 자체가 없는 상품(편의점에서 안 파는 상품으로 추정)은 비교 기준이
+      없어 1차 계산값(매입가 기준 20~30% 마진, COUPANG_MARGIN_RANGE)을 그대로
+      쓴다. 쿠팡 검색 결과 자체가 없어 매입가를 아예 못 구한 상품만 "확인
+      필요"로 보고하고 미반영한다."""
     keyword = search_keyword or menu_name
     try:
         candidate = product_ranking.search_coupang_product(keyword)
@@ -226,33 +231,37 @@ def compute_and_apply_coupang_price(barcode: str, menu_name: str, search_keyword
     except ValueError:
         return {"barcode": barcode, "name": menu_name, "ok": False, "reason": f"매입가 계산 실패(unit_cost={unit_cost})"}
 
+    today = datetime.now().date().isoformat()
     cu = get_cu_price(barcode)
     if not cu:
+        notes = f"쿠팡 매입가 {round(unit_cost)}원 기준 {margin_pct}% 마진 계산(편의점 미매칭) · {today}"
+        _apply_coupang_price(barcode, margin_price, notes)
         return {
-            "barcode": barcode, "name": menu_name, "ok": False,
-            "reason": "CU 매칭 없음 - 검증 불가",
-            "unit_cost": round(unit_cost), "margin_price": margin_price,
-        }
-    if cu["price"] < unit_cost:
-        return {
-            "barcode": barcode, "name": menu_name, "ok": False,
-            "reason": f"편의점가({cu['price']}원)가 매입가({round(unit_cost)}원)보다 낮음 - 매칭 의심",
-            "unit_cost": round(unit_cost), "margin_price": margin_price, "cu_price": cu["price"],
+            "barcode": barcode, "name": menu_name, "ok": True,
+            "unit_cost": round(unit_cost), "margin_pct": margin_pct,
+            "cu_price": None, "final_price": margin_price, "capped": False,
         }
 
-    final_price = min(margin_price, cu["price"])
-    capped = final_price < margin_price
-    today = datetime.now().date().isoformat()
-    notes = f"쿠팡 매입가 {round(unit_cost)}원 기준 {margin_pct}% 마진 계산"
-    if capped:
-        notes += f" · 편의점가 {cu['price']}원으로 상한 적용"
-    notes += f" · {today}"
+    cu_price = cu["price"]
+    margin_at_cu = _margin_pct(cu_price, unit_cost)
+    if margin_at_cu <= 19:
+        final_price = cu_price
+    else:
+        lower = cu_price - 100
+        margin_at_lower = _margin_pct(lower, unit_cost) if lower > 0 else -999.0
+        final_price = lower if margin_at_lower >= 20 else cu_price
+    final_margin = round(_margin_pct(final_price, unit_cost), 1)
+    capped = final_price < cu_price
 
+    notes = (
+        f"쿠팡 매입가 {round(unit_cost)}원, 편의점가 {cu_price}원 기준 산정"
+        f"(적용가 {final_price}원, 마진 {final_margin}%) · {today}"
+    )
     _apply_coupang_price(barcode, final_price, notes)
     return {
         "barcode": barcode, "name": menu_name, "ok": True,
-        "unit_cost": round(unit_cost), "margin_pct": margin_pct, "margin_price": margin_price,
-        "cu_price": cu["price"], "final_price": final_price, "capped": capped,
+        "unit_cost": round(unit_cost), "margin_pct": final_margin,
+        "cu_price": cu_price, "final_price": final_price, "capped": capped,
     }
 
 
