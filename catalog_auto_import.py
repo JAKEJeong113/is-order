@@ -406,7 +406,9 @@ def _write_winners(by_barcode: dict[str, list[dict]]) -> dict:
             # 매입가가 훨씬 신뢰도가 높다(도매처가 명시한 권장소비자가만
             # 있고 unit_cost가 없는 경우는 저장하지 않음).
             if winner.get("unit_cost"):
-                cu_price_crawl.save_coupang_wholesale_cost(barcode, winner["vendor_name"], winner["unit_cost"])
+                cu_price_crawl.save_coupang_wholesale_cost(
+                    barcode, winner["vendor_name"], winner["unit_cost"], winner.get("name") or "",
+                )
             continue
 
         if existing_price is None:

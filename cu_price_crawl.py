@@ -125,27 +125,31 @@ def init_coupang_wholesale_costs_table() -> None:
         barcode TEXT PRIMARY KEY,
         vendor_name TEXT,
         unit_cost INTEGER,
+        product_name TEXT,
         updated_at TEXT
     )
     """)
+    existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(coupang_wholesale_costs)").fetchall()}
+    if "product_name" not in existing_cols:
+        cur.execute("ALTER TABLE coupang_wholesale_costs ADD COLUMN product_name TEXT")
     conn.commit()
     conn.close()
 
 
-def save_coupang_wholesale_cost(barcode: str, vendor_name: str, unit_cost: int) -> None:
+def save_coupang_wholesale_cost(barcode: str, vendor_name: str, unit_cost: int, product_name: str = "") -> None:
     now = datetime.now().isoformat(timespec="seconds")
     conn = db_conn.get_conn()
     try:
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO coupang_wholesale_costs (barcode, vendor_name, unit_cost, updated_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO coupang_wholesale_costs (barcode, vendor_name, unit_cost, product_name, updated_at)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(barcode) DO UPDATE SET
                 vendor_name = excluded.vendor_name, unit_cost = excluded.unit_cost,
-                updated_at = excluded.updated_at
+                product_name = excluded.product_name, updated_at = excluded.updated_at
             """,
-            (barcode, vendor_name, unit_cost, now),
+            (barcode, vendor_name, unit_cost, product_name, now),
         )
         conn.commit()
     finally:
@@ -156,11 +160,11 @@ def get_coupang_wholesale_cost(barcode: str) -> dict | None:
     conn = db_conn.get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT vendor_name, unit_cost FROM coupang_wholesale_costs WHERE barcode = ?", (barcode,))
+        cur.execute("SELECT vendor_name, unit_cost, product_name FROM coupang_wholesale_costs WHERE barcode = ?", (barcode,))
         row = cur.fetchone()
         if not row:
             return None
-        return {"vendor_name": row[0], "unit_cost": row[1]}
+        return {"vendor_name": row[0], "unit_cost": row[1], "product_name": row[2]}
     finally:
         conn.close()
 
