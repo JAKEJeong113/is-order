@@ -64,6 +64,107 @@ ROUND_UNIT = 100
 COUPANG_MARGIN_RANGE = (20, 30)
 
 
+def init_coupang_price_exclusions_table() -> None:
+    """이 모듈(fix_coupang_prices)이 절대 건드리면 안 되는 바코드 목록.
+    "모구모구 요거트향"(8850389109229) 사례처럼 CU 크롤링이 다른 상품과
+    바코드를 잘못 엮어서(실측: 전혀 다른 320ml 음료 190원과 매칭) 명백히
+    말이 안 되는 가격이 반영되는 경우, 관리자가 여기 등록해서 앞으로 이
+    바코드는 이 로직이 절대 가격을 안 건드리게 한다(사용자 요청,
+    2026-09-26)."""
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS coupang_price_exclusions (
+        barcode TEXT PRIMARY KEY,
+        reason TEXT,
+        added_at TEXT
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def add_coupang_price_exclusion(barcode: str, reason: str = "") -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO coupang_price_exclusions (barcode, reason, added_at) VALUES (?, ?, ?)
+            ON CONFLICT(barcode) DO UPDATE SET reason = excluded.reason, added_at = excluded.added_at
+            """,
+            (barcode, reason, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _load_excluded_barcodes() -> set[str]:
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT barcode FROM coupang_price_exclusions")
+        return {row[0] for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+
+def init_coupang_wholesale_costs_table() -> None:
+    """쿠팡(is_coupang=1) 분류 상품인데 도매몰(도윤상사/mud5 등)에도 같은
+    바코드가 있는 경우, catalog_auto_import.py가 실측한 진짜 매입가(박스가÷
+    개수, 마진 적용 전)를 여기 저장해둔다 - compute_and_apply_coupang_price가
+    쿠팡 검색 API로 어림짐작하는 것보다 이 값을 우선 쓴다(사용자 요청,
+    2026-09-26: "쿠팡분류의 매입가 기준은 도윤상사에서 크롤링된 매입값을
+    기준으로 해줘")."""
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS coupang_wholesale_costs (
+        barcode TEXT PRIMARY KEY,
+        vendor_name TEXT,
+        unit_cost INTEGER,
+        updated_at TEXT
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def save_coupang_wholesale_cost(barcode: str, vendor_name: str, unit_cost: int) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO coupang_wholesale_costs (barcode, vendor_name, unit_cost, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(barcode) DO UPDATE SET
+                vendor_name = excluded.vendor_name, unit_cost = excluded.unit_cost,
+                updated_at = excluded.updated_at
+            """,
+            (barcode, vendor_name, unit_cost, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_coupang_wholesale_cost(barcode: str) -> dict | None:
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT vendor_name, unit_cost FROM coupang_wholesale_costs WHERE barcode = ?", (barcode,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {"vendor_name": row[0], "unit_cost": row[1]}
+    finally:
+        conn.close()
+
+
 def init_cu_retail_prices_table() -> None:
     conn = db_conn.get_conn()
     cur = conn.cursor()
@@ -197,7 +298,12 @@ def _margin_pct(price: float, unit_cost: float) -> float:
 def compute_and_apply_coupang_price(barcode: str, menu_name: str, search_keyword: str | None) -> dict:
     """쿠팡(is_coupang=1) 분류 상품 하나의 추천판매가를 계산한다(사용자 확인된
     로직, 2026-09-26 최종 확정):
-      1차 - 쿠팡 검색 API로 현재 매입가를 구한다.
+      1차 - 매입가를 구한다. coupang_wholesale_costs(도매몰 실측 매입가 -
+            도윤상사/mud5 등 크롤링 중 이 바코드를 발견했을 때 저장됨)에
+            값이 있으면 그걸 우선 쓴다(사용자 요청: "쿠팡분류의 매입가
+            기준은 도윤상사에서 크롤링된 매입값을 기준으로 해줘" - 쿠팡
+            검색 API로 어림짐작하는 것보다 실제 도매 매입가가 신뢰도가
+            높다). 없으면 쿠팡 검색 API로 대체 추정한다.
       2차 - CU 편의점판매가가 있으면 그 값을 기준으로 확정한다("그냥 현재
             가격을 유지하라는 뜻이 아니다" - 항상 아래 규칙으로 값을 정한다):
               - 편의점가 그대로 썼을 때 마진이 19% 이하 -> 편의점가와 동일.
@@ -212,18 +318,24 @@ def compute_and_apply_coupang_price(barcode: str, menu_name: str, search_keyword
             이어지지 않는다.
       CU 매칭 자체가 없는 상품(편의점에서 안 파는 상품으로 추정)은 비교 기준이
       없어 1차 계산값(매입가 기준 20~30% 마진, COUPANG_MARGIN_RANGE)을 그대로
-      쓴다. 쿠팡 검색 결과 자체가 없어 매입가를 아예 못 구한 상품만 "확인
-      필요"로 보고하고 미반영한다."""
-    keyword = search_keyword or menu_name
-    try:
-        candidate = product_ranking.search_coupang_product(keyword)
-    except product_ranking.CoupangRateLimitError:
-        return {"barcode": barcode, "name": menu_name, "ok": False, "reason": "RATE_LIMIT"}
-    if not candidate or not candidate.get("price"):
-        return {"barcode": barcode, "name": menu_name, "ok": False, "reason": "쿠팡 검색 결과 없음"}
-
-    pack_qty = product_ranking._extract_coupang_pack_qty(candidate.get("product_name") or "") or 1
-    unit_cost = candidate["price"] / pack_qty if pack_qty > 1 else candidate["price"]
+      쓴다. 매입가를 아예 구할 수 없는 상품(도매몰에도 없고 쿠팡 검색 결과도
+      없음)만 "확인 필요"로 보고하고 미반영한다."""
+    wholesale_cost = get_coupang_wholesale_cost(barcode)
+    cost_source = None
+    if wholesale_cost:
+        unit_cost = wholesale_cost["unit_cost"]
+        cost_source = wholesale_cost["vendor_name"]
+    else:
+        keyword = search_keyword or menu_name
+        try:
+            candidate = product_ranking.search_coupang_product(keyword)
+        except product_ranking.CoupangRateLimitError:
+            return {"barcode": barcode, "name": menu_name, "ok": False, "reason": "RATE_LIMIT"}
+        if not candidate or not candidate.get("price"):
+            return {"barcode": barcode, "name": menu_name, "ok": False, "reason": "쿠팡 검색 결과 없음"}
+        pack_qty = product_ranking._extract_coupang_pack_qty(candidate.get("product_name") or "") or 1
+        unit_cost = candidate["price"] / pack_qty if pack_qty > 1 else candidate["price"]
+        cost_source = "쿠팡 검색"
     try:
         margin_price, margin_pct = catalog_margin.compute_recommended_price(
             unit_cost, ROUND_UNIT, *COUPANG_MARGIN_RANGE,
@@ -234,11 +346,11 @@ def compute_and_apply_coupang_price(barcode: str, menu_name: str, search_keyword
     today = datetime.now().date().isoformat()
     cu = get_cu_price(barcode)
     if not cu:
-        notes = f"쿠팡 매입가 {round(unit_cost)}원 기준 {margin_pct}% 마진 계산(편의점 미매칭) · {today}"
+        notes = f"매입가 {round(unit_cost)}원({cost_source}) 기준 {margin_pct}% 마진 계산(편의점 미매칭) · {today}"
         _apply_coupang_price(barcode, margin_price, notes)
         return {
             "barcode": barcode, "name": menu_name, "ok": True,
-            "unit_cost": round(unit_cost), "margin_pct": margin_pct,
+            "unit_cost": round(unit_cost), "cost_source": cost_source, "margin_pct": margin_pct,
             "cu_price": None, "final_price": margin_price, "capped": False,
         }
 
@@ -254,13 +366,13 @@ def compute_and_apply_coupang_price(barcode: str, menu_name: str, search_keyword
     capped = final_price < cu_price
 
     notes = (
-        f"쿠팡 매입가 {round(unit_cost)}원, 편의점가 {cu_price}원 기준 산정"
+        f"매입가 {round(unit_cost)}원({cost_source}), 편의점가 {cu_price}원 기준 산정"
         f"(적용가 {final_price}원, 마진 {final_margin}%) · {today}"
     )
     _apply_coupang_price(barcode, final_price, notes)
     return {
         "barcode": barcode, "name": menu_name, "ok": True,
-        "unit_cost": round(unit_cost), "margin_pct": final_margin,
+        "unit_cost": round(unit_cost), "cost_source": cost_source, "margin_pct": final_margin,
         "cu_price": cu_price, "final_price": final_price, "capped": capped,
     }
 
@@ -268,7 +380,14 @@ def compute_and_apply_coupang_price(barcode: str, menu_name: str, search_keyword
 def fix_coupang_prices() -> list[dict]:
     """추천판매가가 비어있거나(신규) 편의점판매가보다 비싸게 잘못 들어간
     (오적용/과거 사고) 쿠팡 분류 상품을 전부 찾아 compute_and_apply_coupang_price로
-    바로잡는다. main.py 스케줄러가 주기 호출한다."""
+    바로잡는다. main.py 스케줄러가 주기 호출한다.
+
+    coupang_price_exclusions에 등록된 바코드는 대상에서 아예 뺀다(사용자
+    요청, 2026-09-26 - "모구모구 요거트향"이 CU 크롤링 바코드 오매칭으로
+    190원이라는 말이 안 되는 값이 반영된 사례 - add_coupang_price_exclusion
+    참고)."""
+    excluded = _load_excluded_barcodes()
+
     conn = db_conn.get_conn()
     try:
         cur = conn.cursor()
@@ -288,6 +407,8 @@ def fix_coupang_prices() -> list[dict]:
 
     results = []
     for barcode, menu_name, search_keyword in rows:
+        if barcode in excluded:
+            continue
         result = compute_and_apply_coupang_price(barcode, menu_name, search_keyword)
         results.append(result)
         if result.get("reason") == "RATE_LIMIT":

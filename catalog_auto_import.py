@@ -65,6 +65,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import cu_price_crawl
 import db_conn
 import godomall_bot
 import mapping
@@ -208,6 +209,7 @@ def _resolve_candidate(product: dict, vendor_name: str) -> dict | None:
             "price": price,
             "is_explicit": False,
             "reason": f"박스가 {case_price}원÷{unit_qty}개, 마진 {margin_pct}% 자동적용",
+            "unit_cost": round(unit_cost),
         }
     return None
 
@@ -316,6 +318,7 @@ def _to_candidate(p: dict, vendor_name: str) -> dict:
         "price": resolved["price"],
         "is_explicit": resolved["is_explicit"],
         "reason": resolved["reason"],
+        "unit_cost": resolved.get("unit_cost"),
     }
 
 
@@ -396,6 +399,14 @@ def _write_winners(by_barcode: dict[str, list[dict]]) -> dict:
                 "barcode": barcode, "name": clean_name,
                 "existing_price": existing_price, "would_be": winner["price"],
             })
+            # 가격(추천판매가)은 절대 안 건드리지만, 이 도매처가 실측한 진짜
+            # 매입가(박스가÷개수, 마진 적용 전)는 쿠팡 분류 상품 가격 계산
+            # (cu_price_crawl.py)의 매입가 기준으로 재사용한다(사용자 요청,
+            # 2026-09-26) - 쿠팡 검색 API로 어림짐작하는 것보다 실제 도매
+            # 매입가가 훨씬 신뢰도가 높다(도매처가 명시한 권장소비자가만
+            # 있고 unit_cost가 없는 경우는 저장하지 않음).
+            if winner.get("unit_cost"):
+                cu_price_crawl.save_coupang_wholesale_cost(barcode, winner["vendor_name"], winner["unit_cost"])
             continue
 
         if existing_price is None:
