@@ -181,6 +181,67 @@ def init_cu_retail_prices_table() -> None:
     conn.close()
 
 
+def init_cu_price_overrides_table() -> None:
+    """cu.bgfretail.com(본사 안내 사이트, 이 모듈이 크롤링하는 곳)이 실제 CU
+    앱(픽업/배달 주문) 가격과 다른 경우가 실측으로 확인됐다(예: "크라운)꽃게랑
+    마라맛" 8801111961431 - 안내 사이트는 2,000원인데 실제 앱은 1,700원).
+    이런 바코드는 관리자가 여기 수동으로 정확한 값을 등록해두면, 이후
+    crawl_all_categories/save_cu_retail_prices가 그 바코드는 크롤링 결과로
+    덮어쓰지 않고 이 값을 그대로 유지한다(사용자 요청, 2026-09-26)."""
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS cu_price_overrides (
+        barcode TEXT PRIMARY KEY,
+        price INTEGER,
+        reason TEXT,
+        added_at TEXT
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def set_cu_price_override(barcode: str, price: int, reason: str = "") -> None:
+    """override를 등록하고, cu_retail_prices에도 즉시 반영한다(기존 행이
+    있으면 이름/분류는 그대로 두고 가격만 바꾸고, 없으면 새로 만든다)."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO cu_price_overrides (barcode, price, reason, added_at) VALUES (?, ?, ?, ?)
+            ON CONFLICT(barcode) DO UPDATE SET price = excluded.price, reason = excluded.reason, added_at = excluded.added_at
+            """,
+            (barcode, price, reason, now),
+        )
+        cur.execute("SELECT item_name, category FROM cu_retail_prices WHERE barcode = ?", (barcode,))
+        row = cur.fetchone()
+        item_name, category = (row[0], row[1]) if row else (None, None)
+        cur.execute(
+            """
+            INSERT INTO cu_retail_prices (barcode, item_name, price, category, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(barcode) DO UPDATE SET price = excluded.price, updated_at = excluded.updated_at
+            """,
+            (barcode, item_name, price, category, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _load_cu_price_override_barcodes() -> set[str]:
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT barcode FROM cu_price_overrides")
+        return {row[0] for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+
 def _extract_products(html: str) -> list[dict]:
     names = re.findall(r'<div class="name"[^>]*><p>(.*?)</p></div>', html)
     prices = re.findall(r'<strong>([\d,]+)</strong>', html)
@@ -232,11 +293,18 @@ def crawl_all_categories() -> dict[str, dict]:
 
 
 def save_cu_retail_prices(by_barcode: dict[str, dict]) -> int:
+    """crawl_all_categories() 결과를 저장한다. cu_price_overrides에 등록된
+    바코드는 크롤링 결과가 뭐든 건드리지 않는다(본사 안내 사이트 가격이 실제
+    앱 가격과 다르다고 확인된 예외 - init_cu_price_overrides_table 참고)."""
+    overridden = _load_cu_price_override_barcodes()
     now = datetime.now().isoformat(timespec="seconds")
+    saved = 0
     conn = db_conn.get_conn()
     try:
         cur = conn.cursor()
         for item in by_barcode.values():
+            if item["barcode"] in overridden:
+                continue
             cur.execute("""
             INSERT INTO cu_retail_prices (barcode, item_name, price, category, updated_at)
             VALUES (?, ?, ?, ?, ?)
@@ -244,8 +312,9 @@ def save_cu_retail_prices(by_barcode: dict[str, dict]) -> int:
                 item_name = excluded.item_name, price = excluded.price,
                 category = excluded.category, updated_at = excluded.updated_at
             """, (item["barcode"], item["item_name"], item["price"], item["category"], now))
+            saved += 1
         conn.commit()
-        return len(by_barcode)
+        return saved
     finally:
         conn.close()
 
