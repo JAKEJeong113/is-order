@@ -1090,7 +1090,19 @@
           { facingMode: "environment" },
           {
             fps: 10,
-            qrbox: { width: 280, height: 140 },
+            // 예전엔 고정 280x140px라 실제 화면에서 차지하는 비중이 작아서,
+            // 그 작은 박스 안에 바코드 전체가 들어가려면 바코드를 화면
+            // 가득 차게 바짝 가져가야만 했다(안드로이드 네이티브 스캐너는
+            // 이런 크롭 제한이 없어 훨씬 멀리서도 바로 인식됨 - 실사용
+            // 비교로 확인). 미리보기 실제 크기에 비례한 콜백으로 바꿔서
+            // 가로 92%/세로까지 훨씬 넉넉하게 잡아, 바코드가 화면을 다
+            // 채우지 않아도(더 멀리서, 더 작게 잡혀도) 박스 안에 통째로
+            // 들어오게 한다.
+            qrbox: (viewfinderWidth, viewfinderHeight) => {
+              const width = Math.floor(viewfinderWidth * 0.92);
+              const height = Math.floor(Math.min(viewfinderHeight * 0.55, width * 0.6));
+              return { width, height };
+            },
             // 안드로이드 WebView는 getUserMedia로 카메라를 잡을 때
             // 기본적으로 자동 초점이 꺼진 채로 저해상도 스트림을 주는
             // 경우가 많다 - 화면은 뜨는데 계속 흐릿해서 바코드 인식이
