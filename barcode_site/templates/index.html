@@ -444,6 +444,12 @@
     .oq-bulk-item-row .status{font-size:12px; font-weight:700; color:var(--muted); white-space:nowrap}
     .oq-bulk-item-row .status.ok{color:var(--mint-dark)}
     .oq-bulk-item-row .status.fail{color:#993c1d}
+    .oq-spinner{
+      display:inline-block; width:11px; height:11px; border-radius:50%; vertical-align:-1px;
+      border:2px solid var(--line); border-top-color:var(--mint); margin-right:4px;
+      animation:oq-spin .7s linear infinite;
+    }
+    @keyframes oq-spin{ to{ transform:rotate(360deg); } }
     .oq-bulk-list{max-height:180px; overflow-y:auto; margin-top:8px}
     .oq-back-link{font-size:12.5px; font-weight:700; color:var(--mint-dark); cursor:pointer; margin-bottom:10px; display:inline-block}
   </style>
@@ -2181,17 +2187,22 @@
       oqWireAccountPick("oq-bulk-acc");
 
       document.getElementById("oqBulkSubmit").addEventListener("click", async () => {
+        const submitBtn = document.getElementById("oqBulkSubmit");
+        // 등록이 끝난 뒤에는 이 버튼이 "완료"로 바뀌어 닫기 역할을 한다.
+        if (submitBtn.dataset.done === "1") { oqCloseModal(); return; }
+
         const className = document.getElementById("oqBulkClass").value;
         const classCd = classMap[className] || Object.values(classMap)[0] || "";
         const accountIds = oqResolveAccountIds(accounts, "oq-bulk-acc");
         if (accountIds.length === 0) { alert("등록할 계정을 선택해주세요."); return; }
 
-        document.getElementById("oqBulkSubmit").disabled = true;
-        document.getElementById("oqBulkCancel").disabled = true;
+        const cancelBtn = document.getElementById("oqBulkCancel");
+        submitBtn.disabled = true;
+        cancelBtn.disabled = true;
 
         for (const item of items) {
           const rowStatus = document.querySelector(`.oq-bulk-item-row[data-barcode="${item.barcode}"] .status`);
-          if (rowStatus) rowStatus.textContent = "등록 중…";
+          if (rowStatus) rowStatus.innerHTML = '<span class="oq-spinner"></span>등록 중…';
           try {
             const res = await oqRequest("/api/oq-app/register-item", "POST", {
               device_id: oqGetDeviceId(), account_ids: accountIds, barcode: item.barcode,
@@ -2208,7 +2219,13 @@
           }
         }
 
-        document.getElementById("oqBulkSubmit").textContent = "완료";
+        // 등록이 끝나면 이미 서버에 반영된 작업이라 "취소"는 의미가 없어
+        // 숨기고, "완료"를 눌러야 닫히게 한다(끝났는데도 비활성 상태로
+        // 남아있던 버그 수정).
+        cancelBtn.style.display = "none";
+        submitBtn.disabled = false;
+        submitBtn.textContent = "완료";
+        submitBtn.dataset.done = "1";
       });
     }
 
