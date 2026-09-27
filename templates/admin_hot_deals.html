@@ -62,9 +62,17 @@
     .badge.low { background: var(--mint-soft); color: var(--mint-text); }
     .badge.up { background: #f3f4f6; color: var(--muted); }
     .empty-text { color: var(--muted); font-size: 13px; padding: 30px 4px; text-align: center; }
+    .nav-links{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px}
+    .nav-links a{
+      font-size:12.5px; font-weight:700; color:var(--mint-text); text-decoration:none;
+      background:var(--mint-soft); padding:6px 12px; border-radius:999px;
+    }
   </style>
 </head>
 <body>
+  <div class="nav-links">
+    <a href="/admin/quick-catalog">← 카탈로그 빠른 등록</a>
+  </div>
   <h1>핫딜안내 모니터링</h1>
   <div class="hint-text">
     아직 손님에게 보여주는 정식 기능이 아니라, "옵션(수량)별 가격 누적 학습" 로직이 제대로 도는지
