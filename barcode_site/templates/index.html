@@ -478,12 +478,16 @@
       <h2>메뉴</h2>
       <button class="menu-close" id="menuCloseBtn" type="button" aria-label="닫기">✕</button>
     </div>
-    <p class="menu-section-title">앱처럼 사용하기</p>
-    <button type="button" class="menu-link-btn" id="addHomeMenuBtn">📲 홈 화면에 추가</button>
+    <div id="addHomeMenuSection">
+      <p class="menu-section-title">앱처럼 사용하기</p>
+      <button type="button" class="menu-link-btn" id="addHomeMenuBtn">📲 홈 화면에 추가</button>
+    </div>
 
-    <p class="menu-section-title">오더퀸 연동</p>
-    <button type="button" class="menu-link-btn" id="oqAccountsMenuBtn">🏪 계정 관리</button>
-    <button type="button" class="menu-link-btn" id="oqCategoriesMenuBtn">🗂️ 분류 설정</button>
+    <div id="oqMenuSection">
+      <p class="menu-section-title">오더퀸 연동</p>
+      <button type="button" class="menu-link-btn" id="oqAccountsMenuBtn">🏪 계정 관리</button>
+      <button type="button" class="menu-link-btn" id="oqCategoriesMenuBtn">🗂️ 분류 설정</button>
+    </div>
 
     <p class="menu-section-title">패치노트</p>
     <div id="patchNotesList"><p class="hint">불러오는 중...</p></div>
@@ -1604,6 +1608,18 @@
     const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent)
       // iPadOS 13+는 데스크톱 UA를 흉내내서 터치 지원 여부로 한 번 더 확인한다.
       || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+    // 이미 우리 자체 안드로이드 앱으로 보고 있으면 "홈 화면에 추가"(이미
+    // 앱임 - 무의미) 메뉴 자체를 숨긴다. "오더퀸 연동" 메뉴도 안드로이드
+    // 앱은 오른쪽 위 톱니 버튼에 이미 같은 기능(네이티브 다이얼로그)이
+    // 있어서, 웹 버전까지 같이 보이면 두 개로 헷갈린다 - 네이티브
+    // 브릿지(window.AndroidOrderQueen)가 있으면 웹 메뉴는 숨긴다.
+    if (isInAndroidApp || isStandalone) {
+      document.getElementById("addHomeMenuSection").style.display = "none";
+    }
+    if (window.AndroidOrderQueen) {
+      document.getElementById("oqMenuSection").style.display = "none";
+    }
 
     let deferredInstallPrompt = null;
     window.addEventListener("beforeinstallprompt", (e) => {

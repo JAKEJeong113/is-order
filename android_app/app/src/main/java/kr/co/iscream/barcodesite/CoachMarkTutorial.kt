@@ -75,6 +75,16 @@ object CoachMarkTutorial {
                 Target.Web("newProductsBtn"),
             ),
             Step(
+                "📈", "가격인상 안내",
+                "최근 4주 이내 추천판매가가 오른 상품을 모아 보여줘요. \"오더퀸 등록\"을 누르면 오른 가격으로 바로 갱신할 수 있어요.",
+                Target.Web("priceIncreaseBtn"),
+            ),
+            Step(
+                "📊", "인기상품 순위",
+                "판매 데이터를 공유해주신 매장들의 실제 판매량을 모아 이번 주/이번 달 인기 상품 순위를 보여줘요. 매입 참고용으로 활용해보세요.",
+                Target.Web("salesRankingBtn"),
+            ),
+            Step(
                 "⚙️", "오더퀸 자동등록",
                 "오른쪽 위 톱니 버튼에서 오더퀸 계정을 연결해두면, 검색 결과의 \"오더퀸 등록\" 버튼 하나로 오더퀸 관리자 페이지에 상품을 자동으로 등록할 수 있어요.",
                 Target.Native(gearBtn),
