@@ -543,6 +543,16 @@
     추천판매가를 바로 확인하세요. 번호 입력이나 카메라 스캔으로 즉시 조회됩니다.
   </p>
 
+  <!-- 핫딜상품 - 옵션(수량)별 최저가 추적 로직은 이미 서버에서 돌고 있지만
+       (관리자 "핫딜안내" 모니터링 화면), 정확도 검증이 끝나기 전까진 손님용
+       정식 기능으로 열지 않는다. 메뉴 존재는 미리 알리되 눌러도 "준비중"
+       안내만 보여준다. -->
+  <button type="button" class="new-products-btn" id="hotDealsBtn">🔥 핫딜상품</button>
+
+  <div class="new-products-panel" id="hotDealsPanel">
+    <p class="empty">🔥 준비 중입니다. 곧 오픈 예정이에요!</p>
+  </div>
+
   <!-- 신제품 안내 - 도매몰 자동 크롤링이나 관리자 수동 등록으로 최근(4주
        이내) 새로 들어온 상품을 카테고리별로 훑어볼 수 있게 한다. -->
   <button type="button" class="new-products-btn" id="newProductsBtn">🆕 신제품 안내</button>
@@ -1291,6 +1301,11 @@
           scanHint.textContent = "바코드를 화면 안에 맞춰주세요 (흐리면 화면을 탭하세요)";
         }
       });
+    });
+
+    // 핫딜상품 - 정식 기능 전, 존재만 미리 알리는 준비중 안내.
+    document.getElementById("hotDealsBtn").addEventListener("click", () => {
+      document.getElementById("hotDealsPanel").classList.toggle("open");
     });
 
     // 신제품 안내 - 도매몰 자동 크롤링/관리자 수동 등록으로 최근(4주 이내)
