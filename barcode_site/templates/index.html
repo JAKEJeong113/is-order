@@ -386,6 +386,66 @@
       width:100%; margin-top:6px; padding:13px; border:none; border-radius:10px;
       background:var(--mint-soft); color:var(--mint-dark); font-weight:800; font-size:14px; cursor:pointer;
     }
+
+    /* 오더퀸 연동 - 안드로이드 앱(OrderQueenManager/OrderQueenDialogs)이
+       하던 걸 웹으로 그대로 옮긴 것. 서버 API(/api/oq-app/*)는 완전히
+       동일하고, 기기 식별자만 SharedPreferences 대신 localStorage를 쓴다. */
+    .oq-form label{display:block; font-size:12px; font-weight:700; color:var(--muted); margin:12px 0 5px}
+    .oq-form label:first-of-type{margin-top:0}
+    .oq-form input, .oq-form select{
+      width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px;
+      font-size:15px; font-family:inherit; background:#fff; color:var(--ink);
+    }
+    .oq-form input:focus, .oq-form select:focus{outline:2px solid var(--mint); outline-offset:1px}
+    .oq-checkbox-row{display:flex; align-items:flex-start; gap:8px; margin-top:12px}
+    .oq-checkbox-row input{width:auto; margin-top:3px}
+    .oq-checkbox-row span{font-size:12.5px; line-height:1.5}
+    .oq-hint{font-size:11.5px; color:var(--muted); margin:8px 2px 0; line-height:1.5}
+    .oq-btn-row{display:flex; gap:8px; margin-top:18px}
+    .oq-btn-row button{
+      flex:1; padding:12px; border:none; border-radius:10px; font-weight:800; font-size:14px; cursor:pointer;
+    }
+    .oq-btn-primary{background:var(--mint); color:#fff}
+    .oq-btn-primary:disabled{opacity:.6}
+    .oq-btn-secondary{background:#f3f4f6; color:var(--muted)}
+    .oq-account-row{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding:10px 2px; border-bottom:1px solid var(--line);
+    }
+    .oq-account-row:last-child{border-bottom:none}
+    .oq-account-name{font-size:14px; font-weight:700}
+    .oq-account-actions{display:flex; gap:12px; flex-shrink:0}
+    .oq-account-actions a{font-size:12.5px; font-weight:700; color:var(--mint-dark); cursor:pointer}
+    .oq-account-actions a.danger{color:#993c1d}
+    .oq-add-link{
+      display:inline-block; margin-top:14px; font-size:13.5px; font-weight:800;
+      color:var(--mint-dark); cursor:pointer;
+    }
+    .oq-account-pick-row{display:flex; align-items:center; gap:8px; padding:6px 0}
+    .oq-account-pick-row input{width:auto}
+    .oq-account-pick-row label{margin:0; font-size:13.5px; font-weight:600; color:var(--ink)}
+    .oq-progress-wrap{margin-top:16px}
+    .oq-progress-track{
+      width:100%; height:8px; border-radius:999px; background:#eef2f0; overflow:hidden;
+    }
+    .oq-progress-fill{
+      height:100%; background:var(--mint); border-radius:999px; width:0%;
+      transition:width .3s linear;
+    }
+    .oq-progress-label{font-size:12px; color:var(--muted); margin-top:6px; text-align:center}
+    .oq-category-row{display:flex; align-items:center; gap:8px; padding:5px 0}
+    .oq-category-row input:first-child{width:64px; flex-shrink:0}
+    .oq-category-row input:nth-child(2){flex:1}
+    .oq-category-row a{font-size:12px; color:var(--muted); flex-shrink:0; cursor:pointer}
+    .oq-bulk-item-row{
+      display:flex; justify-content:space-between; padding:6px 2px; font-size:13px;
+      border-bottom:1px solid var(--line);
+    }
+    .oq-bulk-item-row .status{font-size:12px; font-weight:700; color:var(--muted); white-space:nowrap}
+    .oq-bulk-item-row .status.ok{color:var(--mint-dark)}
+    .oq-bulk-item-row .status.fail{color:#993c1d}
+    .oq-bulk-list{max-height:180px; overflow-y:auto; margin-top:8px}
+    .oq-back-link{font-size:12.5px; font-weight:700; color:var(--mint-dark); cursor:pointer; margin-bottom:10px; display:inline-block}
   </style>
   <script type="application/ld+json">
   {
@@ -414,6 +474,10 @@
     </div>
     <p class="menu-section-title">앱처럼 사용하기</p>
     <button type="button" class="menu-link-btn" id="addHomeMenuBtn">📲 홈 화면에 추가</button>
+
+    <p class="menu-section-title">오더퀸 연동</p>
+    <button type="button" class="menu-link-btn" id="oqAccountsMenuBtn">🏪 계정 관리</button>
+    <button type="button" class="menu-link-btn" id="oqCategoriesMenuBtn">🗂️ 분류 설정</button>
 
     <p class="menu-section-title">패치노트</p>
     <div id="patchNotesList"><p class="hint">불러오는 중...</p></div>
@@ -560,6 +624,15 @@
     </div>
   </div>
 
+  <!-- 오더퀸 연동 - 계정 관리/분류 설정/상품 등록(단건·다건) 화면 전부
+       이 모달 하나의 내용만 바꿔가며 재사용한다(안드로이드 앱이 다이얼로그
+       여러 개를 띄우는 걸 화면 하나로 대체). -->
+  <div class="addhome-modal-overlay" id="oqModalOverlay">
+    <div class="addhome-modal" id="oqModalPanel">
+      <div id="oqModalBody"></div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script>
     const input = document.getElementById("q");
@@ -586,11 +659,10 @@
       if (items.length === 0) {
         return '<p class="empty">표시할 상품이 없습니다.</p>';
       }
-      // 오더퀸 자동등록 버튼은 안드로이드 앱에서 그 기능을 켜뒀을 때만
-      // 보인다(window.AndroidOrderQueen은 앱이 심어주는 JS 인터페이스 -
-      // 일반 브라우저에는 아예 없음). 본체 사이트 로그인과 무관하게 앱
-      // 자체 설정으로 동작한다.
-      const oqAvailable = !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
+      // 오더퀸 자동등록 버튼은 안드로이드 앱의 네이티브 브릿지(window.
+      // AndroidOrderQueen)가 있거나, 이 브라우저에 웹 오더퀸 계정이 하나라도
+      // 등록돼 있을 때만 보인다. 본체 사이트 로그인과 무관하게 동작한다.
+      const oqAvailable = isOqAvailable();
       const selected = opts.selected || new Map();
       const inSelectMode = !!(opts.selectMode && oqAvailable);
 
@@ -618,7 +690,7 @@
       if (items.length === 0) {
         return '<p class="empty">최근 가격이 오른 상품이 없습니다.</p>';
       }
-      const oqAvailable = !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
+      const oqAvailable = isOqAvailable();
       const selected = opts.selected || new Map();
       const inSelectMode = !!(opts.selectMode && oqAvailable);
 
@@ -649,7 +721,7 @@
       const selected = new Map();
 
       function oqAvailable() {
-        return !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
+        return isOqAvailable();
       }
 
       function render() {
@@ -713,12 +785,10 @@
 
       bulkBtnEl.addEventListener("click", () => {
         if (selected.size === 0) return;
-        if (window.AndroidOrderQueen && typeof window.AndroidOrderQueen.registerItems === "function") {
-          const payload = Array.from(selected.values()).map((it) => ({
-            barcode: it.barcode, name: it.menu_name, price: getPrice(it) || 0,
-          }));
-          window.AndroidOrderQueen.registerItems(JSON.stringify(payload));
-        }
+        const payload = Array.from(selected.values()).map((it) => ({
+          barcode: it.barcode, name: it.menu_name, price: getPrice(it) || 0,
+        }));
+        oqRegisterItemsUnified(payload);
         selectMode = false;
         selected.clear();
         updateToolbarUi();
@@ -788,7 +858,7 @@
         const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
         const data = await res.json();
         const items = data.items || [];
-        const oqAvailable = !!(window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable());
+        const oqAvailable = isOqAvailable();
         if (items.length === 0 && oqAvailable && isPlausibleBarcode(query)) {
           resultsEl.innerHTML = renderNewItemForm(query);
         } else {
@@ -880,10 +950,9 @@
       submitBtn.textContent = "등록 중...";
 
       // 오더퀸 등록(모든 매장 일괄) - 계정 선택/진행률 표시는 네이티브
-      // 다이얼로그(OrderQueenDialogs)가 그대로 담당한다.
-      if (window.AndroidOrderQueen && typeof window.AndroidOrderQueen.registerItem === "function") {
-        window.AndroidOrderQueen.registerItem(barcode, name, String(price));
-      }
+      // 다이얼로그(OrderQueenDialogs) 또는 웹 모달(oqRegisterItemUnified)이
+      // 담당한다.
+      oqRegisterItemUnified(barcode, name, price);
 
       // 카탈로그 검수 대기 등록 - 실패해도(네트워크 등) 오더퀸 등록 자체는
       // 이미 진행됐으니 조용히 무시한다(사용자에게 막을 이유가 없음).
@@ -917,9 +986,7 @@
       const oqBtn = e.target.closest(".oq-register-btn");
       if (oqBtn) {
         // 행 전체 클릭(바코드 복사)으로 이어지지 않게 여기서 끝낸다.
-        if (window.AndroidOrderQueen && typeof window.AndroidOrderQueen.registerItem === "function") {
-          window.AndroidOrderQueen.registerItem(oqBtn.dataset.barcode, oqBtn.dataset.name, oqBtn.dataset.price);
-        }
+        oqRegisterItemUnified(oqBtn.dataset.barcode, oqBtn.dataset.name, oqBtn.dataset.price);
         return;
       }
 
@@ -1593,6 +1660,568 @@
     });
 
     if (!isInAndroidApp && !isStandalone && isIos) showAddHomeBanner();
+
+    // ===== 오더퀸 웹 연동 =====
+    // 안드로이드 앱(OrderQueenManager.kt/OrderQueenDialogs.kt)이 부르는
+    // 서버 API(/api/oq-app/*)를 그대로 쓴다 - 오더퀸 로그인/등록 자동화는
+    // 전부 서버(main.py, orderqueen_bot.py)가 Playwright로 처리하고, 앱은
+    // 원래도 이 API를 부르는 얇은 HTTP 클라이언트였을 뿐이다(네이티브 전용
+    // 기능이 아니었음). 기기 식별자만 SharedPreferences 대신 localStorage를
+    // 쓴다 - 세션이 없는 만큼 이 값 자체가 사실상의 비밀값 역할도 겸한다.
+    const OQ_API_BASE = "https://www.is-cream.co.kr";
+    const OQ_DEVICE_ID_KEY = "oq_device_id";
+    const OQ_HAS_ACCOUNTS_KEY = "oq_web_has_accounts";
+    const OQ_DEFAULT_CLASS_CODES = {
+      "아이스크림": "003", "음료수": "004", "간식": "006", "완구,문구": "007", "과자": "015",
+    };
+
+    function oqGetDeviceId() {
+      let id = localStorage.getItem(OQ_DEVICE_ID_KEY);
+      if (!id) {
+        id = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+        localStorage.setItem(OQ_DEVICE_ID_KEY, id);
+      }
+      return id;
+    }
+
+    async function oqRequest(path, method, body) {
+      const res = await fetch(`${OQ_API_BASE}${path}`, {
+        method,
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return res.json();
+    }
+
+    async function oqFetchAccounts() {
+      try {
+        const res = await oqRequest(`/api/oq-app/accounts?device_id=${oqGetDeviceId()}`, "GET");
+        const accounts = res.accounts || [];
+        localStorage.setItem(OQ_HAS_ACCOUNTS_KEY, accounts.length > 0 ? "1" : "0");
+        return accounts;
+      } catch (e) {
+        return [];
+      }
+    }
+    async function oqRefreshAvailability() { await oqFetchAccounts(); }
+
+    // 검색 결과를 그릴 때(동기 함수라 네트워크를 기다릴 수 없음)는 마지막
+    // fetchAccounts()가 남겨둔 캐시값을 쓴다 - 안드로이드의 isEnabledLocally
+    // 캐시 플래그와 같은 역할. 페이지가 열릴 때/계정이 바뀔 때마다
+    // oqRefreshAvailability()로 최신화한다.
+    function isOqAvailable() {
+      if (window.AndroidOrderQueen && window.AndroidOrderQueen.isAvailable()) return true;
+      return localStorage.getItem(OQ_HAS_ACCOUNTS_KEY) === "1";
+    }
+
+    function oqOpenModal(html) {
+      document.getElementById("oqModalBody").innerHTML = html;
+      document.getElementById("oqModalOverlay").classList.add("open");
+    }
+    function oqCloseModal() {
+      document.getElementById("oqModalOverlay").classList.remove("open");
+    }
+    document.getElementById("oqModalOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "oqModalOverlay") oqCloseModal();
+    });
+
+    // --- 계정 관리 화면 ---
+    async function oqShowAccountsView() {
+      oqOpenModal(`<h3>오더퀸 계정 관리</h3><p class="hint">불러오는 중...</p>`);
+      const accounts = await oqFetchAccounts();
+      oqRenderAccountsView(accounts);
+    }
+
+    function oqRenderAccountsView(accounts) {
+      const rows = accounts.length
+        ? accounts.map((a) => `
+            <div class="oq-account-row" data-id="${a.id}">
+              <span class="oq-account-name">${escapeHtml(a.nickname)}</span>
+              <span class="oq-account-actions">
+                <a data-action="edit" data-id="${a.id}">설정</a>
+                <a data-action="delete" data-id="${a.id}" class="danger">삭제</a>
+              </span>
+            </div>
+          `).join("")
+        : `<p class="empty">등록된 계정이 없습니다. 아래에서 계정을 추가해주세요.</p>`;
+
+      oqOpenModal(`
+        <h3>오더퀸 계정 관리</h3>
+        <div id="oqAccountsList">${rows}</div>
+        <a class="oq-add-link" id="oqAddAccountLink">+ 계정 추가</a>
+        <p class="oq-hint">
+          등록한 계정은 검색결과의 "오더퀸 등록" 버튼을 누를 때 어느 매장에 등록할지 고를 수 있습니다.<br>
+          아이디/비밀번호는 암호화되어 서버에 저장됩니다.
+        </p>
+        <div class="oq-btn-row"><button type="button" class="oq-btn-secondary" id="oqModalCloseBtn2">닫기</button></div>
+      `);
+
+      document.getElementById("oqAddAccountLink").addEventListener("click", oqShowAddAccountForm);
+      document.getElementById("oqModalCloseBtn2").addEventListener("click", oqCloseModal);
+      document.getElementById("oqAccountsList").addEventListener("click", (e) => {
+        const link = e.target.closest("a[data-action]");
+        if (!link) return;
+        const id = parseInt(link.dataset.id, 10);
+        if (link.dataset.action === "edit") oqShowEditAccountForm(id);
+        else oqConfirmDeleteAccount(id, accounts.find((a) => a.id === id));
+      });
+    }
+
+    function oqShowAddAccountForm() {
+      oqOpenModal(`
+        <h3>계정 추가</h3>
+        <div class="oq-form">
+          <label for="oqNewNickname">계정명 (예: 강남점)</label>
+          <input id="oqNewNickname" type="text" autocomplete="off" />
+          <label for="oqNewId">오더퀸 아이디</label>
+          <input id="oqNewId" type="text" autocomplete="off" />
+          <label for="oqNewPw">오더퀸 비밀번호</label>
+          <input id="oqNewPw" type="password" autocomplete="off" />
+          <label class="oq-checkbox-row"><input type="checkbox" id="oqNewConsent" /><span>매장 판매 데이터를 전체 가맹점 인기 판매 순위 산출에 활용하는 데 동의합니다</span></label>
+          <p class="oq-hint">동의하지 않아도 바코드 등록 기능은 그대로 사용할 수 있습니다. 수집된 데이터는 외부 업체에 제공·판매되지 않으며, 개별 매장을 알 수 없는 집계 형태로만 활용됩니다.</p>
+          <p class="oq-hint">저장을 누르면 오더퀸 로그인 확인 절차가 진행됩니다(몇 초~20여 초 소요).</p>
+        </div>
+        <div class="oq-btn-row">
+          <button type="button" class="oq-btn-secondary" id="oqCancelAdd">취소</button>
+          <button type="button" class="oq-btn-primary" id="oqSaveAdd">저장</button>
+        </div>
+      `);
+      document.getElementById("oqCancelAdd").addEventListener("click", oqShowAccountsView);
+      document.getElementById("oqSaveAdd").addEventListener("click", async () => {
+        const nickname = document.getElementById("oqNewNickname").value.trim();
+        const loginId = document.getElementById("oqNewId").value.trim();
+        const loginPwd = document.getElementById("oqNewPw").value;
+        const consent = document.getElementById("oqNewConsent").checked;
+        if (!nickname || !loginId || !loginPwd) {
+          alert("계정명/아이디/비밀번호를 모두 입력해주세요.");
+          return;
+        }
+        const btn = document.getElementById("oqSaveAdd");
+        btn.disabled = true;
+        btn.textContent = "확인 중…";
+        try {
+          const res = await oqRequest("/api/oq-app/credentials", "POST", {
+            device_id: oqGetDeviceId(), nickname, login_id: loginId, login_pwd: loginPwd,
+            sales_data_consent: consent,
+          });
+          if (!res.ok) throw new Error(res.message || "저장에 실패했습니다.");
+          await oqRefreshAvailability();
+          oqShowAccountsView();
+        } catch (e) {
+          alert("저장 실패: " + e.message);
+          btn.disabled = false;
+          btn.textContent = "저장";
+        }
+      });
+    }
+
+    async function oqShowEditAccountForm(accountId) {
+      oqOpenModal(`<h3>계정 설정</h3><p class="hint">불러오는 중...</p>`);
+      try {
+        const res = await oqRequest(`/api/oq-app/accounts/${accountId}?device_id=${oqGetDeviceId()}`, "GET");
+        if (!res.ok) throw new Error(res.message || "조회에 실패했습니다.");
+        oqOpenModal(`
+          <h3>계정 설정</h3>
+          <div class="oq-form">
+            <label for="oqEditNickname">계정명</label>
+            <input id="oqEditNickname" type="text" value="${escapeHtml(res.nickname)}" />
+            <label for="oqEditId">오더퀸 아이디</label>
+            <input id="oqEditId" type="text" value="${escapeHtml(res.login_id)}" />
+            <label for="oqEditPw">비밀번호 (변경 시에만 입력)</label>
+            <input id="oqEditPw" type="password" autocomplete="off" />
+            <label class="oq-checkbox-row"><input type="checkbox" id="oqEditConsent" ${res.sales_data_consent ? "checked" : ""} /><span>매장 판매 데이터를 전체 가맹점 인기 판매 순위 산출에 활용하는 데 동의합니다</span></label>
+            <p class="oq-hint">아이디 또는 비밀번호를 변경하면 저장 시 오더퀸 로그인 확인 절차가 진행됩니다(몇 초~20여 초 소요).</p>
+          </div>
+          <div class="oq-btn-row">
+            <button type="button" class="oq-btn-secondary" id="oqCancelEdit">취소</button>
+            <button type="button" class="oq-btn-primary" id="oqSaveEdit">저장</button>
+          </div>
+        `);
+        document.getElementById("oqCancelEdit").addEventListener("click", oqShowAccountsView);
+        document.getElementById("oqSaveEdit").addEventListener("click", async () => {
+          const nickname = document.getElementById("oqEditNickname").value.trim();
+          const loginId = document.getElementById("oqEditId").value.trim();
+          const loginPwd = document.getElementById("oqEditPw").value;
+          const consent = document.getElementById("oqEditConsent").checked;
+          if (!nickname || !loginId) { alert("계정명/아이디를 입력해주세요."); return; }
+          const btn = document.getElementById("oqSaveEdit");
+          btn.disabled = true;
+          btn.textContent = "확인 중…";
+          try {
+            const saveRes = await oqRequest("/api/oq-app/credentials", "PUT", {
+              device_id: oqGetDeviceId(), account_id: accountId, nickname, login_id: loginId,
+              login_pwd: loginPwd || null, sales_data_consent: consent,
+            });
+            if (!saveRes.ok) throw new Error(saveRes.message || "수정에 실패했습니다.");
+            oqShowAccountsView();
+          } catch (e) {
+            alert("저장 실패: " + e.message);
+            btn.disabled = false;
+            btn.textContent = "저장";
+          }
+        });
+      } catch (e) {
+        oqOpenModal(`<h3>계정 설정</h3><p class="empty">불러오기 실패: ${escapeHtml(e.message)}</p>
+          <div class="oq-btn-row"><button type="button" class="oq-btn-secondary" id="oqBackFromError">뒤로</button></div>`);
+        document.getElementById("oqBackFromError").addEventListener("click", oqShowAccountsView);
+      }
+    }
+
+    function oqConfirmDeleteAccount(accountId, account) {
+      if (!confirm(`"${account ? account.nickname : "이 계정"}"을(를) 삭제할까요?`)) return;
+      (async () => {
+        try {
+          await oqRequest(`/api/oq-app/credentials?device_id=${oqGetDeviceId()}&account_id=${accountId}`, "DELETE");
+        } catch (e) { /* 서버 삭제 실패는 무시 - 로컬에서는 어차피 목록을 새로 불러옴 */ }
+        await oqRefreshAvailability();
+        oqShowAccountsView();
+      })();
+    }
+
+    // --- 분류 설정 화면 ---
+    async function oqShowCategoriesEntry() {
+      oqOpenModal(`<h3>분류 설정</h3><p class="hint">불러오는 중...</p>`);
+      const accounts = await oqFetchAccounts();
+      if (accounts.length === 0) {
+        oqOpenModal(`<h3>분류 설정</h3><p class="empty">등록된 오더퀸 계정이 없습니다. 먼저 계정을 추가해주세요.</p>
+          <div class="oq-btn-row"><button type="button" class="oq-btn-secondary" id="oqBackToAccounts">계정 관리로</button></div>`);
+        document.getElementById("oqBackToAccounts").addEventListener("click", oqShowAccountsView);
+        return;
+      }
+      if (accounts.length === 1) {
+        oqShowCategoryList(accounts[0].id, accounts[0].nickname);
+        return;
+      }
+      oqOpenModal(`
+        <h3>분류 설정 - 계정 선택</h3>
+        <div id="oqAccountPickList">
+          ${accounts.map((a) => `<div class="oq-account-row" data-id="${a.id}"><span class="oq-account-name">${escapeHtml(a.nickname)}</span><a data-id="${a.id}">선택</a></div>`).join("")}
+        </div>
+        <div class="oq-btn-row"><button type="button" class="oq-btn-secondary" id="oqModalCloseBtn3">닫기</button></div>
+      `);
+      document.getElementById("oqModalCloseBtn3").addEventListener("click", oqCloseModal);
+      document.getElementById("oqAccountPickList").addEventListener("click", (e) => {
+        const el = e.target.closest("[data-id]");
+        if (!el) return;
+        const acc = accounts.find((a) => a.id === parseInt(el.dataset.id, 10));
+        if (acc) oqShowCategoryList(acc.id, acc.nickname);
+      });
+    }
+
+    async function oqShowCategoryList(accountId, nickname) {
+      oqOpenModal(`<h3>분류 설정 - ${escapeHtml(nickname)}</h3><p class="hint">불러오는 중...</p>`);
+      let categories = [];
+      try {
+        const res = await oqRequest(`/api/oq-app/categories?device_id=${oqGetDeviceId()}&account_id=${accountId}`, "GET");
+        categories = res.categories || [];
+      } catch (e) { /* 빈 목록으로 시작 */ }
+      oqRenderCategoryEditor(accountId, nickname, categories);
+    }
+
+    function oqCategoryRowHtml(cd, name) {
+      return `
+        <div class="oq-category-row">
+          <input class="oq-cat-cd" type="text" placeholder="코드" value="${escapeHtml(cd)}" />
+          <input class="oq-cat-name" type="text" placeholder="분류명" value="${escapeHtml(name)}" />
+          <a data-del="1">삭제</a>
+        </div>
+      `;
+    }
+
+    function oqRenderCategoryEditor(accountId, nickname, categories) {
+      const rows = categories.map((c) => oqCategoryRowHtml(c.class_cd, c.class_name)).join("");
+      oqOpenModal(`
+        <h3>분류 설정 - ${escapeHtml(nickname)}</h3>
+        <div id="oqCategoryRows">${rows || '<p class="hint">저장된 분류가 없습니다. "동기화"로 불러오거나 직접 추가하세요.</p>'}</div>
+        <a class="oq-add-link" id="oqAddCategoryRow">+ 분류 추가</a>
+        <a class="oq-add-link" id="oqSyncCategories" style="margin-left:14px">오더퀸에서 다시 불러오기</a>
+        <p class="oq-hint">여기서 정리한 이름/코드가 오더퀸 등록 화면의 분류 선택지가 됩니다. 분류명은 오더퀸에 실제 등록된 이름과 정확히 같아야 합니다.</p>
+        <div class="oq-btn-row">
+          <button type="button" class="oq-btn-secondary" id="oqCategoryBack">뒤로</button>
+          <button type="button" class="oq-btn-primary" id="oqCategorySave">저장</button>
+        </div>
+      `);
+      document.getElementById("oqCategoryBack").addEventListener("click", oqShowAccountsView);
+      document.getElementById("oqAddCategoryRow").addEventListener("click", () => {
+        document.getElementById("oqCategoryRows").insertAdjacentHTML("beforeend", oqCategoryRowHtml("", ""));
+      });
+      document.getElementById("oqCategoryRows").addEventListener("click", (e) => {
+        const del = e.target.closest("[data-del]");
+        if (del) del.closest(".oq-category-row").remove();
+      });
+      document.getElementById("oqSyncCategories").addEventListener("click", async () => {
+        if (!confirm("오더퀸에서 이 계정의 실제 분류 목록을 다시 불러옵니다. 지금 목록은 덮어써집니다. 계속할까요?")) return;
+        document.getElementById("oqCategoryRows").innerHTML = '<p class="hint">오더퀸에서 불러오는 중… (몇십 초 걸릴 수 있어요)</p>';
+        try {
+          const res = await oqRequest("/api/oq-app/categories/sync", "POST", { device_id: oqGetDeviceId(), account_id: accountId });
+          if (!res.ok) throw new Error(res.message || "동기화에 실패했습니다.");
+          oqRenderCategoryEditor(accountId, nickname, res.categories || []);
+        } catch (e) {
+          alert("동기화 실패: " + e.message);
+          oqRenderCategoryEditor(accountId, nickname, []);
+        }
+      });
+      document.getElementById("oqCategorySave").addEventListener("click", async () => {
+        const catRows = Array.from(document.querySelectorAll("#oqCategoryRows .oq-category-row")).map((row) => ({
+          class_cd: row.querySelector(".oq-cat-cd").value.trim(),
+          class_name: row.querySelector(".oq-cat-name").value.trim(),
+        })).filter((c) => c.class_cd && c.class_name);
+        if (catRows.length === 0) { alert("분류를 한 개 이상 입력해주세요."); return; }
+        const btn = document.getElementById("oqCategorySave");
+        btn.disabled = true;
+        try {
+          const res = await oqRequest("/api/oq-app/categories", "PUT", { device_id: oqGetDeviceId(), account_id: accountId, categories: catRows });
+          if (!res.ok) throw new Error(res.message || "저장에 실패했습니다.");
+          oqCloseModal();
+        } catch (e) {
+          alert("저장 실패: " + e.message);
+          btn.disabled = false;
+        }
+      });
+    }
+
+    // --- 상품 등록(단건) ---
+    function oqRegisterItemUnified(barcode, name, price) {
+      if (window.AndroidOrderQueen && typeof window.AndroidOrderQueen.registerItem === "function") {
+        window.AndroidOrderQueen.registerItem(barcode, name, String(price));
+        return;
+      }
+      oqShowSingleRegisterModal(barcode, name, price);
+    }
+
+    async function oqFetchDefaultClassMap(accounts) {
+      const defaultAccount = accounts.find((a) => a.is_default) || accounts[0];
+      try {
+        const res = await oqRequest(`/api/oq-app/categories?device_id=${oqGetDeviceId()}&account_id=${defaultAccount.id}`, "GET");
+        if (res.ok && res.categories && res.categories.length) {
+          const map = {};
+          res.categories.forEach((c) => { map[c.class_name] = c.class_cd; });
+          return map;
+        }
+      } catch (e) { /* 기본값 사용 */ }
+      return OQ_DEFAULT_CLASS_CODES;
+    }
+
+    function oqAccountPickHtml(accounts, pickClass) {
+      if (accounts.length <= 1) return "";
+      return `
+        <label style="margin-top:14px">등록할 계정</label>
+        <label class="oq-checkbox-row"><input type="checkbox" class="${pickClass}-all" checked /><span>모든 계정에 추가</span></label>
+        <div class="${pickClass}-list">
+          ${accounts.map((a) => `
+            <div class="oq-account-pick-row">
+              <input type="checkbox" class="${pickClass}-item" value="${a.id}" checked disabled />
+              <label>${escapeHtml(a.nickname)}</label>
+            </div>
+          `).join("")}
+        </div>
+        <p class="oq-hint">계정 2개까지 약 30초, 이후 2개 늘 때마다 30초씩 늘어납니다.</p>
+      `;
+    }
+
+    function oqWireAccountPick(pickClass) {
+      const allCb = document.querySelector(`.${pickClass}-all`);
+      if (!allCb) return;
+      allCb.addEventListener("change", () => {
+        document.querySelectorAll(`.${pickClass}-item`).forEach((cb) => {
+          cb.disabled = allCb.checked;
+          if (allCb.checked) cb.checked = true;
+        });
+      });
+    }
+
+    function oqResolveAccountIds(accounts, pickClass) {
+      if (accounts.length === 1) return [accounts[0].id];
+      const allCb = document.querySelector(`.${pickClass}-all`);
+      if (allCb && allCb.checked) return accounts.map((a) => a.id);
+      return Array.from(document.querySelectorAll(`.${pickClass}-item:checked`)).map((cb) => parseInt(cb.value, 10));
+    }
+
+    let oqProgressTimer = null;
+    function oqStartProgress(n) {
+      const totalMs = Math.max(1, Math.ceil((n + 1) / 2)) * 28000;
+      const wrap = document.getElementById("oqRegProgressWrap");
+      const fill = document.getElementById("oqRegProgressFill");
+      const label = document.getElementById("oqRegProgressLabel");
+      if (!wrap) return;
+      wrap.style.display = "block";
+      const start = Date.now();
+      clearInterval(oqProgressTimer);
+      oqProgressTimer = setInterval(() => {
+        const elapsed = Date.now() - start;
+        const pct = Math.min(95, (elapsed / totalMs) * 100);
+        fill.style.width = pct + "%";
+        const remain = Math.max(0, Math.ceil((totalMs - elapsed) / 1000));
+        label.textContent = remain > 1 ? `오더퀸에 등록 중… 약 ${remain}초 남음` : "거의 다 됐어요…";
+      }, 300);
+    }
+    function oqStopProgress() {
+      clearInterval(oqProgressTimer);
+      oqProgressTimer = null;
+      const wrap = document.getElementById("oqRegProgressWrap");
+      if (wrap) wrap.style.display = "none";
+    }
+
+    async function oqShowSingleRegisterModal(barcode, name, price) {
+      oqOpenModal(`<h3>오더퀸에 등록</h3><p class="hint">불러오는 중...</p>`);
+      const accounts = await oqFetchAccounts();
+      if (accounts.length === 0) {
+        oqOpenModal(`<h3>오더퀸에 등록</h3><p class="empty">등록된 오더퀸 계정이 없습니다. 먼저 계정을 추가해주세요.</p>
+          <div class="oq-btn-row"><button type="button" class="oq-btn-secondary" id="oqGoAddAccount">계정 추가</button></div>`);
+        document.getElementById("oqGoAddAccount").addEventListener("click", oqShowAddAccountForm);
+        return;
+      }
+      const classMap = await oqFetchDefaultClassMap(accounts);
+      const classNames = Object.keys(classMap);
+
+      oqOpenModal(`
+        <h3>오더퀸에 등록</h3>
+        <p class="oq-hint">바코드: ${escapeHtml(barcode)}</p>
+        <div class="oq-form">
+          <label for="oqRegName">상품명</label>
+          <input id="oqRegName" type="text" value="${escapeHtml(name)}" />
+          <label for="oqRegPrice">판매가</label>
+          <input id="oqRegPrice" type="number" inputmode="numeric" value="${parseInt(price, 10) || 0}" />
+          <label for="oqRegClass">분류</label>
+          <select id="oqRegClass">${classNames.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join("")}</select>
+          ${oqAccountPickHtml(accounts, "oq-reg-acc")}
+        </div>
+        <div class="oq-progress-wrap" id="oqRegProgressWrap" style="display:none">
+          <div class="oq-progress-track"><div class="oq-progress-fill" id="oqRegProgressFill"></div></div>
+          <p class="oq-progress-label" id="oqRegProgressLabel"></p>
+        </div>
+        <div class="oq-btn-row">
+          <button type="button" class="oq-btn-secondary" id="oqRegCancel">취소</button>
+          <button type="button" class="oq-btn-primary" id="oqRegSubmit">등록</button>
+        </div>
+      `);
+      document.getElementById("oqRegCancel").addEventListener("click", oqCloseModal);
+      oqWireAccountPick("oq-reg-acc");
+
+      document.getElementById("oqRegSubmit").addEventListener("click", async () => {
+        const menuName = document.getElementById("oqRegName").value.trim();
+        const salePrice = parseInt(document.getElementById("oqRegPrice").value, 10);
+        if (!menuName) { alert("상품명을 입력해주세요."); return; }
+        if (!Number.isFinite(salePrice)) { alert("판매가를 숫자로 입력해주세요."); return; }
+        const className = document.getElementById("oqRegClass").value;
+        const classCd = classMap[className] || Object.values(classMap)[0] || "";
+        const accountIds = oqResolveAccountIds(accounts, "oq-reg-acc");
+        if (accountIds.length === 0) { alert("등록할 계정을 선택해주세요."); return; }
+
+        document.getElementById("oqRegSubmit").disabled = true;
+        document.getElementById("oqRegCancel").disabled = true;
+        oqStartProgress(accountIds.length);
+
+        try {
+          const res = await oqRequest("/api/oq-app/register-item", "POST", {
+            device_id: oqGetDeviceId(), account_ids: accountIds, barcode, menu_name: menuName,
+            sale_price: salePrice, class_cd: classCd, class_name: className,
+          });
+          oqStopProgress();
+          const results = res.results || [];
+          const successCount = results.filter((r) => r.ok).length;
+          if (results.length > 0 && successCount === results.length) {
+            alert(results.length === 1 ? "오더퀸에 등록됐습니다." : `${results.length}개 계정에 모두 등록했습니다.`);
+            oqCloseModal();
+          } else if (results.length > 0) {
+            const detail = results.map((r) => `${r.nickname || "계정 " + r.account_id}: ${r.ok ? "성공" : "실패 - " + r.message}`).join("\n");
+            alert(`등록 결과 (${successCount}/${results.length} 성공)\n${detail}`);
+            document.getElementById("oqRegSubmit").disabled = false;
+            document.getElementById("oqRegCancel").disabled = false;
+          } else {
+            throw new Error(res.message || "등록에 실패했습니다.");
+          }
+        } catch (e) {
+          oqStopProgress();
+          alert("등록 실패: " + e.message);
+          document.getElementById("oqRegSubmit").disabled = false;
+          document.getElementById("oqRegCancel").disabled = false;
+        }
+      });
+    }
+
+    // --- 상품 등록(다건, 다중선택) ---
+    function oqRegisterItemsUnified(items) {
+      if (window.AndroidOrderQueen && typeof window.AndroidOrderQueen.registerItems === "function") {
+        window.AndroidOrderQueen.registerItems(JSON.stringify(items));
+        return;
+      }
+      oqShowBulkRegisterModal(items);
+    }
+
+    async function oqShowBulkRegisterModal(items) {
+      oqOpenModal(`<h3>선택한 상품 오더퀸에 등록</h3><p class="hint">불러오는 중...</p>`);
+      const accounts = await oqFetchAccounts();
+      if (accounts.length === 0) {
+        oqOpenModal(`<h3>선택한 상품 오더퀸에 등록</h3><p class="empty">등록된 오더퀸 계정이 없습니다. 먼저 계정을 추가해주세요.</p>
+          <div class="oq-btn-row"><button type="button" class="oq-btn-secondary" id="oqGoAddAccount2">계정 추가</button></div>`);
+        document.getElementById("oqGoAddAccount2").addEventListener("click", oqShowAddAccountForm);
+        return;
+      }
+      const classMap = await oqFetchDefaultClassMap(accounts);
+      const classNames = Object.keys(classMap);
+
+      oqOpenModal(`
+        <h3>선택한 상품 ${items.length}개 오더퀸에 등록</h3>
+        <div class="oq-bulk-list">
+          ${items.map((it) => `<div class="oq-bulk-item-row" data-barcode="${it.barcode}"><span>${escapeHtml(it.name)} · ${(it.price || 0).toLocaleString()}원</span><span class="status"></span></div>`).join("")}
+        </div>
+        <div class="oq-form">
+          <label for="oqBulkClass">분류 (선택한 상품 전체에 동일하게 적용됩니다)</label>
+          <select id="oqBulkClass">${classNames.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join("")}</select>
+          ${oqAccountPickHtml(accounts, "oq-bulk-acc")}
+        </div>
+        <p class="oq-hint">등록은 이 화면을 켜둔 채로 진행됩니다 - 탭을 벗어나거나 화면을 끄면 중간에 멈출 수 있습니다. 상품 수 × 계정 수에 비례해 시간이 걸립니다(상품 하나당 계정 2개까지 약 30초).</p>
+        <div class="oq-btn-row">
+          <button type="button" class="oq-btn-secondary" id="oqBulkCancel">취소</button>
+          <button type="button" class="oq-btn-primary" id="oqBulkSubmit">등록</button>
+        </div>
+      `);
+      document.getElementById("oqBulkCancel").addEventListener("click", oqCloseModal);
+      oqWireAccountPick("oq-bulk-acc");
+
+      document.getElementById("oqBulkSubmit").addEventListener("click", async () => {
+        const className = document.getElementById("oqBulkClass").value;
+        const classCd = classMap[className] || Object.values(classMap)[0] || "";
+        const accountIds = oqResolveAccountIds(accounts, "oq-bulk-acc");
+        if (accountIds.length === 0) { alert("등록할 계정을 선택해주세요."); return; }
+
+        document.getElementById("oqBulkSubmit").disabled = true;
+        document.getElementById("oqBulkCancel").disabled = true;
+
+        for (const item of items) {
+          const rowStatus = document.querySelector(`.oq-bulk-item-row[data-barcode="${item.barcode}"] .status`);
+          if (rowStatus) rowStatus.textContent = "등록 중…";
+          try {
+            const res = await oqRequest("/api/oq-app/register-item", "POST", {
+              device_id: oqGetDeviceId(), account_ids: accountIds, barcode: item.barcode,
+              menu_name: item.name, sale_price: item.price || 0, class_cd: classCd, class_name: className,
+            });
+            const results = res.results || [];
+            const ok = results.length > 0 && results.every((r) => r.ok);
+            if (rowStatus) {
+              rowStatus.textContent = ok ? "성공" : "실패";
+              rowStatus.className = "status " + (ok ? "ok" : "fail");
+            }
+          } catch (e) {
+            if (rowStatus) { rowStatus.textContent = "실패"; rowStatus.className = "status fail"; }
+          }
+        }
+
+        document.getElementById("oqBulkSubmit").textContent = "완료";
+      });
+    }
+
+    document.getElementById("oqAccountsMenuBtn").addEventListener("click", () => {
+      closeMenu();
+      oqShowAccountsView();
+    });
+    document.getElementById("oqCategoriesMenuBtn").addEventListener("click", () => {
+      closeMenu();
+      oqShowCategoriesEntry();
+    });
+
+    oqRefreshAvailability();
   </script>
 </body>
 </html>
