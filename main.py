@@ -2628,6 +2628,16 @@ def api_admin_price_alerts(_: bool = Depends(require_admin)):
     return {"rows": product_ranking.list_recent_price_alerts()}
 
 
+@app.get("/admin/hot-deals", response_class=HTMLResponse)
+def admin_hot_deals_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("admin_hot_deals.html", {"request": request})
+
+
+@app.get("/api/admin/hot-deals")
+def api_admin_hot_deals(_: bool = Depends(require_admin)):
+    return {"rows": product_ranking.list_all_price_variants()}
+
+
 @app.get("/api/admin/web-users")
 def api_admin_web_users(_: bool = Depends(require_admin)):
     approved_stores = [s["store_name"] for s in telegram_store.list_stores() if s["approved"]]

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>핫딜안내 모니터링</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #2fc5b3; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+      --warn-soft: #fef3c7; --warn-text: #92400e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 16px; line-height: 1.5; }
+    .stat-row { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+    .stat-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+      padding: 10px 14px; font-size: 12px; color: var(--muted); min-width: 110px;
+    }
+    .stat-card b { display: block; font-size: 17px; color: var(--text); font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .controls { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+    .filter-btn {
+      padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      border: 1px solid var(--line); background: white; color: var(--muted); cursor: pointer;
+    }
+    .filter-btn.active { background: var(--mint); color: white; border-color: var(--mint); }
+    .toggle-btn {
+      padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      border: 1px solid var(--line); background: white; color: var(--muted); cursor: pointer;
+    }
+    .toggle-btn.active { background: var(--warn-soft); color: var(--warn-text); border-color: #fcd34d; }
+    #searchInput {
+      padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); font-size: 13px;
+      flex: 1; min-width: 140px; font-family: inherit;
+    }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 860px; }
+    th {
+      text-align: left; padding: 10px 12px; background: #f3f6f5; color: var(--muted);
+      font-weight: 700; font-size: 11px; white-space: nowrap; position: sticky; top: 0;
+      border-bottom: 1px solid var(--line);
+    }
+    td { padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    tr:last-child td { border-bottom: none; }
+    tr.record-low { background: #f0fdfa; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.item-name { font-weight: 700; white-space: normal; }
+    td.item-name a { color: inherit; text-decoration: none; }
+    td.item-name a:hover { text-decoration: underline; }
+    .qty-pill {
+      font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700;
+      background: #eef2f7; color: var(--muted);
+    }
+    .qty-pill.unknown { background: #fef2f2; color: #b91c1c; }
+    .badge { font-size: 11px; padding: 3px 9px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
+    .badge.low { background: var(--mint-soft); color: var(--mint-text); }
+    .badge.up { background: #f3f4f6; color: var(--muted); }
+    .empty-text { color: var(--muted); font-size: 13px; padding: 30px 4px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>핫딜안내 모니터링</h1>
+  <div class="hint-text">
+    아직 손님에게 보여주는 정식 기능이 아니라, "옵션(수량)별 가격 누적 학습" 로직이 제대로 도는지
+    확인하기 위한 내부 테스트 화면입니다. 옵션 추정이 안 되는 상품(단가 기준 정보 없음)은
+    가격 근접도로만 묶여서 정확도가 떨어질 수 있습니다. 30분마다 도는 스캔이 쌓일수록 채워집니다.
+    <br>※ 관측이 아직 1번뿐인 옵션은 그 값 자체가 곧 "역대 최저가"라서, 초기에는 대부분이
+    "현재 최저가"로 표시됩니다 - 실제 핫딜 신호가 아니라 데이터가 쌓이는 중이라는 뜻입니다.
+  </div>
+
+  <div class="stat-row" id="statRow"></div>
+
+  <div class="controls" id="filterRow">
+    <button class="filter-btn active" data-type="all">전체</button>
+    <button class="filter-btn" data-type="snack">과자</button>
+    <button class="filter-btn" data-type="beverage">음료</button>
+    <button class="toggle-btn" id="lowOnlyBtn">지금 역대최저가만</button>
+    <input id="searchInput" type="text" placeholder="상품명 검색" autocomplete="off" />
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>구분</th>
+          <th>상품명</th>
+          <th>옵션(추정)</th>
+          <th class="num">최근가</th>
+          <th class="num">역대최저가</th>
+          <th>최저가 달성일</th>
+          <th>상태</th>
+          <th>최근 관측</th>
+          <th>최초 관측</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <script>
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    const PRODUCT_TYPE_LABEL = { beverage: "음료", snack: "과자" };
+
+    let allRows = [];
+    let currentType = "all";
+    let lowOnly = false;
+    let searchTerm = "";
+
+    function renderStats(rows) {
+      const total = rows.length;
+      const recordLow = rows.filter((r) => r.at_record_low).length;
+      const unknownQty = rows.filter((r) => r.estimated_qty == null).length;
+      const el = document.getElementById("statRow");
+      el.innerHTML = `
+        <div class="stat-card">추적 중인 옵션<b>${total.toLocaleString()}</b></div>
+        <div class="stat-card">지금 역대최저가<b>${recordLow.toLocaleString()}</b></div>
+        <div class="stat-card">수량 추정 안 됨<b>${unknownQty.toLocaleString()}</b></div>
+      `;
+    }
+
+    function renderRows(rows) {
+      const tbody = document.getElementById("tbody");
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-text">표시할 데이터가 없습니다.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map((r) => {
+        const qtyHtml = r.estimated_qty != null
+          ? `<span class="qty-pill">${r.estimated_qty}개</span>`
+          : `<span class="qty-pill unknown">미상</span>`;
+        const nameHtml = r.reference_url
+          ? `<a href="${escapeHtml(r.reference_url)}" target="_blank" rel="noopener">${escapeHtml(r.item_name)}</a>`
+          : escapeHtml(r.item_name);
+        const statusHtml = r.at_record_low
+          ? `<span class="badge low">현재 최저가</span>`
+          : `<span class="badge up">최저가 대비 상승</span>`;
+        return `
+        <tr class="${r.at_record_low ? "record-low" : ""}">
+          <td>${PRODUCT_TYPE_LABEL[r.product_type] || escapeHtml(r.product_type)}</td>
+          <td class="item-name">${nameHtml}</td>
+          <td>${qtyHtml}</td>
+          <td class="num">${r.latest_price.toLocaleString()}원</td>
+          <td class="num">${r.lowest_price.toLocaleString()}원</td>
+          <td>${escapeHtml(r.lowest_price_at)}</td>
+          <td>${statusHtml}</td>
+          <td>${escapeHtml(r.last_seen_at)}</td>
+          <td>${escapeHtml(r.first_seen_at)}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    function applyFilter() {
+      let rows = allRows;
+      if (currentType !== "all") rows = rows.filter((r) => r.product_type === currentType);
+      if (lowOnly) rows = rows.filter((r) => r.at_record_low);
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase();
+        rows = rows.filter((r) => (r.item_name || "").toLowerCase().includes(q));
+      }
+      renderStats(currentType === "all" ? allRows : allRows.filter((r) => r.product_type === currentType));
+      renderRows(rows);
+    }
+
+    async function load() {
+      const tbody = document.getElementById("tbody");
+      tbody.innerHTML = '<tr><td colspan="9" class="empty-text">불러오는 중...</td></tr>';
+      const res = await fetch("/api/admin/hot-deals");
+      const data = await res.json();
+      allRows = data.rows || [];
+      applyFilter();
+    }
+
+    document.getElementById("filterRow").addEventListener("click", (e) => {
+      const btn = e.target.closest(".filter-btn");
+      if (!btn) return;
+      document.querySelectorAll(".filter-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      currentType = btn.dataset.type;
+      applyFilter();
+    });
+
+    document.getElementById("lowOnlyBtn").addEventListener("click", (e) => {
+      lowOnly = !lowOnly;
+      e.target.classList.toggle("active", lowOnly);
+      applyFilter();
+    });
+
+    document.getElementById("searchInput").addEventListener("input", (e) => {
+      searchTerm = e.target.value.trim();
+      applyFilter();
+    });
+
+    load();
+  </script>
+</body>
+</html>

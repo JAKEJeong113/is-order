@@ -923,6 +923,50 @@ def get_price_variants(pt: ProductType, item_key: str) -> list[dict]:
     ]
 
 
+def list_all_price_variants() -> list[dict]:
+    """핫딜안내 관리자 모니터링 페이지용: 음료/과자 전체의 옵션별 가격 추적
+    현황을 카탈로그 이름과 함께 가져온다. 아직 정식 기능이 아니라 테스트/
+    모니터링 목적이라 페이지네이션 없이 최근 관측순으로 전부 반환한다."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT product_type, item_key, estimated_qty, latest_price, lowest_price,
+               lowest_price_at, first_seen_at, last_seen_at
+        FROM coupang_price_variants
+        ORDER BY last_seen_at DESC
+    """)
+    variant_rows = cur.fetchall()
+
+    catalog_info = {}
+    for pt in (SNACK, BEVERAGE):
+        cur.execute(f"SELECT item_key, item_name, price, reference_url FROM {pt.table_name}")
+        for item_key, item_name, price, reference_url in cur.fetchall():
+            catalog_info[(pt.key, item_key)] = (item_name, price, reference_url)
+    conn.close()
+
+    result = []
+    for (product_type, item_key, estimated_qty, latest_price, lowest_price,
+         lowest_price_at, first_seen_at, last_seen_at) in variant_rows:
+        item_name, catalog_price, reference_url = catalog_info.get(
+            (product_type, item_key), (item_key, None, None)
+        )
+        result.append({
+            "product_type": product_type,
+            "item_key": item_key,
+            "item_name": item_name,
+            "estimated_qty": estimated_qty,
+            "latest_price": latest_price,
+            "lowest_price": lowest_price,
+            "lowest_price_at": lowest_price_at,
+            "first_seen_at": first_seen_at,
+            "last_seen_at": last_seen_at,
+            "catalog_price": catalog_price,
+            "reference_url": reference_url,
+            "at_record_low": latest_price == lowest_price,
+        })
+    return result
+
+
 def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     """이미 매칭된 상품들의 오늘자 가격을 순환 조회해서 price_history에
     쌓는다. reference_url/image_url/partners_link는 절대 건드리지 않는다 -
