@@ -197,6 +197,13 @@
             "이미 등록된 바코드입니다. 아래 값을 고쳐 저장하면 덮어씁니다. (현재: " +
             (hit.menu_name || "-") + " / " + (hit.recommended_price || 0) + "원)";
         } else {
+          // 새 바코드인데 직전에 스캔한 상품의 값이 폼에 남아있으면 그대로
+          // 저장해버릴 위험이 있어서, 여기서 확실히 비운다.
+          nameEl.value = "";
+          catEl.value = "99";
+          priceEl.value = "";
+          packEl.value = "1";
+          boxEl.value = "0";
           bannerEl.className = "banner new";
           bannerEl.textContent = "새 바코드입니다. 정보를 채워 저장하세요.";
         }
