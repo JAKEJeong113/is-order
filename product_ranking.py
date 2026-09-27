@@ -837,11 +837,31 @@ def _update_price_variants(pt: ProductType, item_key: str, prices: list[int], un
     )
     existing = cur.fetchall()
 
-    new_lows = []
+    # 이번 회차에 관측된 가격들을 옵션(추정 수량, 또는 수량 추정이 불가능한
+    # 경우엔 가격 근접도)별로 먼저 묶고, 묶음 안에서는 가장 싼 값 하나만
+    # 대표로 취급한다. 이렇게 먼저 묶지 않으면 같은 검색 결과 안에 우연히
+    # 값이 살짝 다른 후보가 여러 개 섞였을 때(특히 단가 정보가 없어 수량
+    # 추정이 안 되는 상품) 그 차이를 "방금 막 최저가 경신"으로 잘못
+    # 알림 보내는 문제가 생긴다.
+    qty_clusters: dict[int, list[int]] = {}
+    unmatched_clusters: list[list[int]] = []
     for price in prices:
         if not price:
             continue
         qty = _estimate_pack_qty(price, unit_cost)
+        if qty is not None:
+            qty_clusters.setdefault(qty, []).append(price)
+        else:
+            for bucket in unmatched_clusters:
+                if abs(bucket[0] - price) / max(bucket[0], 1) < 0.2:
+                    bucket.append(price)
+                    break
+            else:
+                unmatched_clusters.append([price])
+
+    new_lows = []
+
+    def _apply(qty, price):
         if qty is not None:
             matched = next((e for e in existing if e[1] == qty), None)
         else:
@@ -849,7 +869,6 @@ def _update_price_variants(pt: ProductType, item_key: str, prices: list[int], un
                 (e for e in existing if e[1] is None and abs(e[2] - price) / max(e[2], 1) < 0.2),
                 None,
             )
-
         if matched:
             variant_id, matched_qty, _, lowest = matched
             if price < lowest:
@@ -874,7 +893,12 @@ def _update_price_variants(pt: ProductType, item_key: str, prices: list[int], un
                 """,
                 (pt.key, item_key, qty, price, price, now, now, now),
             )
-            existing.append((None, qty, price, price))  # 같은 배치 안 중복 방지
+
+    for qty, group_prices in qty_clusters.items():
+        _apply(qty, min(group_prices))
+    for bucket in unmatched_clusters:
+        _apply(None, min(bucket))
+
     conn.commit()
     conn.close()
     return new_lows
