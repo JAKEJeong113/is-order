@@ -704,6 +704,22 @@ def _extract_coupang_pack_qty(text: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+# 옵션(수량)뿐 아니라 "용량(중량)"도 같은 productId 아래 여러 옵션으로 묶여
+# 있을 수 있다는 게 실측 확인됨(사용자 확인, 2026-09-27) - "해태 허니버터칩"
+# 검색 결과에 60g/8개(9,110원)와 120g/6개(11,260원)가 같은 productId로
+# 같이 나왔는데, 120g는 완전히 다른 용량 상품이라 60g 기준 개당 매입가로
+# 나누면 "12개입"처럼 그럴듯한 값이 나와서 옵션(수량) 오분류로 이어졌다
+# (12g/8개 매입가 1,020원 기준: 11,260÷1,020≈11 → 가장 가까운 흔한
+# 수량인 12로 잘못 추정됨). 이름에 g(그램) 단위가 박혀있으면 뽑아내서,
+# 기대 용량과 다르면 아예 다른 상품으로 보고 걸러낸다.
+_WEIGHT_GRAMS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*g\b", re.IGNORECASE)
+
+
+def _extract_weight_grams(text: str) -> float | None:
+    m = _WEIGHT_GRAMS_RE.search(text or "")
+    return float(m.group(1)) if m else None
+
+
 # 상품명에서 묶음 수량을 못 읽었을 때(pack_qty=None) 마진 경고를 몇 번
 # 연속으로 봐야 실제로 알릴지. 이 경우 방금 찾은 가격이 진짜 개당가인지
 # (검색이 우연히 수량 미표기의 다른 판매단위 상품을 골라온 건 아닌지)
@@ -978,6 +994,21 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
                 c for c in candidates
                 if c.get("product_id") is not None and str(c["product_id"]) == stored_product_id
             ]
+            # 용량(중량) 오분류 방지(실측 확인, 2026-09-27: 허니버터칩 60g를
+            # 파는데 같은 productId 아래 120g 옵션이 같이 나와서 개당 매입가
+            # 기준 수량 추정이 엉뚱하게 "12개입"으로 잘못 잡힘) - 검색
+            # 키워드/카탈로그 이름에 용량(g)이 명시돼 있으면, 후보 이름에도
+            # 용량이 있는데 그게 다르면 아예 다른 상품으로 보고 제외한다.
+            # 둘 중 하나라도 용량 표기가 없으면(정보 부족) 그냥 통과시킨다.
+            expected_weight = _extract_weight_grams(keyword)
+            if expected_weight and same_id_candidates:
+                filtered = []
+                for c in same_id_candidates:
+                    candidate_weight = _extract_weight_grams(c.get("product_name") or "")
+                    if candidate_weight and abs(candidate_weight - expected_weight) / expected_weight > 0.15:
+                        continue
+                    filtered.append(c)
+                same_id_candidates = filtered
             if same_id_candidates:
                 if stored_price and len(same_id_candidates) > 1:
                     id_match = min(
