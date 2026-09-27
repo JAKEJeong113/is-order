@@ -11,6 +11,18 @@
   <meta property="og:url" content="https://barcode.is-cream.co.kr/" />
   <meta property="og:title" content="바코드 검색 - 무인 아이스크림·무인매장 바코드 조회" />
   <meta property="og:description" content="무인 아이스크림, 과자·음료·문구류 등 무인매장 상품을 바코드 검색으로 추천판매가까지 바로 확인하세요." />
+
+  <!-- 아이폰에서 Safari 공유 메뉴 -> "홈 화면에 추가"로 저장하면 이 태그들
+       덕분에 브라우저 주소창 없이 앱처럼(standalone) 뜨고, 커스텀 아이콘/
+       이름이 붙는다. 매니페스트는 안드로이드 Chrome PWA 설치용으로 같이 둔다. -->
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="/static/icons/favicon-32.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="바코드 조회" />
+  <meta name="theme-color" content="#2fc5b3" />
+
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <style>
     :root{

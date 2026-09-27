@@ -27,6 +27,7 @@ load_dotenv(BASE_DIR / ".env")
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
@@ -34,6 +35,8 @@ import db_conn
 
 app = FastAPI(title="무인매장 바코드 조회")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+# 아이폰에서 "홈 화면에 추가"로 앱처럼 쓸 수 있게 하는 아이콘/매니페스트.
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 MAIN_SITE_URL = os.getenv("MAIN_SITE_URL", "https://www.is-cream.co.kr")
 
