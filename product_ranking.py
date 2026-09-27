@@ -740,6 +740,149 @@ def _reset_margin_streak(barcode: str) -> None:
     conn.close()
 
 
+# --- 쿠팡 옵션(수량)별 가격 누적 추적 - "핫딜 추천"의 핵심 기능(사용자 확인,
+# 2026-09-27). 쿠팡 검색 API는 productId만 주고 옵션(itemId)은 안 줘서,
+# 상품 하나에 여러 수량 옵션이 있으면(예: 감자깡 6/20개, 각각 다른 가격)
+# 검색 결과에 같은 productId가 가격만 다르게 여러 번 나온다(실측 확인).
+# "직전 가격과 가장 가까운 것"으로 하나만 고르는 기존 방식은 진짜 핫딜(가격
+# 폭락)이 터지면 오히려 "다른(더 작은) 옵션"으로 잘못 재분류될 위험이 있다
+# (예: 20개 23,320원이 15,000원까지 떨어지면 10개 12,500원에 더 가까워
+# 보여서 오판할 수 있음). 그래서 이 옵션들을 "하나만 고르기"가 아니라
+# "전부 각자 따로 누적 추적"하는 방식으로 바꾼다:
+#   - 도매몰 실측 개당 매입가(coupang_wholesale_costs)가 있으면, 관측된
+#     가격을 매입가로 나눈 배수를 흔한 묶음 단위(COMMON_PACK_SIZES)에 맞춰
+#     "추정 개수"로 추정한다 - 매입가는 세일 여부와 무관하게 고정이라, 이
+#     기준은 가격이 크게 떨어져도(진짜 핫딜) 잘 안 흔들린다(가격 대신
+#     "매입가 대비 배수"로 그룹을 나누기 때문).
+#   - 매입가를 모르면 가격 자체가 서로 20% 이내로 가까운 것끼리 묶는다
+#     (완전한 대체재는 아니지만 없는 것보단 낫다).
+#   - 검색될 때마다 새로 발견되는 가격대는 새 옵션으로 추가되고(누적 방식 -
+#     한 번에 다 알아낼 방법이 없어 계속 발견하면서 채워나간다), 기존과
+#     맞으면 그 옵션의 최신가/최저가만 갱신한다.
+COMMON_PACK_SIZES = [1, 2, 4, 5, 6, 8, 10, 12, 15, 16, 20, 24, 30, 32, 40, 48, 50]
+
+
+def init_price_variant_table() -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS coupang_price_variants (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_type TEXT NOT NULL,
+        item_key TEXT NOT NULL,
+        estimated_qty INTEGER,
+        latest_price INTEGER NOT NULL,
+        lowest_price INTEGER NOT NULL,
+        lowest_price_at TEXT NOT NULL,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+    )
+    """)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_price_variants_item ON coupang_price_variants (product_type, item_key)"
+    )
+    conn.commit()
+    conn.close()
+
+
+def _estimate_pack_qty(price: int, unit_cost: int | None) -> int | None:
+    """도매몰 실측 개당 매입가(unit_cost) 대비 이 쿠팡 가격이 몇 개입인지
+    추정한다. 매입가와 쿠팡 소비자가 사이엔 마진이 끼어있어 나눈 값이
+    정수로 딱 떨어지진 않으니, 흔한 묶음 단위 중 가장 가까운 값으로
+    추정한다. 어느 묶음 단위와도 25% 넘게 떨어지면(엉뚱한 값으로 잘못
+    묶이는 것보단 낫다는 판단) 추정을 포기하고 None을 돌려준다."""
+    if not unit_cost or unit_cost <= 0 or not price or price <= 0:
+        return None
+    raw_ratio = price / unit_cost
+    best = min(COMMON_PACK_SIZES, key=lambda q: abs(q - raw_ratio))
+    if abs(best - raw_ratio) / best > 0.25:
+        return None
+    return best
+
+
+def _get_unit_cost_for_item(item_key: str) -> int | None:
+    # cu_price_crawl이 product_ranking을 이미 가져다 쓰고 있어서(순환 참조
+    # 방지) 여기서는 함수 안에서 지연 import한다.
+    import cu_price_crawl
+    result = cu_price_crawl.get_coupang_wholesale_cost(item_key)
+    return result["unit_cost"] if result else None
+
+
+def _update_price_variants(pt: ProductType, item_key: str, prices: list[int], unit_cost: int | None) -> list[dict]:
+    """이번 검색에서 이 상품(productId 확정)에 대해 관측된 가격들을 옵션별로
+    누적 학습하고, 새로 역대 최저가를 찍은 옵션 목록을 돌려준다(핫딜 감지용)."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, estimated_qty, latest_price, lowest_price FROM coupang_price_variants "
+        "WHERE product_type = ? AND item_key = ?",
+        (pt.key, item_key),
+    )
+    existing = cur.fetchall()
+
+    new_lows = []
+    for price in prices:
+        if not price:
+            continue
+        qty = _estimate_pack_qty(price, unit_cost)
+        if qty is not None:
+            matched = next((e for e in existing if e[1] == qty), None)
+        else:
+            matched = next(
+                (e for e in existing if e[1] is None and abs(e[2] - price) / max(e[2], 1) < 0.2),
+                None,
+            )
+
+        if matched:
+            variant_id, matched_qty, _, lowest = matched
+            if price < lowest:
+                cur.execute(
+                    "UPDATE coupang_price_variants SET latest_price = ?, lowest_price = ?, "
+                    "lowest_price_at = ?, last_seen_at = ? WHERE id = ?",
+                    (price, price, now, now, variant_id),
+                )
+                new_lows.append({"item_key": item_key, "estimated_qty": matched_qty, "price": price})
+            else:
+                cur.execute(
+                    "UPDATE coupang_price_variants SET latest_price = ?, last_seen_at = ? WHERE id = ?",
+                    (price, now, variant_id),
+                )
+        else:
+            cur.execute(
+                """
+                INSERT INTO coupang_price_variants
+                    (product_type, item_key, estimated_qty, latest_price, lowest_price,
+                     lowest_price_at, first_seen_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (pt.key, item_key, qty, price, price, now, now, now),
+            )
+            existing.append((None, qty, price, price))  # 같은 배치 안 중복 방지
+    conn.commit()
+    conn.close()
+    return new_lows
+
+
+def get_price_variants(pt: ProductType, item_key: str) -> list[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT estimated_qty, latest_price, lowest_price, lowest_price_at, first_seen_at, last_seen_at "
+        "FROM coupang_price_variants WHERE product_type = ? AND item_key = ? ORDER BY estimated_qty NULLS LAST",
+        (pt.key, item_key),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "estimated_qty": r[0], "latest_price": r[1], "lowest_price": r[2],
+            "lowest_price_at": r[3], "first_seen_at": r[4], "last_seen_at": r[5],
+        }
+        for r in rows
+    ]
+
+
 def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     """이미 매칭된 상품들의 오늘자 가격을 순환 조회해서 price_history에
     쌓는다. reference_url/image_url/partners_link는 절대 건드리지 않는다 -
@@ -783,6 +926,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     rate_limited = False
     new_lows = []
     margin_warnings = []
+    variant_new_lows = []
     now = datetime.now().isoformat(timespec="seconds")
 
     for item_key, stored_name, stored_price, pending_price, pending_count, stored_product_id in targets:
@@ -842,6 +986,13 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
                     )
                 else:
                     id_match = same_id_candidates[0]
+
+                # 옵션별 누적 추적(핫딜 추천용, 2026-09-27) - id_match 선택과는
+                # 별개로, 이번에 관측된 모든 동일 productId 후보의 가격을
+                # 전부 옵션별로 학습시킨다(하나만 고르는 게 아니라 전부 기록).
+                unit_cost = _get_unit_cost_for_item(item_key)
+                observed_prices = [c["price"] for c in same_id_candidates if c.get("price")]
+                variant_new_lows.extend(_update_price_variants(pt, item_key, observed_prices, unit_cost))
 
         # id_match(이미 확정된 상품)면 그대로 쓰고, 아직 확정된 적 없으면
         # (재검색 첫 성공 등) 여기서도 10개 이상 옵션을 우선한다 - 검색
@@ -999,7 +1150,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
     return {
         "ok": True, "checked": checked, "recorded": recorded,
         "rate_limited": rate_limited, "new_lows": new_lows,
-        "margin_warnings": margin_warnings,
+        "margin_warnings": margin_warnings, "variant_new_lows": variant_new_lows,
     }
 
 

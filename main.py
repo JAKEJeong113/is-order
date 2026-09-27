@@ -137,6 +137,7 @@ web_auth.init_web_auth_tables()
 product_ranking.init_table(product_ranking.BEVERAGE)
 product_ranking.init_table(product_ranking.SNACK)
 product_ranking.init_price_tracking_tables()
+product_ranking.init_price_variant_table()
 product_ranking.init_search_api_rate_limit_table()
 catalog_auto_import.init_import_exclusions_table()
 sales_ranking.init_sales_ranking_tables()
@@ -395,10 +396,29 @@ def _notify_margin_warnings(pt: product_ranking.ProductType, warnings: list[dict
     telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
 
 
+def _notify_variant_new_lows(pt: product_ranking.ProductType, variant_lows: list[dict]) -> None:
+    """옵션(수량)별 누적 추적(product_ranking.coupang_price_variants)에서 새로
+    역대 최저가를 찍은 옵션을 관리자에게 알린다 - "핫딜 추천" 핵심 기능의
+    1차 알림(사용자 확인, 2026-09-27). 최초 발견(baseline 없음)은
+    _update_price_variants가 애초에 new_lows로 안 돌려주므로, 여기 오는 건
+    전부 "진짜 하락"이다."""
+    if not variant_lows or not telegram_bot.ADMIN_CHAT_ID:
+        return
+    catalog = mapping.load_catalog()
+    lines = [f"🔥 옵션별 역대 최저가 감지 ({pt.key})\n"]
+    for v in variant_lows:
+        entry = catalog.get(v["item_key"])
+        name = entry.menu_name if entry else v["item_key"]
+        qty_note = f"{v['estimated_qty']}개(추정)" if v.get("estimated_qty") else "수량 미상"
+        lines.append(f"• {name} - {qty_note}: {v['price']:,}원")
+    telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
+
+
 def _run_price_snapshot_and_notify(pt: product_ranking.ProductType) -> None:
     try:
         result = product_ranking.snapshot_prices(pt, limit=15)
         _notify_margin_warnings(pt, result.get("margin_warnings") or [])
+        _notify_variant_new_lows(pt, result.get("variant_new_lows") or [])
         _notify_price_alerts()
     except Exception as e:
         telegram_bot.alert_admin(f"가격 스냅샷/알림 작업 실패 ({pt.table_name}): {e}")
