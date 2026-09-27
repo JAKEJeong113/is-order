@@ -816,12 +816,32 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
         # 확정된다 - 재검색 때마다 순위가 바뀌거나 이름이 미묘하게 다르게
         # 나와도(실측: 짧은 카탈로그 이름 특성상 유사도만으론 헐거움) 흔들리지
         # 않는 판단 근거라, 이름 유사도/다중확인 없이 바로 신뢰한다.
+        #
+        # 함정(실측 확인, 2026-09-27): 같은 productId가 검색결과 한 번에
+        # 여러 번 나올 수 있다 - 쿠팡이 옵션(수량 등)별로 같은 상품을 따로
+        # 색인해둬서다(예: "농심 감자깡" 검색에 productId 63852484가 6,970원/
+        # 22,060원/16,550원 세 번 나옴 - 각각 다른 수량 옵션으로 추정, 이름은
+        # 전부 "농심 감자깡"이라 텍스트로는 구분 불가). 이전엔 검색결과에
+        # 먼저 나온 걸 그냥 집어서 매번 다른 옵션으로 튈 위험이 있었는데,
+        # 이제 같은 productId 후보가 여러 개면 "직전에 기록된 가격과 가장
+        # 가까운 것"을 골라 같은 옵션에 최대한 붙어있게 한다(완벽한 해결은
+        # 아니다 - 쿠팡 검색 API가 옵션 단위 식별자(itemId)를 안 줘서 100%
+        # 확정할 방법 자체가 없다. 관리자가 정확한 옵션의 가격을 확인해서
+        # stored_price를 정확히 맞춰둘수록 이 기준이 정확해진다).
         id_match = None
         if stored_product_id:
-            id_match = next(
-                (c for c in candidates if c.get("product_id") is not None and str(c["product_id"]) == stored_product_id),
-                None,
-            )
+            same_id_candidates = [
+                c for c in candidates
+                if c.get("product_id") is not None and str(c["product_id"]) == stored_product_id
+            ]
+            if same_id_candidates:
+                if stored_price and len(same_id_candidates) > 1:
+                    id_match = min(
+                        same_id_candidates,
+                        key=lambda c: abs((c.get("price") or 0) - stored_price),
+                    )
+                else:
+                    id_match = same_id_candidates[0]
 
         # id_match(이미 확정된 상품)면 그대로 쓰고, 아직 확정된 적 없으면
         # (재검색 첫 성공 등) 여기서도 10개 이상 옵션을 우선한다 - 검색
