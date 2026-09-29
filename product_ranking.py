@@ -939,17 +939,24 @@ def list_all_price_variants() -> list[dict]:
 
     catalog_info = {}
     for pt in (SNACK, BEVERAGE):
-        cur.execute(f"SELECT item_key, item_name, price, reference_url FROM {pt.table_name}")
-        for item_key, item_name, price, reference_url in cur.fetchall():
-            catalog_info[(pt.key, item_key)] = (item_name, price, reference_url)
+        cur.execute(f"SELECT item_key, item_name, price, reference_url, coupang_product_id FROM {pt.table_name}")
+        for item_key, item_name, price, reference_url, coupang_product_id in cur.fetchall():
+            catalog_info[(pt.key, item_key)] = (item_name, price, reference_url, coupang_product_id)
     conn.close()
 
     result = []
     for (product_type, item_key, estimated_qty, latest_price, lowest_price,
          lowest_price_at, first_seen_at, last_seen_at) in variant_rows:
-        item_name, catalog_price, reference_url = catalog_info.get(
-            (product_type, item_key), (item_key, None, None)
+        item_name, catalog_price, reference_url, coupang_product_id = catalog_info.get(
+            (product_type, item_key), (item_key, None, None, None)
         )
+        # link.coupang.com/a/... 단축링크는 쿠팡 앱 설치 유도용 스마트링크라,
+        # 앱이 없는 데스크톱 브라우저에서 열면 서버가 곧장 coupang:// 딥링크로
+        # 리다이렉트해버려 "웹페이지를 사용할 수 없음"(ERR_UNKNOWN_URL_SCHEME)
+        # 에러가 난다(실사용 확인). 이 관리자 화면은 데스크톱에서 보는 경우가
+        # 많으니, productId를 알면 그걸로 일반 웹 상품 페이지 링크를 직접
+        # 만들어 쓰고, 없을 때만 원래 저장된 링크로 폴백한다.
+        link_url = f"https://www.coupang.com/vp/products/{coupang_product_id}" if coupang_product_id else reference_url
         result.append({
             "product_type": product_type,
             "item_key": item_key,
@@ -961,7 +968,7 @@ def list_all_price_variants() -> list[dict]:
             "first_seen_at": first_seen_at,
             "last_seen_at": last_seen_at,
             "catalog_price": catalog_price,
-            "reference_url": reference_url,
+            "reference_url": link_url,
             "at_record_low": latest_price == lowest_price,
         })
     return result
