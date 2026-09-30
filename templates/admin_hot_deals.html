@@ -51,6 +51,9 @@
     tr.record-low { background: #f0fdfa; }
     td.num { text-align: right; font-variant-numeric: tabular-nums; }
     td.item-name { font-weight: 700; white-space: normal; }
+    td.item-name a { color: var(--mint-text); text-decoration: underline; }
+    td.item-name a:hover { color: var(--mint); }
+    td.item-name span.no-link { color: var(--muted); font-weight: 400; }
     .qty-pill {
       font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700;
       background: #eef2f7; color: var(--muted);
@@ -144,11 +147,12 @@
         const qtyHtml = r.estimated_qty != null
           ? `<span class="qty-pill">${r.estimated_qty}개</span>`
           : `<span class="qty-pill unknown">미상</span>`;
-        // 관리자 어플(WebView)이 외부 링크(쿠팡 스마트링크의 coupang://
-        // 전환)를 시스템에 위임하는 코드가 없어서 링크를 누르면 에러가 나는
-        // 문제가 있었다 - 그걸 고치기 전까지는 클릭 가능한 링크 대신 단순
-        // 조회용 텍스트로만 보여준다.
-        const nameHtml = escapeHtml(r.item_name);
+        // 관리자 어플(admin_app)의 WebView가 외부 링크(쿠팡 스마트링크의
+        // coupang:// 전환)를 시스템에 위임하는 shouldOverrideUrlLoading을
+        // 추가해서 이제 정상적으로 열린다.
+        const nameHtml = r.reference_url
+          ? `<a href="${escapeHtml(r.reference_url)}" target="_blank" rel="noopener">${escapeHtml(r.item_name)}</a>`
+          : `<span class="no-link">${escapeHtml(r.item_name)}</span>`;
         const statusHtml = r.at_record_low
           ? `<span class="badge low">현재 최저가</span>`
           : `<span class="badge up">최저가 대비 상승</span>`;

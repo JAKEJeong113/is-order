@@ -1,8 +1,10 @@
 package kr.co.iscream.catalogadmin
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.View
@@ -81,6 +83,30 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(ScannerBridge(), "AndroidScanner")
 
         webView.webViewClient = object : WebViewClient() {
+            // 핫딜안내 모니터링의 상품명 링크(쿠팡)처럼 우리 도메인이 아닌
+            // 곳으로 가는 이동은 이 WebView가 직접 로드하지 않고 안드로이드
+            // 시스템에 넘긴다 - 안 그러면 쿠팡의 앱 설치 유도 스마트링크가
+            // coupang:// 딥링크로 전환될 때 이 WebView는 처리할 방법이
+            // 없어(외부 앱 실행 자체를 시도하지 않음) "웹페이지를 사용할 수
+            // 없음"으로 실패한다(쿠팡 앱 설치 여부와 무관하게 실패 - 실측
+            // 확인). 시스템에 넘기면 설치된 쿠팡 앱이나 기본 브라우저가
+            // 대신 열어준다. 우리 관리자 페이지끼리의 이동(빠른 등록 <->
+            // 핫딜안내 등)은 전부 같은 도메인이라 계속 이 WebView 안에서
+            // 그대로 진행된다.
+            override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+                val uri = Uri.parse(url)
+                if (uri.host == "www.is-cream.co.kr") {
+                    return false
+                }
+                return try {
+                    startActivity(Intent(Intent.ACTION_VIEW, uri))
+                    true
+                } catch (e: ActivityNotFoundException) {
+                    Toast.makeText(this@MainActivity, "이 링크를 열 수 있는 앱이 없습니다.", Toast.LENGTH_SHORT).show()
+                    true
+                }
+            }
+
             override fun onReceivedHttpAuthRequest(
                 view: WebView, handler: HttpAuthHandler, host: String, realm: String,
             ) {

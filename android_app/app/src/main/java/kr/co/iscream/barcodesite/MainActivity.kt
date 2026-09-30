@@ -2,6 +2,7 @@ package kr.co.iscream.barcodesite
 
 import android.Manifest
 import android.app.AlertDialog
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -301,10 +302,18 @@ class MainActivity : AppCompatActivity() {
                 // 페이지 링크까지 WebView 안에 붙잡아버려서, 원래 의도(로그인처럼
                 // 민감한 화면은 신뢰된 외부 브라우저로 보냄)가 깨진다.
                 val uri = Uri.parse(url)
-                return if (uri.host == "barcode.is-cream.co.kr") {
-                    false
-                } else {
+                if (uri.host == "barcode.is-cream.co.kr") {
+                    return false
+                }
+                return try {
                     startActivity(Intent(Intent.ACTION_VIEW, uri))
+                    true
+                } catch (e: ActivityNotFoundException) {
+                    // 이 링크(예: 쿠팡 앱 설치 유도용 coupang:// 딥링크)를 열
+                    // 앱이 기기에 없는 경우 - 조용히 무시하지 않고 그래도
+                    // 사용자에게 알려서 "눌렀는데 아무 반응 없음"처럼 보이지
+                    // 않게 한다.
+                    android.widget.Toast.makeText(this@MainActivity, "이 링크를 열 수 있는 앱이 없습니다.", android.widget.Toast.LENGTH_SHORT).show()
                     true
                 }
             }
