@@ -34,6 +34,14 @@ def _crawl_vendor_products(vendor_id: str, meta: dict, login_id: str, login_pwd:
         return yamimall_bot.crawl_full_catalog(
             login_id, login_pwd, base_url=base_url, category_codes=meta["catalog_category_code"],
         )
+    if vendor_id == "mud5":
+        # 도윤상사도 야미몰과 같은 플랫폼이지만 base_url이 http://라 ":443"을
+        # 붙이면 접속 자체가 실패한다(vendors.py의 mud5 설정 주석 참고) -
+        # use_port_suffix=False로 그 접미사를 뺀다.
+        return yamimall_bot.crawl_full_catalog(
+            login_id, login_pwd, base_url=base_url, category_codes=meta["catalog_category_code"],
+            use_port_suffix=meta.get("list_page_use_port_suffix", True),
+        )
     raise ValueError("이 도매처는 아직 전체상품 수집을 지원하지 않습니다")
 
 
