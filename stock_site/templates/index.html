@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>입출고 관리</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #2fc5b3; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+      --warn-soft: #fef3c7; --warn-text: #92400e; --danger: #b91c1c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 24px 16px 80px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    .hint-text { font-size: 12px; color: var(--muted); margin-bottom: 18px; line-height: 1.5; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+    .tab-btn {
+      padding: 9px 16px; border-radius: 999px; font-size: 13.5px; font-weight: 700;
+      border: 1px solid var(--line); background: #fff; color: var(--muted); cursor: pointer;
+    }
+    .tab-btn.active { background: var(--mint); border-color: var(--mint); color: #fff; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+      padding: 18px; margin-bottom: 16px;
+    }
+    .upload-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    input[type=file] { font-size: 13px; }
+    button.primary {
+      padding: 11px 20px; border: none; border-radius: 10px; background: var(--mint);
+      color: #fff; font-weight: 800; font-size: 14px; cursor: pointer;
+    }
+    button.primary:disabled { opacity: .6; cursor: default; }
+    .result-box { margin-top: 14px; font-size: 13.5px; line-height: 1.6; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left; padding: 10px 12px; background: #f3f6f5; color: var(--muted);
+      font-weight: 700; font-size: 11px; white-space: nowrap; border-bottom: 1px solid var(--line);
+    }
+    td { padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    tr:last-child td { border-bottom: none; }
+    tr.clickable { cursor: pointer; }
+    tr.clickable:hover { background: #f7fafa; }
+    .badge { font-size: 11px; padding: 3px 9px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
+    .badge.completed { background: var(--mint-soft); color: var(--mint-text); }
+    .badge.needs_review, .badge.pending { background: var(--warn-soft); color: var(--warn-text); }
+    .badge.needs_vendor { background: #fee2e2; color: var(--danger); }
+    .badge.auto, .badge.confirmed { background: var(--mint-soft); color: var(--mint-text); }
+    .empty-text { color: var(--muted); font-size: 13px; padding: 30px 4px; text-align: center; }
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(17,24,39,.5); z-index: 40;
+      display: none; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 40px 16px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      width: 100%; max-width: 640px; background: #fff; border-radius: 16px; padding: 22px;
+    }
+    .modal h3 { margin: 0 0 4px; font-size: 17px; }
+    .modal .sub { font-size: 12.5px; color: var(--muted); margin-bottom: 16px; }
+    .vendor-picker { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .vendor-picker select { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); font-size: 13px; }
+    .vendor-picker button { padding: 8px 14px; border: none; border-radius: 8px; background: var(--mint); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
+    .item-row { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+    .item-row .name { font-weight: 700; font-size: 13.5px; }
+    .item-row .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .resolve-row { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+    .resolve-row input { flex: 1; min-width: 140px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; }
+    .resolve-row button { padding: 7px 12px; border: 1px solid var(--mint); background: #fff; color: var(--mint-text); border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .candidate-list { margin-top: 6px; max-height: 140px; overflow-y: auto; }
+    .candidate-row {
+      display: flex; justify-content: space-between; padding: 6px 8px; font-size: 12.5px;
+      border-bottom: 1px solid var(--line); cursor: pointer;
+    }
+    .candidate-row:hover { background: var(--mint-soft); }
+    .modal-close {
+      width: 100%; margin-top: 16px; padding: 11px; border: none; border-radius: 10px;
+      background: #f3f4f6; color: var(--muted); font-weight: 800; font-size: 13.5px; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>입출고 관리</h1>
+  <div class="hint-text">
+    거래명세서 사진을 올리면 그 도매처 범위 안에서 상품명을 대조해 바코드로 매칭하고, 확실한 것만 자동으로
+    재고에 반영합니다. 애매한 품목은 "확인 필요"로 남아서 직접 골라야 반영됩니다.
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="upload">업로드</button>
+    <button class="tab-btn" data-tab="docs">문서함</button>
+    <button class="tab-btn" data-tab="stock">재고</button>
+  </div>
+
+  <div class="panel active" id="panel-upload">
+    <div class="card">
+      <div class="upload-row">
+        <input type="file" id="fileInput" accept="image/*" />
+        <button type="button" class="primary" id="uploadBtn">업로드 및 인식</button>
+      </div>
+      <div class="result-box" id="uploadResult"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-docs">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>ID</th><th>도매처</th><th>일자</th><th class="num">합계</th><th>상태</th><th>업로드시각</th></tr>
+        </thead>
+        <tbody id="docsTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-stock">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>바코드</th><th>상품명</th><th class="num">현재고</th><th>최근 갱신</th></tr>
+        </thead>
+        <tbody id="stockTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="docModalOverlay">
+    <div class="modal" id="docModal"></div>
+  </div>
+
+  <script>
+    const VENDOR_LABEL = {};
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+        document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.id === "panel-" + btn.dataset.tab));
+        if (btn.dataset.tab === "docs") loadDocs();
+        if (btn.dataset.tab === "stock") loadStock();
+      });
+    });
+
+    async function loadVendors() {
+      const res = await fetch("/api/vendors");
+      const data = await res.json();
+      Object.assign(VENDOR_LABEL, data.vendors || {});
+    }
+
+    document.getElementById("uploadBtn").addEventListener("click", async () => {
+      const fileInput = document.getElementById("fileInput");
+      const resultBox = document.getElementById("uploadResult");
+      if (!fileInput.files[0]) { resultBox.textContent = "파일을 선택해주세요."; return; }
+      const btn = document.getElementById("uploadBtn");
+      btn.disabled = true;
+      btn.textContent = "인식 중... (몇십 초 걸릴 수 있어요)";
+      resultBox.textContent = "";
+      try {
+        const formData = new FormData();
+        formData.append("file", fileInput.files[0]);
+        const res = await fetch("/api/invoices", { method: "POST", body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "인식 실패");
+        const vendorLabel = VENDOR_LABEL[data.vendor_id] || (data.vendor_id ? data.vendor_id : "미확인 - 문서함에서 도매처를 선택해주세요");
+        resultBox.innerHTML = `
+          도매처: <b>${escapeHtml(vendorLabel)}</b><br>
+          자동 매칭: <b>${data.auto_matched}개</b> · 확인 필요: <b>${data.pending}개</b><br>
+          <a href="#" data-doc="${data.document_id}" id="goToDocLink">문서함에서 확인하기 →</a>
+        `;
+        document.getElementById("goToDocLink").addEventListener("click", (e) => {
+          e.preventDefault();
+          document.querySelector('.tab-btn[data-tab="docs"]').click();
+          openDoc(data.document_id);
+        });
+        fileInput.value = "";
+      } catch (e) {
+        resultBox.textContent = "오류: " + e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "업로드 및 인식";
+      }
+    });
+
+    const STATUS_LABEL = {
+      completed: "완료", needs_review: "확인 필요", needs_vendor: "도매처 미확인", processing: "처리중",
+    };
+
+    async function loadDocs() {
+      const tbody = document.getElementById("docsTbody");
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-text">불러오는 중...</td></tr>';
+      const res = await fetch("/api/invoices");
+      const data = await res.json();
+      const items = data.items || [];
+      if (items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-text">아직 업로드된 명세서가 없습니다.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = items.map((d) => `
+        <tr class="clickable" data-doc="${d.id}">
+          <td>${d.id}</td>
+          <td>${escapeHtml(VENDOR_LABEL[d.vendor_id] || d.vendor_name_raw || "-")}</td>
+          <td>${escapeHtml(d.doc_date || "-")}</td>
+          <td class="num">${d.total_amount ? d.total_amount.toLocaleString() + "원" : "-"}</td>
+          <td><span class="badge ${d.status}">${STATUS_LABEL[d.status] || d.status}</span></td>
+          <td>${escapeHtml(d.created_at)}</td>
+        </tr>
+      `).join("");
+      tbody.querySelectorAll("tr[data-doc]").forEach((row) => {
+        row.addEventListener("click", () => openDoc(parseInt(row.dataset.doc, 10)));
+      });
+    }
+
+    async function loadStock() {
+      const tbody = document.getElementById("stockTbody");
+      tbody.innerHTML = '<tr><td colspan="4" class="empty-text">불러오는 중...</td></tr>';
+      const res = await fetch("/api/stock");
+      const data = await res.json();
+      const items = data.items || [];
+      if (items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-text">아직 반영된 재고가 없습니다.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = items.map((s) => `
+        <tr>
+          <td>${escapeHtml(s.barcode)}</td>
+          <td>${escapeHtml(s.item_name || "-")}</td>
+          <td class="num">${s.qty.toLocaleString()}</td>
+          <td>${escapeHtml(s.updated_at)}</td>
+        </tr>
+      `).join("");
+    }
+
+    function closeDocModal() {
+      document.getElementById("docModalOverlay").classList.remove("open");
+    }
+    document.getElementById("docModalOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "docModalOverlay") closeDocModal();
+    });
+
+    async function openDoc(docId) {
+      const res = await fetch(`/api/invoices/${docId}`);
+      const doc = await res.json();
+      renderDocModal(doc);
+      document.getElementById("docModalOverlay").classList.add("open");
+    }
+
+    function renderDocModal(doc) {
+      const modal = document.getElementById("docModal");
+      const vendorLabel = VENDOR_LABEL[doc.vendor_id] || doc.vendor_name_raw || "-";
+
+      let vendorPickerHtml = "";
+      if (!doc.vendor_id) {
+        const options = Object.entries(VENDOR_LABEL).map(([id, name]) => `<option value="${id}">${escapeHtml(name)}</option>`).join("");
+        vendorPickerHtml = `
+          <div class="vendor-picker">
+            <span>사업자번호(${escapeHtml(doc.business_reg_no_raw || "-")})로 도매처를 못 찾았습니다. 직접 선택:</span>
+            <select id="vendorSelect"><option value="">선택...</option>${options}</select>
+            <button type="button" id="vendorConfirmBtn">확정</button>
+          </div>
+        `;
+      }
+
+      const itemsHtml = doc.items.map((item) => {
+        const statusBadge = `<span class="badge ${item.match_status}">${item.match_status === "auto" || item.match_status === "confirmed" ? "매칭됨" : "확인 필요"}</span>`;
+        const resolveHtml = (item.match_status === "auto" || item.match_status === "confirmed") ? "" : `
+          <div class="resolve-row" data-item="${item.id}">
+            <input type="text" placeholder="이 도매처 상품명으로 검색" class="search-input" />
+            <input type="text" placeholder="또는 바코드 직접 입력" class="barcode-input" style="max-width:160px" />
+            <button type="button" class="manual-confirm-btn">확정</button>
+          </div>
+          <div class="candidate-list"></div>
+        `;
+        return `
+          <div class="item-row" data-item-row="${item.id}">
+            <div class="name">${escapeHtml(item.raw_name)} ${statusBadge}</div>
+            <div class="meta">
+              주문수량 ${item.qty_ordered ?? "-"} · 단가 ${item.unit_price ? item.unit_price.toLocaleString() + "원" : "-"}
+              ${item.barcode ? ` · 바코드 ${escapeHtml(item.barcode)}` : ""}
+              ${item.applied_qty != null ? ` · 입고 반영 ${item.applied_qty}개` : ""}
+              ${item.pack_note ? ` · 포장: ${escapeHtml(item.pack_note)}` : ""}
+            </div>
+            ${resolveHtml}
+          </div>
+        `;
+      }).join("");
+
+      modal.innerHTML = `
+        <h3>명세서 #${doc.id} - ${escapeHtml(vendorLabel)}</h3>
+        <div class="sub">${escapeHtml(doc.doc_date || "-")} · 합계 ${doc.total_amount ? doc.total_amount.toLocaleString() + "원" : "-"}</div>
+        ${vendorPickerHtml}
+        ${itemsHtml}
+        <button type="button" class="modal-close" id="docModalCloseBtn">닫기</button>
+      `;
+
+      document.getElementById("docModalCloseBtn").addEventListener("click", closeDocModal);
+
+      if (!doc.vendor_id) {
+        document.getElementById("vendorConfirmBtn").addEventListener("click", async () => {
+          const vendorId = document.getElementById("vendorSelect").value;
+          if (!vendorId) { alert("도매처를 선택해주세요."); return; }
+          await fetch(`/api/invoices/${doc.id}/vendor`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ vendor_id: vendorId }),
+          });
+          openDoc(doc.id);
+        });
+      }
+
+      modal.querySelectorAll(".resolve-row").forEach((row) => {
+        const itemId = row.dataset.item;
+        const searchInput = row.querySelector(".search-input");
+        const barcodeInput = row.querySelector(".barcode-input");
+        const confirmBtn = row.querySelector(".manual-confirm-btn");
+        const candidateList = row.nextElementSibling;
+
+        let searchTimer = null;
+        searchInput.addEventListener("input", () => {
+          clearTimeout(searchTimer);
+          const q = searchInput.value.trim();
+          if (!q || !doc.vendor_id) { candidateList.innerHTML = ""; return; }
+          searchTimer = setTimeout(async () => {
+            const res = await fetch(`/api/vendor-search?vendor_id=${doc.vendor_id}&q=${encodeURIComponent(q)}`);
+            const data = await res.json();
+            candidateList.innerHTML = (data.items || []).map((c) => `
+              <div class="candidate-row" data-barcode="${escapeHtml(c.barcode)}">
+                <span>${escapeHtml(c.product_name)}</span><span>${escapeHtml(c.barcode)}</span>
+              </div>
+            `).join("") || '<div class="empty-text">일치하는 상품이 없습니다.</div>';
+            candidateList.querySelectorAll(".candidate-row").forEach((r) => {
+              r.addEventListener("click", () => resolveItem(doc.id, itemId, r.dataset.barcode));
+            });
+          }, 250);
+        });
+
+        confirmBtn.addEventListener("click", () => {
+          const barcode = barcodeInput.value.trim();
+          if (!barcode) { alert("바코드를 입력하거나 검색 결과에서 골라주세요."); return; }
+          resolveItem(doc.id, itemId, barcode);
+        });
+      });
+    }
+
+    async function resolveItem(docId, itemId, barcode) {
+      const res = await fetch(`/api/invoices/${docId}/items/${itemId}/resolve`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ barcode }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert("오류: " + (data.detail || "확정 실패")); return; }
+      openDoc(docId);
+      loadDocs();
+    }
+
+    loadVendors();
+  </script>
+</body>
+</html>

@@ -147,6 +147,60 @@ def list_import_exclusions() -> list[dict]:
         conn.close()
 
 
+def init_vendor_product_index_table() -> None:
+    """입출고(거래명세서 매칭) 기능용 - 도매처별로 "이 상품명이 이 바코드다"를
+    조회할 수 있는 인덱스. 이 모듈이 어차피 상품마다 상세페이지까지 열어서
+    이름+바코드를 확인하고 있으니, 그 김에 "이번에 이긴 값(winner)"이 아니라
+    본 상품 전부를 여기 남긴다 - 거래명세서는 특가/미채택 상품도 얼마든지
+    올 수 있어서, catalog_items에 반영됐는지와 무관하게 전부 필요하다."""
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS vendor_product_index (
+            vendor_id TEXT NOT NULL,
+            barcode TEXT NOT NULL,
+            product_name TEXT NOT NULL,
+            clean_name TEXT,
+            unit_qty INTEGER,
+            product_url TEXT,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (vendor_id, barcode)
+        )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _save_vendor_product_index(vendor_id: str, candidate: dict) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO vendor_product_index
+                (vendor_id, barcode, product_name, clean_name, unit_qty, product_url, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(vendor_id, barcode) DO UPDATE SET
+                product_name = excluded.product_name,
+                clean_name = excluded.clean_name,
+                unit_qty = excluded.unit_qty,
+                product_url = excluded.product_url,
+                updated_at = excluded.updated_at
+            """,
+            (
+                vendor_id, candidate["barcode"], candidate["name"],
+                _clean_menu_name(candidate["name"]), candidate.get("unit_qty"),
+                candidate.get("product_url"), now,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _load_excluded_pairs() -> set[tuple[str, str]]:
     conn = db_conn.get_conn()
     try:
@@ -477,9 +531,15 @@ def import_all_vendors(vendor_ids: tuple[str, ...] = DEFAULT_VENDORS, limit: int
             summary[key].extend(vendor_summary[key])
 
     for vendor_id in vendor_ids:
-        def _on_candidate(candidate: dict) -> None:
+        def _on_candidate(candidate: dict, vendor_id: str = vendor_id) -> None:
             barcode = candidate["barcode"]
             by_barcode.setdefault(barcode, []).append(candidate)
+            # 입출고(거래명세서 매칭)용 인덱스는 catalog_items 반영 여부와
+            # 무관하게 크롤링으로 확인된 상품 전부를 남긴다.
+            try:
+                _save_vendor_product_index(vendor_id, candidate)
+            except Exception as e:
+                print(f"[CATALOG_IMPORT] {vendor_id} {barcode} 상품 인덱스 저장 실패(건너뜀): {e}")
             _checkpoint_barcode(barcode)
 
         try:
