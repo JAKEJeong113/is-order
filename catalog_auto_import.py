@@ -232,6 +232,15 @@ def _clean_menu_name(raw_name: str) -> str:
     return _PACK_SUFFIX_RE.sub("", raw_name or "").strip()
 
 
+def _round_to_100(price: int) -> int:
+    """판매가는 명시값이든 계산값이든 무조건 100원 단위여야 한다(사용자
+    확인, 2026-10-02). 또요몰처럼 "권장소비자가"를 50원 단위(1250원 등)로
+    주는 도매처가 있어서, 명시값을 그대로 믿던 기존 로직이 멀쩡하던 100원
+    단위 가격을 50원 단위로 깨뜨린 사고가 실제로 있었다(오리온 11개 품목,
+    2026-09-11). 정확히 50원 걸치면 올림(마진 손해를 안 보는 쪽)."""
+    return int((price + 50) // 100 * 100)
+
+
 def _resolve_candidate(product: dict, vendor_name: str) -> dict | None:
     """상품 하나를 (추천판매가, 명시적 여부, 근거 메모) 후보로 정리한다.
     가격을 구할 수 없으면(포장 정보 파싱 실패 등) None."""
@@ -243,13 +252,13 @@ def _resolve_candidate(product: dict, vendor_name: str) -> dict | None:
     explicit_match = _EXPLICIT_PRICE_RE.match(name.strip())
     if explicit_match:
         return {
-            "price": int(explicit_match.group(1)),
+            "price": _round_to_100(int(explicit_match.group(1))),
             "is_explicit": True,
             "reason": "상품명에 명시된 판매가",
         }
     if vendor_recommended:
         return {
-            "price": int(vendor_recommended),
+            "price": _round_to_100(int(vendor_recommended)),
             "is_explicit": True,
             "reason": "도매처가 제공한 권장소비자가",
         }
