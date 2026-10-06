@@ -75,26 +75,69 @@
       font-size: 12px; font-weight: 700; cursor: pointer; background: var(--card); color: var(--muted);
     }
     .filter-btn.active { background: var(--hot); border-color: var(--hot); color: white; }
-    .bev-card-link { display: block; text-decoration: none; color: inherit; }
-    .chart-toggle {
-      display: block; width: 100%; text-align: center; padding: 5px 0;
-      border: none; border-top: 1px solid var(--line); background: transparent;
-      color: var(--mint-text); font-size: 11px; font-weight: 700; cursor: pointer;
+    .bev-card { cursor: pointer; }
+    .hd-checked { font-size: 10.5px; color: var(--muted); margin-top: 3px; }
+    .hd-checked.stale { color: #b45309; }
+
+    .sheet-overlay {
+      position: fixed; inset: 0; background: rgba(17,24,39,.45); z-index: 100;
+      display: none; align-items: flex-end; justify-content: center;
     }
-    .chart-toggle:hover { background: var(--mint-soft); }
-    .chart-area { display: none; padding: 6px 10px 10px; border-top: 1px solid var(--line); }
-    .chart-area.open { display: block; }
-    .chart-area canvas { width: 100%; height: 70px; display: block; }
-    .chart-empty { font-size: 11px; color: var(--muted); text-align: center; padding: 8px 0; }
+    .sheet-overlay.open { display: flex; }
+    .sheet {
+      width: 100%; max-width: 520px; max-height: 92vh; overflow-y: auto;
+      background: var(--card); border-radius: 18px 18px 0 0;
+      padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+    }
+    .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .sheet-head h2 { font-size: 15px; margin: 0; }
+    .sheet-close { border: none; background: transparent; font-size: 20px; color: var(--muted); cursor: pointer; }
+    .sheet-product { display: flex; gap: 12px; align-items: center; }
+    .sheet-product img { width: 84px; height: 84px; object-fit: contain; background: #f3f4f6; border-radius: 10px; flex-shrink: 0; }
+    .sheet-name { font-weight: 700; font-size: 14px; line-height: 1.4; }
+    .sheet-price-row { display: flex; align-items: baseline; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+    .sheet-price { font-size: 26px; font-weight: 800; }
+    .sheet-price.hot { color: var(--hot); }
+    .sheet-price.ended { color: var(--muted); text-decoration: line-through; }
+    .sheet-pill { font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 999px; }
+    .sheet-pill.hot { background: var(--hot-soft); color: var(--hot); }
+    .sheet-pill.ended { background: #f3f4f6; color: var(--muted); }
+    .sheet-pill.checking { background: var(--mint-soft); color: var(--mint-text); }
+    .sheet-unit { font-size: 12px; color: var(--mint-text); font-weight: 700; margin-top: 4px; }
+    .sheet-checked { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+    .sheet-note { font-size: 12px; margin-top: 10px; padding: 9px 11px; border-radius: 8px; background: #f3f4f6; color: var(--text); line-height: 1.5; }
+    .sheet-section-title { font-size: 13px; font-weight: 800; margin: 18px 0 8px; }
+    .sheet-chart canvas { width: 100%; height: 150px; display: block; }
+    .sheet-chart-empty { font-size: 12px; color: var(--muted); text-align: center; padding: 28px 0; }
+    .stat-box { display: flex; border: 1px solid var(--line); border-radius: 12px; margin-top: 10px; }
+    .stat-cell { flex: 1; padding: 10px 6px; text-align: center; }
+    .stat-cell + .stat-cell { border-left: 1px solid var(--line); }
+    .stat-label { font-size: 11px; color: var(--muted); }
+    .stat-value { font-size: 13.5px; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; }
+    .stat-value.lo { color: var(--hot); }
+    .stat-value.hi { color: #16a34a; }
+    .sheet-buy {
+      display: block; text-align: center; margin-top: 16px; padding: 14px;
+      background: var(--hot); color: #fff; font-weight: 800; font-size: 15px; border-radius: 12px; text-decoration: none;
+    }
+    .sheet-buy.secondary { background: #e5e7eb; color: var(--text); }
+    .sheet-disclosure { font-size: 10.5px; color: var(--muted); margin-top: 8px; text-align: center; }
   </style>
 </head>
 <body>
   {% include "_sidebar.html" %}
   <h1>🔥 핫딜 안내</h1>
   <div class="partners-disclosure">*본 링크를 통하여 구매를 진행하실 경우 쿠팡 파트너스 활동의 일환으로 그에 따른 일정액의 수수료를 제공받습니다.</div>
-  <div class="sub-note" id="refreshedNote">지금 역대 최저가에 머물러 있는 상품만 보여줍니다 - 가격이 오르면 목록에서 바로 사라집니다(타임세일 성격).</div>
+  <div class="sub-note" id="refreshedNote">지금 역대 최저가에 머물러 있는 상품만 보여줍니다 - 상품을 누르면 쿠팡 최신 가격을 다시 확인하고, 가격이 올랐으면 알려드려요.</div>
   <div class="filter-row" id="filterRow"></div>
   <div id="grid" class="bev-grid"></div>
+
+  <div class="sheet-overlay" id="sheetOverlay">
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="핫딜 상품 상세">
+      <div class="sheet-head"><h2>핫딜 상세</h2><button type="button" class="sheet-close" id="sheetClose" aria-label="닫기">✕</button></div>
+      <div id="sheetBody"></div>
+    </div>
+  </div>
 
       </div>
     </div>
@@ -149,6 +192,15 @@
       renderGrid();
     }
 
+    function formatAge(sec) {
+      if (sec == null) return "";
+      if (sec < 60) return "방금 확인";
+      const min = Math.floor(sec / 60);
+      if (min < 60) return `${min}분 전 확인`;
+      const hr = Math.floor(min / 60);
+      return `${hr}시간 전 확인`;
+    }
+
     function renderGrid() {
       const gridEl = document.getElementById("grid");
       const items = activeFilter === "전체보기"
@@ -172,80 +224,155 @@
         const unitText = (item.pack_qty && item.pack_qty > 1 && item.unit_cost)
           ? `<div class="hd-unit">${item.pack_qty}개입 · 개당 ${item.unit_cost.toLocaleString()}원</div>`
           : "";
+        const age = item.checked_age_seconds;
+        const stale = age != null && age > 3600;
         return `
           <div class="bev-card" data-item-key="${escapeHtml(item.item_key)}" data-product-type="${escapeHtml(item.product_type)}">
-            <a class="bev-card-link" href="${escapeHtml(item.partners_link)}" target="_blank" rel="noopener">
-              <div class="hd-badge">🔥 최저가</div>
-              <div class="hd-type-badge">${escapeHtml(TYPE_LABELS[item.product_type] || item.product_type)}</div>
-              <div class="bev-img-wrap">${imgTag}</div>
-              <div class="bev-body">
-                <div class="bev-name">${escapeHtml(name)}</div>
-                <div class="bev-meta">
-                  <span class="bev-price">${priceText}</span>
-                  <span class="buy-badge">구매하기</span>
-                </div>
-                ${unitText}
-                <div class="hd-detected">${formatDetected(item.detected_at)}</div>
+            <div class="hd-badge">🔥 최저가</div>
+            <div class="hd-type-badge">${escapeHtml(TYPE_LABELS[item.product_type] || item.product_type)}</div>
+            <div class="bev-img-wrap">${imgTag}</div>
+            <div class="bev-body">
+              <div class="bev-name">${escapeHtml(name)}</div>
+              <div class="bev-meta">
+                <span class="bev-price">${priceText}</span>
+                <span class="buy-badge">가격 확인</span>
               </div>
-            </a>
-            <button class="chart-toggle" type="button">📈 가격추이</button>
-            <div class="chart-area"></div>
+              ${unitText}
+              <div class="hd-checked ${stale ? "stale" : ""}">${formatAge(age)}</div>
+            </div>
           </div>
         `;
       }).join("");
 
-      gridEl.querySelectorAll(".bev-card-link").forEach((link) => {
-        link.addEventListener("click", () => {
-          const card = link.closest(".bev-card");
-          const itemKey = card.getAttribute("data-item-key");
-          const slug = card.getAttribute("data-product-type");
-          try {
-            fetch(`/api/${slug}-click/${encodeURIComponent(itemKey)}`, { method: "POST", keepalive: true });
-          } catch (e) {}
-        });
-      });
-
-      gridEl.querySelectorAll(".chart-toggle").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const slug = btn.closest(".bev-card").getAttribute("data-product-type");
-          togglePriceChart(btn, slug);
+      gridEl.querySelectorAll(".bev-card").forEach((card) => {
+        card.addEventListener("click", () => {
+          const item = allItems.find((it) =>
+            it.item_key === card.getAttribute("data-item-key") &&
+            it.product_type === card.getAttribute("data-product-type"));
+          if (item) openSheet(item);
         });
       });
     }
 
-    async function togglePriceChart(btn, slug) {
-      const card = btn.closest(".bev-card");
-      const itemKey = card.getAttribute("data-item-key");
-      const areaEl = card.querySelector(".chart-area");
+    // ---- 상품 상세 시트: 누르는 순간 쿠팡 최신가를 다시 확인하고, 가격
+    // 추이/최고·평균·최저가를 보여준 뒤 구매 링크를 연다. 확인 결과 가격이
+    // 올랐으면(핫딜 종료) 그렇게 알려주고 목록에서도 뺀다. ----
+    const overlayEl = document.getElementById("sheetOverlay");
+    const sheetBodyEl = document.getElementById("sheetBody");
+    let sheetToken = 0;
+    let sheetEndedKey = null;
 
-      if (areaEl.classList.contains("open")) {
-        areaEl.classList.remove("open");
+    function closeSheet() {
+      overlayEl.classList.remove("open");
+      sheetToken++;
+      if (sheetEndedKey) {
+        const [type, key] = sheetEndedKey.split("|");
+        allItems = allItems.filter((it) => !(it.product_type === type && it.item_key === key));
+        sheetEndedKey = null;
+        renderGrid();
+      }
+    }
+    document.getElementById("sheetClose").addEventListener("click", closeSheet);
+    overlayEl.addEventListener("click", (e) => { if (e.target === overlayEl) closeSheet(); });
+
+    function sheetShell(item, state) {
+      const name = item.item_name || "(이름 없음)";
+      const img = item.image_url ? `<img src="${escapeHtml(item.image_url)}" alt="">` : "";
+      const price = state.price != null ? state.price : item.price;
+      const priceCls = state.ended ? "ended" : (state.checking ? "" : "hot");
+      const pill = state.checking
+        ? '<span class="sheet-pill checking">쿠팡 최신 가격 확인 중…</span>'
+        : state.ended
+          ? '<span class="sheet-pill ended">핫딜 종료</span>'
+          : '<span class="sheet-pill hot">🔥 역대 최저가</span>';
+      const unit = (!state.ended && item.pack_qty && item.pack_qty > 1 && item.unit_cost)
+        ? `<div class="sheet-unit">${item.pack_qty}개입 · 개당 ${item.unit_cost.toLocaleString()}원</div>` : "";
+      const staleCheck = !state.checking && state.age != null && state.age > 600;
+      const checked = state.checking ? "" : (staleCheck
+        ? `<div class="sheet-checked" style="color:#b45309">지금 최신 가격을 확인하지 못했어요 · 마지막 ${formatAge(state.age)}${state.rateLimited ? " (조회가 몰려 있어요)" : ""}</div>`
+        : `<div class="sheet-checked">${formatAge(state.age)}${state.rateLimited ? " (조회가 몰려 이전 확인 결과예요)" : ""}</div>`);
+      const note = state.ended
+        ? `<div class="sheet-note">방금 확인해 보니 가격이 올라서 최저가가 아니에요. 쿠팡에서 현재가를 직접 확인해 보세요.</div>`
+        : (state.checking ? "" : '<div class="sheet-note">쿠팡에서 옵션·쿠폰에 따라 표시 가격이 다를 수 있어요. 구매 전 쿠팡 화면의 가격을 꼭 확인해 주세요.</div>');
+      const buyCls = state.ended ? "sheet-buy secondary" : "sheet-buy";
+      const buyText = state.ended ? "그래도 쿠팡에서 보기" : "구매하러 가기";
+      const buy = state.checking ? "" :
+        `<a class="${buyCls}" id="sheetBuy" href="${escapeHtml(item.partners_link)}" target="_blank" rel="noopener">${buyText}</a>
+         <div class="sheet-disclosure">쿠팡 파트너스 활동의 일환으로 수수료를 제공받습니다.</div>`;
+      return `
+        <div class="sheet-product">${img}<div class="sheet-name">${escapeHtml(name)}</div></div>
+        <div class="sheet-price-row">
+          <span class="sheet-price ${priceCls}">${price ? price.toLocaleString() + "원" : ""}</span>${pill}
+        </div>
+        ${unit}${checked}${note}
+        <div class="sheet-section-title">가격 추이</div>
+        <div class="sheet-chart" id="sheetChart"><div class="sheet-chart-empty">불러오는 중…</div></div>
+        <div id="sheetStats"></div>
+        ${buy}`;
+    }
+
+    async function openSheet(item) {
+      const token = ++sheetToken;
+      sheetEndedKey = null;
+      sheetBodyEl.innerHTML = sheetShell(item, { checking: true });
+      overlayEl.classList.add("open");
+
+      const slug = item.product_type;
+      const historyP = fetch(`/api/${slug}-price-history/${encodeURIComponent(item.item_key)}`)
+        .then((r) => r.json()).catch(() => ({ points: [] }));
+      const verifyP = fetch(`/api/hotdeals/${slug}/${encodeURIComponent(item.item_key)}/verify`, { method: "POST" })
+        .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+
+      const [history, verify] = await Promise.all([historyP, verifyP]);
+      if (token !== sheetToken) return;
+
+      const state = verify
+        ? { price: verify.price, ended: !verify.is_hotdeal, age: verify.checked_age_seconds, rateLimited: verify.rate_limited }
+        : { price: item.price, ended: false, age: item.checked_age_seconds };
+      const merged = verify && verify.is_hotdeal
+        ? { ...item, price: verify.price, pack_qty: verify.pack_qty, unit_cost: verify.unit_cost }
+        : item;
+      if (state.ended) sheetEndedKey = `${item.product_type}|${item.item_key}`;
+      sheetBodyEl.innerHTML = sheetShell(merged, state);
+
+      // 같은 productId 아래 수량 옵션이 섞여 기록된 극단값(현재가의 2.2배 초과)은
+      // 그래프/통계를 왜곡하므로 제외한다.
+      const base = state.price || item.price;
+      const points = (history.points || []).filter((p) => p.price && (!base || p.price <= base * 2.2));
+      renderChartAndStats(points);
+
+      const buyEl = document.getElementById("sheetBuy");
+      if (buyEl) {
+        buyEl.addEventListener("click", () => {
+          try { fetch(`/api/${slug}-click/${encodeURIComponent(item.item_key)}`, { method: "POST", keepalive: true }); } catch (e) {}
+        });
+      }
+    }
+
+    function renderChartAndStats(points) {
+      const chartEl = document.getElementById("sheetChart");
+      const statsEl = document.getElementById("sheetStats");
+      if (points.length < 2) {
+        chartEl.innerHTML = '<div class="sheet-chart-empty">아직 가격 추이 데이터가 부족합니다.</div>';
         return;
       }
-      areaEl.classList.add("open");
-      if (areaEl.dataset.loaded) return;
-
-      areaEl.innerHTML = '<div class="chart-empty">불러오는 중...</div>';
-      try {
-        const res = await fetch(`/api/${slug}-price-history/${encodeURIComponent(itemKey)}`);
-        const data = await res.json();
-        const points = data.points || [];
-        if (points.length < 2) {
-          areaEl.innerHTML = '<div class="chart-empty">아직 가격 추이 데이터가 부족합니다.</div>';
-        } else {
-          areaEl.innerHTML = "<canvas></canvas>";
-          drawPriceChart(areaEl.querySelector("canvas"), points);
-        }
-        areaEl.dataset.loaded = "1";
-      } catch (e) {
-        areaEl.innerHTML = '<div class="chart-empty">불러오지 못했습니다.</div>';
-      }
+      chartEl.innerHTML = "<canvas></canvas>";
+      drawPriceChart(chartEl.querySelector("canvas"), points);
+      const prices = points.map((p) => p.price);
+      const min = Math.min(...prices), max = Math.max(...prices);
+      const avg = Math.round(prices.reduce((a, b) => a + b, 0) / prices.length);
+      statsEl.innerHTML = `
+        <div class="stat-box">
+          <div class="stat-cell"><div class="stat-label">최고가</div><div class="stat-value hi">${max.toLocaleString()}원</div></div>
+          <div class="stat-cell"><div class="stat-label">평균가</div><div class="stat-value">${avg.toLocaleString()}원</div></div>
+          <div class="stat-cell"><div class="stat-label">최저가</div><div class="stat-value lo">${min.toLocaleString()}원</div></div>
+        </div>`;
     }
 
     function drawPriceChart(canvas, points) {
       const dpr = window.devicePixelRatio || 1;
-      const cssWidth = canvas.parentElement.clientWidth || 220;
-      const cssHeight = 70;
+      const cssWidth = canvas.parentElement.clientWidth || 300;
+      const cssHeight = 150;
       canvas.width = cssWidth * dpr;
       canvas.height = cssHeight * dpr;
       canvas.style.width = cssWidth + "px";
@@ -253,39 +380,48 @@
       const ctx = canvas.getContext("2d");
       ctx.scale(dpr, dpr);
 
+      const times = points.map((p) => new Date(p.recorded_at).getTime());
+      const t0 = Math.min(...times), t1 = Math.max(...times);
       const prices = points.map((p) => p.price);
-      const min = Math.min(...prices);
-      const max = Math.max(...prices);
-      const padX = 4;
-      const topPad = 12;
-      const w = cssWidth - padX * 2;
-      const h = cssHeight - topPad - 6;
+      const min = Math.min(...prices), max = Math.max(...prices);
+      const padL = 6, padR = 6, topPad = 20, botPad = 20;
+      const w = cssWidth - padL - padR;
+      const h = cssHeight - topPad - botPad;
       const range = max - min || 1;
-
-      const xAt = (i) => padX + (i / (points.length - 1)) * w;
+      const tRange = t1 - t0 || 1;
+      const xAt = (t) => padL + ((t - t0) / tRange) * w;
       const yAt = (v) => topPad + h - ((v - min) / range) * h;
+
+      ctx.strokeStyle = "#e5e7eb";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      [min, max].forEach((v) => {
+        ctx.beginPath(); ctx.moveTo(padL, yAt(v)); ctx.lineTo(padL + w, yAt(v)); ctx.stroke();
+      });
+      ctx.setLineDash([]);
 
       ctx.strokeStyle = "#ef4444";
       ctx.lineWidth = 2;
       ctx.beginPath();
       points.forEach((p, i) => {
-        const x = xAt(i), y = yAt(p.price);
+        const x = xAt(times[i]), y = yAt(p.price);
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       });
       ctx.stroke();
 
-      const lastX = xAt(points.length - 1), lastY = yAt(points[points.length - 1].price);
+      const lastX = xAt(times[times.length - 1]), lastY = yAt(points[points.length - 1].price);
       ctx.fillStyle = "#ef4444";
-      ctx.beginPath();
-      ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2); ctx.fill();
 
       ctx.fillStyle = "#6b7280";
-      ctx.font = "10px sans-serif";
+      ctx.font = "10.5px sans-serif";
       ctx.textAlign = "left";
-      ctx.fillText(`최저 ${min.toLocaleString()}원`, padX, 9);
+      ctx.fillText(`최고 ${max.toLocaleString()}원`, padL, 12);
       ctx.textAlign = "right";
-      ctx.fillText(`최고 ${max.toLocaleString()}원`, padX + w, 9);
+      ctx.fillText(`최저 ${min.toLocaleString()}원`, padL + w, cssHeight - 6);
+      const fmtDate = (t) => { const d = new Date(t); return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`; };
+      ctx.textAlign = "left";
+      ctx.fillText(fmtDate(t0), padL, cssHeight - 6);
     }
 
     load();

@@ -415,14 +415,32 @@ def _notify_variant_new_lows(pt: product_ranking.ProductType, variant_lows: list
     telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
 
 
+def _notify_after_snapshot(pt: product_ranking.ProductType, result: dict | None) -> None:
+    if not result:
+        return
+    _notify_margin_warnings(pt, result.get("margin_warnings") or [])
+    _notify_variant_new_lows(pt, result.get("variant_new_lows") or [])
+    _notify_price_alerts()
+
+
 def _run_price_snapshot_and_notify(pt: product_ranking.ProductType) -> None:
     try:
         result = product_ranking.snapshot_prices(pt, limit=15)
-        _notify_margin_warnings(pt, result.get("margin_warnings") or [])
-        _notify_variant_new_lows(pt, result.get("variant_new_lows") or [])
-        _notify_price_alerts()
+        _notify_after_snapshot(pt, result)
     except Exception as e:
         telegram_bot.alert_admin(f"가격 스냅샷/알림 작업 실패 ({pt.table_name}): {e}")
+        raise
+
+
+# 핫딜 가격은 타임세일이라 전체 순환(한 바퀴 5시간+)만으로는 화면 가격이
+# 어긋난다 - 지금 핫딜로 뜬 상품만 10분마다 따로 먼저 다시 확인한다(오래
+# 확인 안 된 것부터 8개씩 - 검색 API 분당 한도 보호는 기존 슬롯 예약이 담당).
+def _run_hotdeal_priority_refresh(pt: product_ranking.ProductType) -> None:
+    try:
+        result = product_ranking.refresh_hotdeal_prices(pt, limit=8)
+        _notify_after_snapshot(pt, result)
+    except Exception as e:
+        telegram_bot.alert_admin(f"핫딜 우선 갱신 작업 실패 ({pt.table_name}): {e}")
         raise
 
 
@@ -436,6 +454,18 @@ scheduler.add_job(
     functools.partial(_run_price_snapshot_and_notify, product_ranking.SNACK),
     trigger=IntervalTrigger(minutes=30),
     id="price_snapshot_snack",
+    replace_existing=True,
+)
+scheduler.add_job(
+    functools.partial(_run_hotdeal_priority_refresh, product_ranking.BEVERAGE),
+    trigger=IntervalTrigger(minutes=10),
+    id="hotdeal_refresh_beverage",
+    replace_existing=True,
+)
+scheduler.add_job(
+    functools.partial(_run_hotdeal_priority_refresh, product_ranking.SNACK),
+    trigger=IntervalTrigger(minutes=10),
+    id="hotdeal_refresh_snack",
     replace_existing=True,
 )
 
@@ -2019,6 +2049,26 @@ def api_hotdeals(user: dict = Depends(require_web_user)):
     items = product_ranking.list_active_hotdeals(product_ranking.BEVERAGE) + product_ranking.list_active_hotdeals(product_ranking.SNACK)
     items.sort(key=lambda it: it["detected_at"] or "", reverse=True)
     return {"items": items}
+
+
+@app.post("/api/hotdeals/{product_type}/{item_key}/verify")
+def api_hotdeal_verify(product_type: str, item_key: str, user: dict = Depends(require_web_user)):
+    """핫딜을 눌렀을 때 그 상품 1개의 가격을 쿠팡에서 즉시 다시 확인한다 -
+    저장된 가격이 몇 시간 전 것이라 실제와 달랐던 문제 대응. 쿨다운(3분) 안에
+    이미 확인된 상품은 API를 다시 쓰지 않고 저장된 확인 시각을 그대로 보여준다.
+    확인 결과 가격이 올랐으면 is_hotdeal=false로 내려가 화면에서 빠진다."""
+    pt = {"beverage": product_ranking.BEVERAGE, "snack": product_ranking.SNACK}.get(product_type)
+    if pt is None:
+        raise HTTPException(status_code=404, detail="unknown product_type")
+    result = product_ranking.verify_hotdeal(pt, item_key)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail="item not found")
+    snapshot = result.pop("snapshot", None)
+    try:
+        _notify_after_snapshot(pt, snapshot)
+    except Exception as e:
+        print("[HOTDEAL_VERIFY] 알림 처리 실패:", e)
+    return result
 
 
 @app.get("/admin/biz-tools", response_class=HTMLResponse)

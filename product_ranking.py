@@ -50,6 +50,7 @@ import hmac
 import json
 import os
 import re
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -967,7 +968,10 @@ def list_all_price_variants() -> list[dict]:
     return result
 
 
-def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
+def snapshot_prices(
+    pt: ProductType, limit: int = 15, item_keys: list[str] | None = None,
+    delay_seconds: float = SEARCH_DELAY_SECONDS_PRICE_CHECK,
+) -> dict:
     """이미 매칭된 상품들의 오늘자 가격을 순환 조회해서 price_history에
     쌓는다. reference_url/image_url/partners_link는 절대 건드리지 않는다 -
     가격만 갱신하려고 매번 키워드로 재검색하면 그날그날 검색 1순위가 바뀌어
@@ -995,14 +999,27 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
         print(f"[PRODUCT_RANKING:{pt.key}] 카탈로그 로드 실패:", e)
         return {"ok": False, "error": str(e)}
 
+    # item_keys를 주면 그 상품들만 대상으로 한다(핫딜 우선 갱신/클릭 시점
+    # 재확인용) - 정렬/매칭/기록 로직은 전체 순환과 완전히 같다.
+    if item_keys is not None and not item_keys:
+        return {
+            "ok": True, "checked": 0, "recorded": 0, "rate_limited": False,
+            "new_lows": [], "margin_warnings": [], "variant_new_lows": [],
+        }
+    key_filter = ""
+    key_params: tuple = ()
+    if item_keys:
+        key_filter = f"AND item_key IN ({','.join(['?'] * len(item_keys))})"
+        key_params = tuple(item_keys)
+
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(f"""
     SELECT item_key, item_name, price, pending_price, pending_count, coupang_product_id FROM {pt.table_name}
-    WHERE reference_url IS NOT NULL AND deleted = 0 AND manual_override = 1
+    WHERE reference_url IS NOT NULL AND deleted = 0 AND manual_override = 1 {key_filter}
     ORDER BY price_checked_at ASC NULLS FIRST
     LIMIT ?
-    """, (limit,))
+    """, key_params + (limit,))
     targets = cur.fetchall()
 
     checked = 0
@@ -1028,7 +1045,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
             print(f"[PRODUCT_RANKING:{pt.key}] {keyword!r} 가격 조회 실패:", e)
             cur.execute(f"UPDATE {pt.table_name} SET price_checked_at = ? WHERE item_key = ?", (now, item_key))
             conn.commit()
-            time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
+            time.sleep(delay_seconds)
             continue
 
         # 실패/스킵이어도 순환 커서는 앞으로 보낸다 - 안 그러면 매번 같은
@@ -1037,7 +1054,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
 
         if not candidates:
             conn.commit()
-            time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
+            time.sleep(delay_seconds)
             continue
 
         # 저장된 productId와 정확히 일치하는 후보가 있으면 "진짜 같은 상품"임이
@@ -1099,7 +1116,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
         result = id_match or _pick_preferred_candidate(candidates, stored_name or "")
         if not result.get("price"):
             conn.commit()
-            time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
+            time.sleep(delay_seconds)
             continue
 
         found_name = result.get("product_name") or ""
@@ -1126,7 +1143,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
                       f"(저장된 이름={stored_name!r}, 저장가={stored_price}, 검색결과={found_name!r}, "
                       f"검색가={new_price}, 유사도={sim:.2f}, 기준={threshold}) - 가격 기록 건너뜀")
                 conn.commit()
-                time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
+                time.sleep(delay_seconds)
                 continue
 
             # 상품명 유사도만으로는 "같은 브랜드/맛인데 낱개/묶음처럼 판매단위가
@@ -1157,7 +1174,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
                 print(f"[PRODUCT_RANKING:{pt.key}] {item_key!r} 가격 급변 감지({stored_price} -> {new_price}, "
                       f"{confirmed_count}/{required_confirmations}회 확인) - 재확인 필요")
                 conn.commit()
-                time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
+                time.sleep(delay_seconds)
                 continue
             cur.execute(f"UPDATE {pt.table_name} SET pending_price = NULL, pending_count = 0 WHERE item_key = ?", (item_key,))
         elif pending_price is not None or pending_count:
@@ -1243,7 +1260,7 @@ def snapshot_prices(pt: ProductType, limit: int = 15) -> dict:
             })
 
         conn.commit()
-        time.sleep(SEARCH_DELAY_SECONDS_PRICE_CHECK)
+        time.sleep(delay_seconds)
 
     conn.close()
     return {
@@ -1270,6 +1287,14 @@ def get_price_history(pt: ProductType, item_key: str) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def _age_seconds(iso: str | None) -> float | None:
+    # 서버가 찍은 시각(datetime.now)을 서버 시계로 다시 빼서 "몇 초 전"을
+    # 만든다 - 브라우저 시간대와 어긋나도 틀리지 않게 경과 시간으로 내려준다.
+    if not iso:
+        return None
+    return max(0.0, (datetime.now() - datetime.fromisoformat(iso)).total_seconds())
 
 
 def list_active_hotdeals(pt: ProductType, limit: int = 30) -> list[dict]:
@@ -1302,7 +1327,11 @@ def list_active_hotdeals(pt: ProductType, limit: int = 30) -> list[dict]:
             SELECT ph.pack_qty FROM price_history ph
             WHERE ph.product_type = ? AND ph.item_key = t.item_key AND ph.price = t.price
             ORDER BY ph.recorded_at DESC LIMIT 1
-        ) AS pack_qty
+        ) AS pack_qty,
+        (
+            SELECT MAX(ph2.recorded_at) FROM price_history ph2
+            WHERE ph2.product_type = ? AND ph2.item_key = t.item_key
+        ) AS confirmed_at
     FROM {pt.table_name} t
     JOIN pending_price_alerts a
         ON a.product_type = ? AND a.item_key = t.item_key
@@ -1312,7 +1341,7 @@ def list_active_hotdeals(pt: ProductType, limit: int = 30) -> list[dict]:
     GROUP BY t.item_key, t.item_name, t.image_url, t.partners_link, t.price
     ORDER BY detected_at DESC
     LIMIT ?
-    """, (pt.key, pt.key, pt.key, limit))
+    """, (pt.key, pt.key, pt.key, pt.key, limit))
     rows = cur.fetchall()
     conn.close()
     result = []
@@ -1322,9 +1351,79 @@ def list_active_hotdeals(pt: ProductType, limit: int = 30) -> list[dict]:
         result.append({
             "item_key": r[0], "item_name": r[1], "image_url": r[2], "partners_link": r[3],
             "price": price, "detected_at": r[5], "product_type": pt.key,
-            "pack_qty": pack_qty, "unit_cost": unit_cost,
+            "pack_qty": pack_qty, "unit_cost": unit_cost, "price_checked_at": r[7],
+            "checked_age_seconds": _age_seconds(r[7]),
         })
     return result
+
+
+# 핫딜 가격은 타임세일 성격이라 전체 순환(한 바퀴 5시간+)만으로는 화면 가격이
+# 실제와 어긋난다 - 현재 핫딜로 뜬 상품만 따로 더 자주 다시 확인한다.
+def refresh_hotdeal_prices(pt: ProductType, limit: int = 8) -> dict:
+    keys = [h["item_key"] for h in list_active_hotdeals(pt, limit=100)]
+    return snapshot_prices(pt, limit=limit, item_keys=keys)
+
+
+# 사용자가 핫딜을 눌렀을 때 그 상품 1개만 즉시 재조회한다. 같은 상품을 여러
+# 사람이 동시에 누르거나 짧은 시간에 반복해 눌러도 쿠팡 API를 한 번만 쓰도록
+# 상품별 락 + 쿨다운으로 묶는다(검색 API 시간당 한도 보호).
+HOTDEAL_VERIFY_COOLDOWN_SECONDS = 180
+_verify_locks: dict[str, threading.Lock] = {}
+_verify_locks_guard = threading.Lock()
+
+
+def _checked_age_seconds(pt: ProductType, item_key: str) -> float | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT price_checked_at FROM {pt.table_name} WHERE item_key = ?", (item_key,))
+    row = cur.fetchone()
+    conn.close()
+    return _age_seconds(row[0]) if row else None
+
+
+def verify_hotdeal(pt: ProductType, item_key: str) -> dict:
+    lock_key = f"{pt.key}:{item_key}"
+    with _verify_locks_guard:
+        lock = _verify_locks.setdefault(lock_key, threading.Lock())
+    result = None
+    rate_limited = False
+    with lock:
+        age = _checked_age_seconds(pt, item_key)
+        if age is None or age >= HOTDEAL_VERIFY_COOLDOWN_SECONDS:
+            result = snapshot_prices(pt, limit=1, item_keys=[item_key], delay_seconds=0)
+            rate_limited = bool(result.get("rate_limited"))
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT item_name, image_url, price, partners_link FROM {pt.table_name} WHERE item_key = ?",
+        (item_key,),
+    )
+    row = cur.fetchone()
+    # 화면에 보여줄 "마지막 확인" 시각은 시도한 시각(price_checked_at)이 아니라
+    # 실제로 가격이 기록된 시각이다 - 검색이 엉뚱한 상품을 가져와 기록을
+    # 건너뛴 경우에도 "방금 확인"으로 보이면 거짓 안내가 된다.
+    cur.execute(
+        "SELECT MAX(recorded_at) FROM price_history WHERE product_type = ? AND item_key = ?",
+        (pt.key, item_key),
+    )
+    confirmed_at = cur.fetchone()[0]
+    conn.close()
+    if not row:
+        return {"ok": False, "error": "not_found"}
+
+    hot = next((h for h in list_active_hotdeals(pt, limit=100) if h["item_key"] == item_key), None)
+    return {
+        "ok": True,
+        "is_hotdeal": hot is not None,
+        "price": row[2],
+        "checked_at": confirmed_at,
+        "checked_age_seconds": _age_seconds(confirmed_at),
+        "rate_limited": rate_limited,
+        "pack_qty": hot["pack_qty"] if hot else None,
+        "unit_cost": hot["unit_cost"] if hot else None,
+        "snapshot": result,
+    }
 
 
 def list_recent_price_alerts(limit: int = 200) -> list[dict]:
