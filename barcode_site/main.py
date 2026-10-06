@@ -10,7 +10,7 @@ catalog_items 테이블을 읽기만 한다 - 테이블 생성/쓰기는 전혀 
 (본체가 이미 그 테이블의 유일한 소유자)."""
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # 이 파일이 어느 작업 디렉터리에서 실행되든(로컬 개발/Render의 Root Directory
@@ -447,7 +447,8 @@ def api_sales_ranking(
     if category not in _SALES_RANKING_CATEGORIES:
         return {"items": [], "period_from": None, "period_to": None}
 
-    today = datetime.now().date()
+    # 서버는 UTC라 한국 날짜로 계산해야 월·화요일에도 "이번 주"가 맞게 잡힌다.
+    today = datetime.now(timezone(timedelta(hours=9))).date()
     if period == "week":
         start = today - timedelta(days=today.weekday())
     elif period == "month":

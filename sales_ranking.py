@@ -22,7 +22,7 @@ store_reports.py/main.py는 판매량을 같은 카테고리로 기록함), 순�
 않았을 수 있어 제외한다(어제까지만).
 """
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import db_conn
@@ -32,6 +32,17 @@ from orderqueen_bot import download_orderqueen_xlsx_with_retry
 from parser import parse_menu_sales_xlsx
 
 BASE_DIR = Path(__file__).resolve().parent
+# 서버(Render)는 UTC라 date.today()가 한국보다 9시간 늦다 - 매일 04:20 KST
+# (=전날 19:20 UTC)에 도는 수집 배치가 "어제"를 UTC 기준으로 잡아서 한국 기준
+# 이틀 전 데이터까지만 모았고(월요일 판매는 수요일에야 들어옴), 그래서 월·화
+# 에는 "이번 주" 순위가 비어 있었다. 날짜 계산은 전부 한국 시간으로 한다.
+KST_TZ = timezone(timedelta(hours=9))
+
+
+def kst_today() -> date:
+    return datetime.now(KST_TZ).date()
+
+
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 
 CATEGORIES = ("icecream", "coupang", "beverage", "wholesale")
@@ -122,8 +133,8 @@ def _collect_one_account(store_id: str, account_id: int) -> None:
         return
 
     last_date = _get_last_collected_date(store_id, account_id)
-    period_from = (last_date + timedelta(days=1)) if last_date else (date.today() - timedelta(days=1))
-    period_to = date.today() - timedelta(days=1)
+    period_from = (last_date + timedelta(days=1)) if last_date else (kst_today() - timedelta(days=1))
+    period_to = kst_today() - timedelta(days=1)
     if period_from > period_to:
         return  # 어제까지 이미 수집 완료
 
@@ -187,7 +198,7 @@ def collect_all_pending() -> dict:
 
 
 def _period_range(period: str, today: date | None = None) -> tuple[date, date]:
-    today = today or date.today()
+    today = today or kst_today()
     if period == "week":
         start = today - timedelta(days=today.weekday())  # 이번 주 월요일
     elif period == "month":
