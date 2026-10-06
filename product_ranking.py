@@ -721,6 +721,25 @@ def _extract_weight_grams(text: str) -> float | None:
     return float(m.group(1)) if m else None
 
 
+# 이름 유사도/상품번호 매칭은 "제로/라이트" 같은 변형 제품을 구분하지 못한다
+# (실측 2026-10-06: 카탈로그 "피크닉 사과"가 쿠팡 "피크닉 제로 사과"
+# 상품번호에 연결돼 있었고, 그 상품의 옵션 가격으로 최저가 알림이 나감).
+# 기대 이름과 찾은 이름 중 한쪽에만 이 단어가 있으면 다른 상품으로 본다.
+_PRODUCT_VARIANT_WORDS = ("제로", "zero", "라이트", "light", "lite", "무설탕", "저당", "디카페인", "0칼로리")
+
+
+def _variant_words(text: str) -> set[str]:
+    lowered = (text or "").lower().replace(" ", "")
+    return {w for w in _PRODUCT_VARIANT_WORDS if w in lowered}
+
+
+def _variant_mismatch(expected_names: list[str], found_name: str) -> bool:
+    expected = set()
+    for n in expected_names:
+        expected |= _variant_words(n)
+    return expected != _variant_words(found_name)
+
+
 # 상품명에서 묶음 수량을 못 읽었을 때(pack_qty=None) 마진 경고를 몇 번
 # 연속으로 봐야 실제로 알릴지. 이 경우 방금 찾은 가격이 진짜 개당가인지
 # (검색이 우연히 수량 미표기의 다른 판매단위 상품을 골라온 건 아닌지)
@@ -1094,6 +1113,23 @@ def snapshot_prices(
                         continue
                     filtered.append(c)
                 same_id_candidates = filtered
+            # 저장된 상품번호가 "제로/라이트" 같은 변형 제품을 가리키는 경우 -
+            # 그 번호의 옵션 가격을 학습/기록하지 않는다. 이름 유사도 폴백으로
+            # 다른 상품을 집어 상품번호만 바꿔치기하는 것도 막는다(링크는 그대로
+            # 남아 가격과 링크가 어긋나므로) - 이 항목은 관리자 재연결 전까지 건너뜀.
+            if same_id_candidates:
+                matching = [
+                    c for c in same_id_candidates
+                    if not _variant_mismatch([stored_name or "", keyword or ""], c.get("product_name") or "")
+                ]
+                if not matching:
+                    print(f"[PRODUCT_RANKING:{pt.key}] {item_key!r} 저장된 상품번호가 변형 제품(제로/라이트 등)으로 "
+                          f"의심됨(저장된 이름={stored_name!r}, 쿠팡 이름={same_id_candidates[0].get('product_name')!r}) "
+                          f"- 가격 기록 건너뜀, 상품 재연결 필요")
+                    conn.commit()
+                    time.sleep(delay_seconds)
+                    continue
+                same_id_candidates = matching
             if same_id_candidates:
                 if stored_price and len(same_id_candidates) > 1:
                     id_match = min(
@@ -1122,6 +1158,13 @@ def snapshot_prices(
         found_name = result.get("product_name") or ""
         new_price = result["price"]
         match_method = "product_id" if id_match else "similarity"
+
+        if _variant_mismatch([stored_name or "", keyword or ""], found_name):
+            print(f"[PRODUCT_RANKING:{pt.key}] {item_key!r} 변형 제품 불일치 의심(제로/라이트 등) - "
+                  f"저장된 이름={stored_name!r}, 검색결과={found_name!r} - 가격 기록 건너뜀")
+            conn.commit()
+            time.sleep(delay_seconds)
+            continue
 
         if id_match:
             required_confirmations = 1
