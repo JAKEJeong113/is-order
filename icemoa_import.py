@@ -115,10 +115,10 @@ def _insert_new(barcode: str, name: str, price: int, box_qty: int, notes: str) -
             """
             INSERT INTO catalog_items
                 (barcode, menu_name, search_keyword, fixed_url, pack_qty, min_order, notes,
-                 is_coupang, icecream_box_qty, category, menu_code, recommended_price, updated_at)
-            VALUES (?, ?, '', '', 1, 1, ?, ?, ?, '', '', ?, ?)
+                 is_coupang, icecream_box_qty, category, menu_code, recommended_price, updated_at, created_at)
+            VALUES (?, ?, '', '', 1, 1, ?, ?, ?, '', '', ?, ?, ?)
             """,
-            (barcode, name, notes, CATEGORY_ICECREAM, box_qty, price, now),
+            (barcode, name, notes, CATEGORY_ICECREAM, box_qty, price, now, now),
         )
         conn.commit()
     finally:

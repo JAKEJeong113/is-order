@@ -112,6 +112,15 @@ _conn.commit()
 _conn.close()
 
 
+# 신제품 안내는 "카탈로그에 처음 등록된 시각"(created_at) 기준이다 - 본체
+# (mapping.init_catalog_table)도 같은 ALTER를 하지만, 이 사이트가 먼저
+# 배포돼도 조회가 깨지지 않게 여기서도 보장한다(IF NOT EXISTS라 중복 무해).
+_conn = db_conn.get_conn()
+_conn.cursor().execute("ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS created_at TEXT")
+_conn.commit()
+_conn.close()
+
+
 def _notice_cutoff(days: int = 28) -> str:
     """신제품/가격인상 안내에 쓸 컷오프 시각 - 기존 N일 전 시각과
     app_notice_baseline(출시 기준시점) 중 더 최근인 쪽을 쓴다."""
@@ -298,12 +307,10 @@ def api_new_products(
     category: str | None = Query(None, description="본체 is_coupang 값(0=아이스크림,2=도매몰 등). 안 주면 전체."),
     limit: int = Query(100, ge=1, le=300),
 ):
-    """"신제품 안내" 목록 - 도매몰 자동 크롤링(catalog_auto_import.py)이나
-    관리자가 수동으로 새로 등록/수정한 상품을 최근 것부터 보여준다.
-    catalog_items에 별도 "등록일" 컬럼이 없어서 updated_at(마지막 수정 시각)을
-    기준으로 쓴다 - 새로 추가되는 상품은 그 순간 updated_at이 찍히므로
-    "신제품"의 근사치로 충분하지만, 기존 상품을 관리자가 단순히 편집만 해도
-    같이 올라온다는 점은 감안해야 한다."""
+    """"신제품 안내" 목록 - 카탈로그에 처음 등록된 상품(created_at)만 최근
+    것부터 보여준다. 기존 상품의 가격 수정 등은 updated_at만 바꾸므로 여기
+    안 뜬다(가격 인상은 "가격인상 안내"가 따로 담당). created_at이 비어있는
+    예전 상품은 등록일을 알 수 없어 제외된다."""
     cutoff = _notice_cutoff()
 
     conn = db_conn.get_conn()
@@ -314,8 +321,8 @@ def api_new_products(
                 """
                 SELECT barcode, menu_name, recommended_price
                 FROM catalog_items
-                WHERE updated_at >= ? AND is_coupang = ?
-                ORDER BY updated_at DESC
+                WHERE created_at >= ? AND is_coupang = ?
+                ORDER BY created_at DESC
                 LIMIT ?
                 """,
                 (cutoff, int(category), limit),
@@ -325,8 +332,8 @@ def api_new_products(
                 """
                 SELECT barcode, menu_name, recommended_price
                 FROM catalog_items
-                WHERE updated_at >= ?
-                ORDER BY updated_at DESC
+                WHERE created_at >= ?
+                ORDER BY created_at DESC
                 LIMIT ?
                 """,
                 (cutoff, limit),

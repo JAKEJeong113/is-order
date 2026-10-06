@@ -150,6 +150,10 @@ def init_catalog_table() -> None:
         updated_at TEXT
     )
     """)
+    # 카탈로그에 "처음 등록된 시각" - updated_at은 가격 수정에도 바뀌어서
+    # 신제품 안내(바코드 사이트)에는 쓸 수 없다. 신규 INSERT 때만 찍고, 이후
+    # 수정(upsert의 ON CONFLICT)에서는 건드리지 않는다.
+    cur.execute("ALTER TABLE catalog_items ADD COLUMN IF NOT EXISTS created_at TEXT")
     conn.commit()
 
     cur.execute("SELECT COUNT(*) FROM catalog_items")
@@ -350,12 +354,17 @@ def replace_catalog_from_items(items: list["CoupangCatalogItem"]) -> int:
     now = datetime.now().isoformat(timespec="seconds")
     conn = db_conn.get_conn()
     cur = conn.cursor()
+    # 통째로 교체해도 이미 있던 바코드의 최초 등록일은 보존한다(안 그러면
+    # 엑셀 업로드 한 번에 전 상품이 "신제품"이 된다).
+    cur.execute("SELECT barcode, created_at FROM catalog_items")
+    created_by_barcode = {r[0]: r[1] for r in cur.fetchall()}
     cur.execute("DELETE FROM catalog_items")
     for item in items:
+        created_at = created_by_barcode[item.barcode] if item.barcode in created_by_barcode else now
         cur.execute(f"""
-        INSERT INTO catalog_items ({", ".join(_CATALOG_DB_COLUMNS)}, updated_at)
-        VALUES ({", ".join(["?"] * (len(_CATALOG_DB_COLUMNS) + 1))})
-        """, _item_values(item, now))
+        INSERT INTO catalog_items ({", ".join(_CATALOG_DB_COLUMNS)}, updated_at, created_at)
+        VALUES ({", ".join(["?"] * (len(_CATALOG_DB_COLUMNS) + 2))})
+        """, _item_values(item, now) + (created_at,))
     conn.commit()
     conn.close()
     return len(items)
@@ -374,10 +383,10 @@ def upsert_catalog_item(item: "CoupangCatalogItem") -> None:
     old_price = row[0] if row else None
     set_clause = ", ".join(f"{c}=excluded.{c}" for c in _CATALOG_DB_COLUMNS if c != "barcode")
     cur.execute(f"""
-    INSERT INTO catalog_items ({", ".join(_CATALOG_DB_COLUMNS)}, updated_at)
-    VALUES ({", ".join(["?"] * (len(_CATALOG_DB_COLUMNS) + 1))})
+    INSERT INTO catalog_items ({", ".join(_CATALOG_DB_COLUMNS)}, updated_at, created_at)
+    VALUES ({", ".join(["?"] * (len(_CATALOG_DB_COLUMNS) + 2))})
     ON CONFLICT(barcode) DO UPDATE SET {set_clause}, updated_at=excluded.updated_at
-    """, _item_values(item, now))
+    """, _item_values(item, now) + (now,))
     conn.commit()
     conn.close()
     if item.is_coupang != 99:
