@@ -1575,6 +1575,8 @@
       document.documentElement.setAttribute("data-theme", theme);
       themeToggleBtn.setAttribute("aria-checked", theme === "dark" ? "true" : "false");
       if (themeColorMeta) themeColorMeta.setAttribute("content", theme === "dark" ? "#121917" : "#2fc5b3");
+      // 안드로이드 앱이면 네이티브 화면(버튼/다이얼로그/상태바)도 같은 테마로 맞춘다.
+      if (window.AndroidTheme && window.AndroidTheme.setTheme) window.AndroidTheme.setTheme(theme);
     }
     applyTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light");
     themeToggleBtn.addEventListener("click", () => {

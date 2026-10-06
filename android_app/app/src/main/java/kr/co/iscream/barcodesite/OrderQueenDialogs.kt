@@ -1,7 +1,7 @@
 package kr.co.iscream.barcodesite
 
 import android.Manifest
-import android.app.AlertDialog
+import androidx.appcompat.app.AlertDialog
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.os.Build
@@ -92,7 +92,7 @@ object OrderQueenDialogs {
             text = "+ 계정 추가"
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(android.graphics.Color.parseColor("#08796F"))
+            setTextColor(androidx.core.content.ContextCompat.getColor(activity, R.color.mint_dark))
             setPadding(0, dp(activity, 10), 0, dp(activity, 10))
         }
         root.addView(addAccountBtn)
@@ -124,7 +124,7 @@ object OrderQueenDialogs {
         }
         val formSaveBtn = TextView(activity).apply {
             text = "저장"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(android.graphics.Color.parseColor("#08796F"))
+            setTextColor(androidx.core.content.ContextCompat.getColor(activity, R.color.mint_dark))
             setPadding(dp(activity, 4), dp(activity, 10), dp(activity, 4), dp(activity, 4))
         }
         val formBtnRow = LinearLayout(activity).apply {
@@ -197,7 +197,7 @@ object OrderQueenDialogs {
                 row.addView(TextView(activity).apply {
                     text = "설정"
                     textSize = 13f
-                    setTextColor(android.graphics.Color.parseColor("#08796F"))
+                    setTextColor(androidx.core.content.ContextCompat.getColor(activity, R.color.mint_dark))
                     setPadding(0, 0, dp(activity, 14), 0)
                     setOnClickListener {
                         showEditAccountDialog(activity, acc.id) {
@@ -214,7 +214,7 @@ object OrderQueenDialogs {
                 row.addView(TextView(activity).apply {
                     text = "삭제"
                     textSize = 13f
-                    setTextColor(android.graphics.Color.parseColor("#993C1D"))
+                    setTextColor(androidx.core.content.ContextCompat.getColor(activity, R.color.danger))
                     setOnClickListener {
                         AlertDialog.Builder(activity)
                             .setMessage("\"${acc.nickname}\" 계정을 삭제할까요?")
@@ -848,7 +848,7 @@ object OrderQueenDialogs {
             text = "+ 분류 추가"
             textSize = 13.5f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(android.graphics.Color.parseColor("#08796F"))
+            setTextColor(androidx.core.content.ContextCompat.getColor(activity, R.color.mint_dark))
             setPadding(0, dp(activity, 12), 0, dp(activity, 4))
         }
         root.addView(addRowBtn)
@@ -856,7 +856,7 @@ object OrderQueenDialogs {
         val syncBtn = TextView(activity).apply {
             text = "오더퀸에서 다시 불러오기(동기화)"
             textSize = 12.5f
-            setTextColor(android.graphics.Color.parseColor("#08796F"))
+            setTextColor(androidx.core.content.ContextCompat.getColor(activity, R.color.mint_dark))
             setPadding(0, dp(activity, 6), 0, dp(activity, 4))
         }
         root.addView(syncBtn)

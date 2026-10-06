@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="app_bg">#121917</color>
+    <color name="status_bar">#0C2A26</color>
+    <color name="mint_dark">#5FE0D0</color>
+    <color name="danger">#FF9A7D</color>
+    <color name="btn_surface">#1B2522</color>
+    <color name="btn_stroke">#2C3935</color>
+</resources>

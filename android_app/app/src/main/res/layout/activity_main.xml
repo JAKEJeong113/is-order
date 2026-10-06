@@ -40,7 +40,7 @@
         android:focusable="true"
         android:gravity="center"
         android:text="?"
-        android:textColor="#08796F"
+        android:textColor="@color/mint_dark"
         android:textSize="18sp"
         android:textStyle="bold" />
 

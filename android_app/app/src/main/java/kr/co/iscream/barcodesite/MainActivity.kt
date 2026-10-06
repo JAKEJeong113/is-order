@@ -1,9 +1,13 @@
 package kr.co.iscream.barcodesite
 
 import android.Manifest
-import android.app.AlertDialog
+import androidx.appcompat.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.drawable.ColorDrawable
+import android.widget.ImageView
+import android.widget.TextView
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -16,6 +20,7 @@ import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -42,6 +47,9 @@ class MainActivity : AppCompatActivity() {
         // onrender.com 주소(barcod-site.onrender.com, "barcode"에서 e가
         // 빠진 오타성 이름이었음) 대신 이 도메인을 쓴다.
         private const val BASE_URL = "https://barcode.is-cream.co.kr/"
+
+        private const val PREFS_NAME = "app_theme"
+        private const val PREF_THEME = "theme"
     }
 
     private lateinit var webView: WebView
@@ -97,6 +105,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // 웹페이지의 다크모드 토글(메뉴)과 네이티브 화면(버튼/다이얼로그/상태바
+    // 색)을 같은 상태로 맞추는 다리 - 웹이 "dark"/"light"를 넘겨주면
+    // 저장해두고 앱 전체의 야간모드를 그에 맞춘다. configChanges에 uiMode가
+    // 있어서 액티비티가 재생성되지 않으므로(WebView가 새로고침되지 않음)
+    // 이미 그려진 네이티브 뷰는 onConfigurationChanged에서 직접 다시 칠한다.
+    private inner class ThemeJsInterface {
+        @JavascriptInterface
+        fun setTheme(theme: String) {
+            val mode = if (theme == "dark") AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(PREF_THEME, theme).apply()
+            runOnUiThread { AppCompatDelegate.setDefaultNightMode(mode) }
+        }
+    }
+
     // 오더퀸 자동등록 기능(설정에서 켠 경우에만) - 웹페이지가 검색결과마다
     // "오더퀸에 등록" 버튼을 보여줄지 판단하는 데 isAvailable()을 쓰고,
     // 버튼을 누르면 registerItem(...)으로 네이티브 등록 다이얼로그를 띄운다.
@@ -135,6 +157,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 마지막으로 웹에서 알려준 테마를 첫 화면을 그리기 전에 적용해 앱을
+        // 켤 때 밝은 화면이 번쩍이지 않게 한다(저장값이 없으면 기기 설정을 따름).
+        when (getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(PREF_THEME, null)) {
+            "dark" -> AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
+            "light" -> AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
+        }
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
@@ -226,6 +254,24 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        repaintNativeViews()
+    }
+
+    private fun repaintNativeViews() {
+        window.setBackgroundDrawable(ColorDrawable(ContextCompat.getColor(this, R.color.app_bg)))
+        window.statusBarColor = ContextCompat.getColor(this, R.color.status_bar)
+        findViewById<TextView>(R.id.helpBtn).apply {
+            setBackgroundResource(R.drawable.settings_btn_bg)
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.mint_dark))
+        }
+        findViewById<ImageView>(R.id.settingsBtn).apply {
+            setBackgroundResource(R.drawable.settings_btn_bg)
+            setImageResource(R.drawable.ic_settings_gear)
+        }
+    }
+
     // 다중선택 등록(OqRegisterService)이 끝났을 때 결과를 놓치지 않게
     // 하는 곳 - 화면이 떠 있는 동안(onResume~onPause)만 콜백을 등록해둬서,
     // 서비스가 끝나는 순간 앱이 보이고 있으면 바로 팝업을 띄우고, 아니면
@@ -290,6 +336,7 @@ class MainActivity : AppCompatActivity() {
         // 노출한 네이티브 브리지를 제3자 콘텐츠가 악용할 여지가 없다.
         webView.addJavascriptInterface(WebAppInterface(), "AndroidScanner")
         webView.addJavascriptInterface(OrderQueenJsInterface(), "AndroidOrderQueen")
+        webView.addJavascriptInterface(ThemeJsInterface(), "AndroidTheme")
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
