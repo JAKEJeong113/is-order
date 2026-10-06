@@ -309,6 +309,10 @@ def init_store_vendor_table():
         # 활용"에 동의했는지(옵트인, 기본값 미동의) - vendor_id 무관하게 이
         # 테이블 전체에 두되 실제로는 orderqueen 계정에만 의미가 있다.
         cur.execute("ALTER TABLE store_vendor_credentials ADD COLUMN sales_data_consent INTEGER NOT NULL DEFAULT 0")
+    if "created_at" not in existing_cols:
+        # 가입일(계정을 처음 저장한 시각) - updated_at은 수정할 때마다 바뀌어서
+        # 신규 유입을 셀 수 없었다. INSERT 때만 찍고 이후 수정에서는 안 건드린다.
+        cur.execute("ALTER TABLE store_vendor_credentials ADD COLUMN created_at TEXT")
     conn.commit()
     conn.close()
 
@@ -387,14 +391,14 @@ def add_store_vendor_account(
     nickname = (nickname or "").strip() or ("기본" if is_first else f"계정{existing_count + 1}")
 
     cur.execute("""
-    INSERT INTO store_vendor_credentials (store_id, vendor_id, nickname, login_id_enc, login_pwd_enc, is_default, sales_data_consent, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO store_vendor_credentials (store_id, vendor_id, nickname, login_id_enc, login_pwd_enc, is_default, sales_data_consent, updated_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(store_id, vendor_id, nickname) DO UPDATE SET
         login_id_enc = excluded.login_id_enc,
         login_pwd_enc = excluded.login_pwd_enc,
         sales_data_consent = CASE WHEN excluded.sales_data_consent = 1 THEN 1 ELSE store_vendor_credentials.sales_data_consent END,
         updated_at = excluded.updated_at
-    """, (store_id, vendor_id, nickname, login_id_enc, login_pwd_enc, int(is_first), int(sales_data_consent), now))
+    """, (store_id, vendor_id, nickname, login_id_enc, login_pwd_enc, int(is_first), int(sales_data_consent), now, now))
     conn.commit()
 
     cur.execute(
