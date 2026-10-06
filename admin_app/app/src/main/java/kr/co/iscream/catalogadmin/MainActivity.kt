@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.text.InputType
 import android.view.View
 import android.webkit.HttpAuthHandler
@@ -19,6 +20,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationManagerCompat
 
 /**
  * "카탈로그 관리자" - is-order 본체의 /admin/quick-catalog 페이지를 감싸는
@@ -64,6 +66,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // /admin/polcent 페이지가 알림 접근 허용 여부를 보여주고 설정 화면을 여는 다리.
+    private inner class PolcentBridge {
+        @JavascriptInterface
+        fun isEnabled(): Boolean =
+            NotificationManagerCompat.getEnabledListenerPackages(this@MainActivity).contains(packageName)
+
+        @JavascriptInterface
+        fun openNotificationAccess() {
+            runOnUiThread {
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
+        }
+    }
+
     private fun prefs() = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private fun savedPassword(): String? = prefs().getString(KEY_PW, null)
     private fun setPassword(pw: String) = prefs().edit().putString(KEY_PW, pw).apply()
@@ -81,6 +97,7 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
         }
         webView.addJavascriptInterface(ScannerBridge(), "AndroidScanner")
+        webView.addJavascriptInterface(PolcentBridge(), "AndroidPolcent")
 
         webView.webViewClient = object : WebViewClient() {
             // 핫딜안내 모니터링의 상품명 링크(쿠팡)처럼 우리 도메인이 아닌

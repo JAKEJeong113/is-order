@@ -69,6 +69,7 @@ import patch_notes
 import barcode_app_patch_notes
 import popularity
 import sales_ranking
+import polcent
 import product_ranking
 import store_expiry
 import store_reports
@@ -142,6 +143,7 @@ product_ranking.init_search_api_rate_limit_table()
 catalog_auto_import.init_import_exclusions_table()
 catalog_auto_import.init_vendor_product_index_table()
 sales_ranking.init_sales_ranking_tables()
+polcent.init_tables()
 biz_tools.init_table()
 consumables.init_table()
 mapping.init_catalog_table()
@@ -2046,9 +2048,23 @@ def api_hotdeals(user: dict = Depends(require_web_user)):
     실시간으로 다시 걸러서 돌려주므로, 다음 가격 스캔에서 값이 오르면
     그 즉시 목록에서 빠진다(product_ranking.list_active_hotdeals 참고)."""
     usage_stats.log_event(f"web:{user['email']}", "hotdeals_view")
-    items = product_ranking.list_active_hotdeals(product_ranking.BEVERAGE) + product_ranking.list_active_hotdeals(product_ranking.SNACK)
+    items = (
+        product_ranking.list_active_hotdeals(product_ranking.BEVERAGE)
+        + product_ranking.list_active_hotdeals(product_ranking.SNACK)
+        + polcent.list_hotdeals()
+    )
     items.sort(key=lambda it: it["detected_at"] or "", reverse=True)
     return {"items": items}
+
+
+@app.get("/api/polcent-price-history/{item_key}")
+def api_polcent_price_history(item_key: str, _: dict = Depends(require_web_user)):
+    return {"points": polcent.get_price_points(item_key)}
+
+
+@app.post("/api/polcent-click/{item_key}")
+def api_polcent_click(item_key: str, _: dict = Depends(require_web_user)):
+    return {"ok": polcent.record_click(item_key)}
 
 
 @app.post("/api/hotdeals/{product_type}/{item_key}/verify")
@@ -2057,6 +2073,11 @@ def api_hotdeal_verify(product_type: str, item_key: str, user: dict = Depends(re
     저장된 가격이 몇 시간 전 것이라 실제와 달랐던 문제 대응. 쿨다운(3분) 안에
     이미 확인된 상품은 API를 다시 쓰지 않고 저장된 확인 시각을 그대로 보여준다.
     확인 결과 가격이 올랐으면 is_hotdeal=false로 내려가 화면에서 빠진다."""
+    if product_type == "polcent":
+        result = polcent.verify_item(item_key)
+        if not result.get("ok"):
+            raise HTTPException(status_code=404, detail="item not found")
+        return result
     pt = {"beverage": product_ranking.BEVERAGE, "snack": product_ranking.SNACK}.get(product_type)
     if pt is None:
         raise HTTPException(status_code=404, detail="unknown product_type")
@@ -2069,6 +2090,41 @@ def api_hotdeal_verify(product_type: str, item_key: str, user: dict = Depends(re
     except Exception as e:
         print("[HOTDEAL_VERIFY] 알림 처리 실패:", e)
     return result
+
+
+class PolcentIngestRequest(BaseModel):
+    title: str = ""
+    text: str = ""
+    source: str = "notification"
+    dry_run: bool = False
+
+
+@app.get("/admin/polcent", response_class=HTMLResponse)
+def admin_polcent_page(request: Request, _: bool = Depends(require_admin)):
+    return templates.TemplateResponse("admin_polcent.html", {"request": request})
+
+
+@app.post("/api/admin/polcent/ingest")
+def api_admin_polcent_ingest(req: PolcentIngestRequest, _: bool = Depends(require_admin)):
+    """관리자 앱의 알림 접근 서비스(또는 /admin/polcent의 테스트 입력)가 폴센트
+    알림 제목/본문을 보내는 곳. dry_run이면 DB에 남기지 않고 해석/매칭만 한다."""
+    source = req.source if req.source in ("notification", "test") else "test"
+    return polcent.process_alert(req.title, req.text, source=source, dry_run=req.dry_run)
+
+
+@app.get("/api/admin/polcent/alerts")
+def api_admin_polcent_alerts(limit: int = Query(60, ge=1, le=200), _: bool = Depends(require_admin)):
+    return polcent.list_alerts(limit)
+
+
+@app.post("/api/admin/polcent/alerts/{alert_id}/expire")
+def api_admin_polcent_expire(alert_id: int, _: bool = Depends(require_admin)):
+    return {"ok": polcent.expire_alert(alert_id)}
+
+
+@app.post("/api/admin/polcent/alerts/{alert_id}/reprocess")
+def api_admin_polcent_reprocess(alert_id: int, _: bool = Depends(require_admin)):
+    return polcent.reprocess_alert(alert_id)
 
 
 @app.get("/admin/biz-tools", response_class=HTMLResponse)

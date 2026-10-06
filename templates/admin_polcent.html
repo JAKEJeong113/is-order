@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>폴센트 감지</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f8faf9; --card: #ffffff; --text: #111827; --muted: #6b7280;
+      --line: #e5e7eb; --mint: #2fc5b3; --mint-soft: #ccfbf1; --mint-text: #0f766e;
+      --hot: #ef4444; --hot-soft: #fee2e2; --warn-soft: #fef3c7; --warn-text: #92400e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+      padding: 20px 16px 80px; max-width: 720px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    h2 { font-size: 14px; margin: 0 0 10px; }
+    .sub { font-size: 12px; color: var(--muted); line-height: 1.5; margin: 0 0 14px; }
+    .nav-links { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .nav-links a {
+      font-size: 12.5px; font-weight: 700; color: var(--mint-text); text-decoration: none;
+      background: var(--mint-soft); padding: 6px 12px; border-radius: 999px;
+    }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .status-line { font-size: 13px; margin: 4px 0; }
+    .ok { color: #15803d; font-weight: 800; }
+    .bad { color: #b91c1c; font-weight: 800; }
+    .muted { color: var(--muted); }
+    label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin: 10px 0 4px; }
+    input[type=text], textarea {
+      width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px;
+      font-size: 14px; font-family: inherit; background: #fff; color: var(--text);
+    }
+    textarea { min-height: 64px; resize: vertical; }
+    .btn {
+      padding: 9px 14px; border-radius: 8px; border: 1px solid var(--line); background: #fff;
+      font-size: 13px; font-weight: 700; cursor: pointer; color: var(--text);
+    }
+    .btn.primary { background: var(--mint); border-color: var(--mint); color: #fff; }
+    .btn.small { padding: 5px 10px; font-size: 12px; }
+    .btn:disabled { opacity: .6; cursor: default; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+    .check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; margin-top: 10px; color: var(--text); }
+    .result { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: #f3f6f5; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; }
+    .alert-item { border-top: 1px solid var(--line); padding: 12px 0; }
+    .alert-item:first-child { border-top: none; padding-top: 0; }
+    .alert-title { font-size: 13.5px; font-weight: 700; line-height: 1.4; }
+    .alert-meta { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+    .alert-reason { font-size: 12px; margin-top: 5px; line-height: 1.5; }
+    .pill { font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+    .pill.live { background: var(--hot-soft); color: var(--hot); }
+    .pill.gray { background: #f3f4f6; color: var(--muted); }
+    .pill.warn { background: var(--warn-soft); color: var(--warn-text); }
+    .pill.err { background: #fee2e2; color: #991b1b; }
+    .pill.kind { background: var(--mint-soft); color: var(--mint-text); }
+    .empty-text { color: var(--muted); font-size: 13px; text-align: center; padding: 22px 0; }
+  </style>
+</head>
+<body>
+  <h1>📉 폴센트 감지</h1>
+  <p class="sub">폰에 뜬 폴센트 알림을 관리자 앱이 읽어서 서버로 보내면, 쿠팡에서 같은 상품을 찾아(알림의 현재가와 가격이 맞는 것만) 핫딜 안내에 바로 올립니다. 24시간 동안 노출되고, 클릭할 때 가격이 오른 게 확인되면 내려갑니다.</p>
+  <div class="nav-links">
+    <a href="/admin/quick-catalog">카탈로그 빠른 등록</a>
+    <a href="/admin/hot-deals">🔥 핫딜안내 모니터링</a>
+    <a href="/hotdeals">핫딜 안내 화면 보기</a>
+  </div>
+
+  <div class="card">
+    <h2>알림 연결 상태</h2>
+    <div class="status-line" id="accessLine">확인 중…</div>
+    <div class="status-line" id="lastLine"></div>
+    <div class="btn-row" id="accessBtnRow" style="display:none">
+      <button class="btn primary" id="openAccessBtn" type="button">알림 접근 설정 열기</button>
+    </div>
+    <p class="sub" style="margin-top:10px">설정 화면에서 "카탈로그 관리자"를 켜 주세요. 폴센트 앱 알림은 폰 알림 설정에서 켜져 있어야 합니다. (설치 파일로 받은 앱은 안드로이드가 "제한된 설정"으로 막아둘 수 있어요 - 앱 정보 → ⋮ → 제한된 설정 허용)</p>
+  </div>
+
+  <div class="card">
+    <h2>감지 테스트</h2>
+    <p class="sub">폴센트 알림 내용을 그대로 붙여넣으면 어떻게 해석되고 쿠팡에서 무엇이 매칭되는지 볼 수 있어요.</p>
+    <div class="btn-row" style="margin-top:0">
+      <button class="btn small" type="button" id="sampleDropBtn">가격 하락 예시</button>
+      <button class="btn small" type="button" id="sampleRestockBtn">재입고 예시</button>
+    </div>
+    <label for="tTitle">알림 제목</label>
+    <input type="text" id="tTitle" placeholder="코카콜라 오리지널, 350ml, 24개, 350ml × 24개" />
+    <label for="tText">알림 본문</label>
+    <textarea id="tText" placeholder="📉 평균가 22,507원 → 현재가 20,750원 (-1,757원)"></textarea>
+    <label class="check"><input type="checkbox" id="dryRun" checked /> 노출하지 않고 해석/매칭만 확인 (끄면 실제로 핫딜 안내에 올라가요)</label>
+    <div class="btn-row">
+      <button class="btn primary" type="button" id="testBtn">감지 테스트</button>
+    </div>
+    <div class="result" id="testResult" style="display:none"></div>
+  </div>
+
+  <div class="card">
+    <div class="row"><h2 style="margin:0">최근 감지 내역</h2><button class="btn small" type="button" id="refreshBtn">새로고침</button></div>
+    <div id="alerts" style="margin-top:12px"><div class="empty-text">불러오는 중…</div></div>
+  </div>
+
+  <script>
+    function esc(str) {
+      return String(str ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+    const won = (n) => (n == null ? "-" : Number(n).toLocaleString() + "원");
+    function ago(sec) {
+      if (sec == null) return "아직 없음";
+      if (sec < 60) return "방금";
+      const m = Math.floor(sec / 60);
+      if (m < 60) return `${m}분 전`;
+      const h = Math.floor(m / 60);
+      return h < 48 ? `${h}시간 전` : `${Math.floor(h / 24)}일 전`;
+    }
+
+    // ---- 알림 연결 상태(관리자 앱 안에서만 확인 가능) ----
+    const accessLine = document.getElementById("accessLine");
+    const accessBtnRow = document.getElementById("accessBtnRow");
+    function refreshAccess() {
+      if (window.AndroidPolcent) {
+        const on = window.AndroidPolcent.isEnabled();
+        accessLine.innerHTML = on ? '<span class="ok">✅ 알림 접근 허용됨</span> - 폴센트 알림을 읽는 중' : '<span class="bad">❌ 알림 접근이 꺼져 있어요</span>';
+        accessBtnRow.style.display = on ? "none" : "flex";
+      } else {
+        accessLine.innerHTML = '<span class="muted">관리자 앱(카탈로그 관리자)에서 열면 연결 상태를 볼 수 있어요.</span>';
+      }
+    }
+    document.getElementById("openAccessBtn").addEventListener("click", () => {
+      if (window.AndroidPolcent) window.AndroidPolcent.openNotificationAccess();
+    });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshAccess(); });
+
+    // ---- 감지 테스트 ----
+    const tTitle = document.getElementById("tTitle");
+    const tText = document.getElementById("tText");
+    document.getElementById("sampleDropBtn").addEventListener("click", () => {
+      tTitle.value = "코카콜라 오리지널, 350ml, 24개, 350ml × 24개";
+      tText.value = "📉 평균가 22,507원 → 현재가 20,750원 (-1,757원)";
+    });
+    document.getElementById("sampleRestockBtn").addEventListener("click", () => {
+      tTitle.value = "스프라이트 캔, 350ml, 24개";
+      tText.value = "🚚 방금 재입고 됐어요. 품절되기 전에 들어가보세요! (현재가 16,600원, 재입고 알림 끌러가기)";
+    });
+    const STATUS_TEXT = {
+      exposed: "✅ 핫딜 안내에 올라감", duplicate: "🔁 이미 노출 중 - 기간만 연장", unmatched: "⚠️ 매칭 실패(노출 안 함)",
+      ignored: "🚫 해석 못함", error: "❗ 오류",
+    };
+    document.getElementById("testBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("testBtn");
+      const out = document.getElementById("testResult");
+      if (!tTitle.value.trim()) { alert("알림 제목을 입력해 주세요."); return; }
+      btn.disabled = true; btn.textContent = "확인 중…";
+      out.style.display = "block"; out.textContent = "쿠팡에서 같은 상품을 찾는 중…";
+      try {
+        const res = await fetch("/api/admin/polcent/ingest", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: tTitle.value, text: tText.value, source: "test",
+            dry_run: document.getElementById("dryRun").checked,
+          }),
+        });
+        const r = await res.json();
+        const p = r.parsed || {};
+        const lines = [
+          `${STATUS_TEXT[r.status] || r.status}${document.getElementById("dryRun").checked ? " (테스트 - 저장 안 함)" : ""}`,
+          `사유: ${r.reason}`,
+          `해석: ${p.kind === "drop" ? "가격 하락" : p.kind === "restock" ? "재입고" : "알 수 없음"} · 상품명 "${p.name || ""}" · 현재가 ${won(p.price)}${p.avg_price ? " · 평균가 " + won(p.avg_price) : ""}${p.pack_qty ? " · " + p.pack_qty + "개" : ""}`,
+        ];
+        if (r.matched) lines.push(`쿠팡 매칭: "${r.matched.matched_name}" ${won(r.matched.matched_price)} (상품번호 ${r.matched.product_id})`);
+        out.textContent = lines.join("\n");
+        if (!document.getElementById("dryRun").checked) loadAlerts();
+      } catch (e) {
+        out.textContent = "요청 실패: " + e;
+      } finally {
+        btn.disabled = false; btn.textContent = "감지 테스트";
+      }
+    });
+
+    // ---- 최근 감지 내역 ----
+    function pillFor(a) {
+      if (a.status === "exposed") {
+        if (a.deleted) return '<span class="pill gray">내림</span>';
+        if (a.ended) return '<span class="pill gray">종료(가격 상승)</span>';
+        return a.live ? '<span class="pill live">노출 중</span>' : '<span class="pill gray">만료</span>';
+      }
+      if (a.status === "duplicate") return '<span class="pill gray">연장</span>';
+      if (a.status === "unmatched") return '<span class="pill warn">매칭 실패</span>';
+      if (a.status === "error") return '<span class="pill err">오류</span>';
+      return '<span class="pill gray">무시</span>';
+    }
+    async function loadAlerts() {
+      const box = document.getElementById("alerts");
+      try {
+        const res = await fetch("/api/admin/polcent/alerts?limit=60");
+        const data = await res.json();
+        document.getElementById("lastLine").innerHTML =
+          `마지막 알림 수신: <b>${ago(data.last_notification_age_seconds)}</b>`;
+        const items = data.items || [];
+        if (!items.length) { box.innerHTML = '<div class="empty-text">아직 감지된 알림이 없습니다.</div>'; return; }
+        box.innerHTML = items.map((a) => {
+          const kind = a.kind === "drop" ? "📉 가격 하락" : a.kind === "restock" ? "🚚 재입고" : "알 수 없음";
+          const priceInfo = a.price ? `${won(a.price)}${a.avg_price ? " (평균 " + won(a.avg_price) + ")" : ""}` : "가격 없음";
+          const buttons = [];
+          if (a.status === "exposed" && a.live) buttons.push(`<button class="btn small" data-act="expire" data-id="${a.id}">내리기</button>`);
+          if (a.status === "unmatched" || a.status === "error") buttons.push(`<button class="btn small" data-act="reprocess" data-id="${a.id}">다시 처리</button>`);
+          return `
+            <div class="alert-item">
+              <div class="row"><span class="pill kind">${kind}</span>${pillFor(a)}</div>
+              <div class="alert-title" style="margin-top:6px">${esc(a.title)}</div>
+              <div class="alert-meta">${esc(a.received_kst)} · ${esc(a.source === "notification" ? "알림" : a.source === "test" ? "테스트" : a.source)} · ${priceInfo}${a.live ? " · 클릭 " + a.clicks + "회" : ""}${a.expires_kst && a.live ? " · ~" + esc(a.expires_kst) + " 까지" : ""}</div>
+              <div class="alert-reason">${esc(a.reason || "")}${a.matched_name ? `<br>매칭: ${esc(a.matched_name)} ${won(a.current_price)}` : ""}</div>
+              ${buttons.length ? `<div class="btn-row">${buttons.join("")}</div>` : ""}
+            </div>`;
+        }).join("");
+      } catch (e) {
+        box.innerHTML = '<div class="empty-text">불러오지 못했습니다.</div>';
+      }
+    }
+    document.getElementById("alerts").addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-act]");
+      if (!btn) return;
+      btn.disabled = true;
+      await fetch(`/api/admin/polcent/alerts/${btn.dataset.id}/${btn.dataset.act}`, { method: "POST" });
+      loadAlerts();
+    });
+    document.getElementById("refreshBtn").addEventListener("click", loadAlerts);
+
+    refreshAccess();
+    loadAlerts();
+    setInterval(loadAlerts, 30000);
+  </script>
+</body>
+</html>

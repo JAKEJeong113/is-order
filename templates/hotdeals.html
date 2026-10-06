@@ -152,13 +152,13 @@
         .replace(/'/g, "&#39;");
     }
 
-    const TYPE_LABELS = { beverage: "음료", snack: "과자" };
+    const TYPE_LABELS = { beverage: "음료", snack: "과자", polcent: "폴센트" };
     let allItems = [];
     let activeFilter = "전체보기";
 
     function renderFilterRow() {
       const filterEl = document.getElementById("filterRow");
-      const options = ["전체보기", "음료", "과자"];
+      const options = ["전체보기", "음료", "과자", "폴센트"];
       filterEl.innerHTML = options.map((opt) =>
         `<button class="filter-btn ${opt === activeFilter ? "active" : ""}" data-filter="${escapeHtml(opt)}">${escapeHtml(opt)}</button>`
       ).join("");
@@ -228,7 +228,7 @@
         const stale = age != null && age > 3600;
         return `
           <div class="bev-card" data-item-key="${escapeHtml(item.item_key)}" data-product-type="${escapeHtml(item.product_type)}">
-            <div class="hd-badge">🔥 최저가</div>
+            <div class="hd-badge">${item.product_type === "polcent" ? (item.kind === "restock" ? "🚚 재입고" : "📉 폴센트 감지") : "🔥 최저가"}</div>
             <div class="hd-type-badge">${escapeHtml(TYPE_LABELS[item.product_type] || item.product_type)}</div>
             <div class="bev-img-wrap">${imgTag}</div>
             <div class="bev-body">
@@ -284,13 +284,17 @@
         ? '<span class="sheet-pill checking">쿠팡 최신 가격 확인 중…</span>'
         : state.ended
           ? '<span class="sheet-pill ended">핫딜 종료</span>'
-          : '<span class="sheet-pill hot">🔥 역대 최저가</span>';
+          : item.product_type === "polcent"
+            ? `<span class="sheet-pill hot">${item.kind === "restock" ? "🚚 재입고" : "📉 폴센트 감지"}</span>`
+            : '<span class="sheet-pill hot">🔥 역대 최저가</span>';
       const unit = (!state.ended && item.pack_qty && item.pack_qty > 1 && item.unit_cost)
         ? `<div class="sheet-unit">${item.pack_qty}개입 · 개당 ${item.unit_cost.toLocaleString()}원</div>` : "";
       const staleCheck = !state.checking && state.age != null && state.age > 600;
       const checked = state.checking ? "" : (staleCheck
         ? `<div class="sheet-checked" style="color:#b45309">지금 최신 가격을 확인하지 못했어요 · 마지막 ${formatAge(state.age)}${state.rateLimited ? " (조회가 몰려 있어요)" : ""}</div>`
         : `<div class="sheet-checked">${formatAge(state.age)}${state.rateLimited ? " (조회가 몰려 이전 확인 결과예요)" : ""}</div>`);
+      const avgLine = (item.product_type === "polcent" && item.avg_price && !state.checking)
+        ? `<div class="sheet-checked">폴센트 평균가 ${item.avg_price.toLocaleString()}원 → 알림 당시 ${(item.alert_price || item.price).toLocaleString()}원</div>` : "";
       const note = state.ended
         ? `<div class="sheet-note">방금 확인해 보니 가격이 올라서 최저가가 아니에요. 쿠팡에서 현재가를 직접 확인해 보세요.</div>`
         : (state.checking ? "" : '<div class="sheet-note">쿠팡에서 옵션·쿠폰에 따라 표시 가격이 다를 수 있어요. 구매 전 쿠팡 화면의 가격을 꼭 확인해 주세요.</div>');
@@ -304,7 +308,7 @@
         <div class="sheet-price-row">
           <span class="sheet-price ${priceCls}">${price ? price.toLocaleString() + "원" : ""}</span>${pill}
         </div>
-        ${unit}${checked}${note}
+        ${unit}${checked}${avgLine}${note}
         <div class="sheet-section-title">가격 추이</div>
         <div class="sheet-chart" id="sheetChart"><div class="sheet-chart-empty">불러오는 중…</div></div>
         <div id="sheetStats"></div>

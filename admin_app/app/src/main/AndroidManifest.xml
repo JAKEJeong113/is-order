@@ -3,6 +3,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 폴센트 앱 알림만 골라 읽으려고 다른 앱의 이름(라벨)을 조회한다 - 개인용
+         사이드로드 앱이라 플레이스토어 정책과 무관. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false" />
@@ -28,6 +31,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 폴센트 알림 읽기 - 폰의 "알림 접근" 설정에서 켜야 동작한다. -->
+        <service
+            android:name=".PolcentNotificationListener"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <activity
             android:name=".ScanActivity"
