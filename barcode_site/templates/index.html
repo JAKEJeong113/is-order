@@ -531,8 +531,10 @@
       <button type="button" class="menu-link-btn" id="oqCategoriesMenuBtn">🗂️ 분류 설정</button>
     </div>
 
-    <p class="menu-section-title">패치노트</p>
-    <div id="patchNotesList"><p class="hint">불러오는 중...</p></div>
+    <div>
+      <p class="menu-section-title">정보</p>
+      <button type="button" class="menu-link-btn" id="patchNotesMenuBtn">📝 패치노트</button>
+    </div>
   </div>
 
   <div class="badge">i's&nbsp;ORDER</div>
@@ -676,6 +678,14 @@
       <div class="focus-ring" id="focusRing"></div>
     </div>
     <p class="scan-hint" id="scanHint">바코드를 화면 안에 맞춰주세요</p>
+  </div>
+
+  <div class="addhome-modal-overlay" id="patchNotesModalOverlay">
+    <div class="addhome-modal">
+      <h3>패치노트</h3>
+      <div id="patchNotesList"><p class="hint">불러오는 중...</p></div>
+      <button type="button" class="addhome-modal-close" id="patchNotesModalCloseBtn">닫기</button>
+    </div>
   </div>
 
   <div class="addhome-modal-overlay" id="addHomeModalOverlay">
@@ -1603,10 +1613,6 @@
     function openMenu() {
       menuOverlay.classList.add("open");
       menuPanel.classList.add("open");
-      if (!patchNotesLoaded) {
-        patchNotesLoaded = true;
-        loadPatchNotes();
-      }
     }
     function closeMenu() {
       menuOverlay.classList.remove("open");
@@ -1655,6 +1661,26 @@
         )
         .join("");
     }
+
+    // 패치노트는 메뉴에 바로 펼쳐두지 않고, 메뉴의 "패치노트" 항목을 눌렀을
+    // 때 뜨는 창 안에서 보여준다(처음 열 때만 서버에서 불러온다).
+    const patchNotesModalOverlay = document.getElementById("patchNotesModalOverlay");
+    function openPatchNotes() {
+      closeMenu();
+      patchNotesModalOverlay.classList.add("open");
+      if (!patchNotesLoaded) {
+        patchNotesLoaded = true;
+        loadPatchNotes();
+      }
+    }
+    function closePatchNotes() {
+      patchNotesModalOverlay.classList.remove("open");
+    }
+    document.getElementById("patchNotesMenuBtn").addEventListener("click", openPatchNotes);
+    document.getElementById("patchNotesModalCloseBtn").addEventListener("click", closePatchNotes);
+    patchNotesModalOverlay.addEventListener("click", (e) => {
+      if (e.target === patchNotesModalOverlay) closePatchNotes();
+    });
 
     patchNotesList.addEventListener("click", (e) => {
       const header = e.target.closest(".pn-item-header");
