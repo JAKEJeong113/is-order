@@ -23,11 +23,34 @@
   <meta name="apple-mobile-web-app-title" content="무인 바코드 검색기" />
   <meta name="theme-color" content="#2fc5b3" />
 
+  <script>
+    (function () {
+      var theme = null;
+      try { theme = localStorage.getItem("theme"); } catch (e) {}
+      if (theme !== "dark" && theme !== "light") {
+        theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.setAttribute("data-theme", theme);
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute("content", theme === "dark" ? "#121917" : "#2fc5b3");
+    })();
+  </script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <style>
     :root{
       --mint:#2fc5b3; --mint-dark:#08796f; --mint-soft:#d9fbf5;
       --ink:#16211f; --muted:#5c6a5e; --line:#e4e8e0; --bg:#fbfaf7; --card:#ffffff;
+      --chip:#f3f4f6; --track:#eef2f0; --danger:#993c1d;
+      color-scheme:light;
+    }
+    /* 다크모드 - 메뉴의 토글(또는 기기 설정)이 <html data-theme="dark">를
+       붙이면 이 토큰들이 위 값을 덮어쓴다. 민트 계열 텍스트(--mint-dark)는
+       어두운 배경에서 대비가 모자라 더 밝은 민트로 바꾼다. */
+    :root[data-theme="dark"]{
+      --mint-dark:#5fe0d0; --mint-soft:#173530;
+      --ink:#e8efec; --muted:#98a9a2; --line:#2c3935; --bg:#121917; --card:#1b2522;
+      --chip:#26322e; --track:#2c3935; --danger:#ff9a7d;
+      color-scheme:dark;
     }
     *{box-sizing:border-box}
     body{
@@ -166,7 +189,7 @@
     .result-row.picked{background:var(--mint-soft)}
     .result-check{
       width:20px; height:20px; border-radius:50%; border:1.5px solid var(--line);
-      flex-shrink:0; position:relative; background:#fff;
+      flex-shrink:0; position:relative; background:var(--card);
     }
     .result-check.on{background:var(--mint); border-color:var(--mint)}
     .result-check.on::after{
@@ -176,7 +199,7 @@
 
     .oq-bulk-bar{
       position:fixed; left:0; right:0; bottom:0; padding:12px 16px calc(12px + env(safe-area-inset-bottom));
-      background:#fff; box-shadow:0 -2px 10px rgba(0,0,0,.08); z-index:20;
+      background:var(--card); box-shadow:0 -2px 10px rgba(0,0,0,.08); z-index:20;
       display:flex; justify-content:center;
     }
     .oq-bulk-bar button{
@@ -213,7 +236,7 @@
     .new-item-form label:first-of-type{margin-top:0}
     .new-item-form input, .new-item-form select{
       width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px;
-      font-size:15px; font-family:inherit; background:#fff; color:var(--ink);
+      font-size:15px; font-family:inherit; background:var(--card); color:var(--ink);
     }
     .new-item-form input:focus, .new-item-form select:focus{outline:2px solid var(--mint); outline-offset:1px}
     .ni-submit-btn{
@@ -240,7 +263,7 @@
     .new-products-panel.open{display:block}
     .np-filter-row{display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap}
     .np-filter-btn{
-      padding:7px 14px; border:1px solid var(--line); border-radius:999px; background:#fff;
+      padding:7px 14px; border:1px solid var(--line); border-radius:999px; background:var(--card);
       color:var(--muted); font-weight:700; font-size:12.5px; cursor:pointer;
     }
     .np-filter-btn.active{background:var(--mint); border-color:var(--mint); color:#fff}
@@ -259,7 +282,7 @@
     .sales-ranking-panel.open{display:block}
     .sr-period-row{display:flex; gap:8px; margin-bottom:8px}
     .sr-period-btn{
-      flex:1; padding:8px 14px; border:1px solid var(--line); border-radius:999px; background:#fff;
+      flex:1; padding:8px 14px; border:1px solid var(--line); border-radius:999px; background:var(--card);
       color:var(--muted); font-weight:700; font-size:12.5px; cursor:pointer;
     }
     .sr-period-btn.active{background:var(--mint); border-color:var(--mint); color:#fff}
@@ -285,7 +308,7 @@
     /* 스캔은 보조 행동이라 무채색 테두리로, 검색만 위(#searchBtn)에서 포인트
        컬러를 준다 - 라인형 화면에서도 시선이 갈 곳은 구분되게 한다. */
     .scan-btn{
-      padding:13px 16px; border:1px solid var(--mint); border-radius:10px; background:#fff;
+      padding:13px 16px; border:1px solid var(--mint); border-radius:10px; background:var(--card);
       color:var(--mint-dark); font-weight:800; font-size:14px; cursor:pointer; white-space:nowrap;
       display:flex; align-items:center; justify-content:center; gap:6px;
     }
@@ -360,6 +383,18 @@
     }
     .menu-link-btn:last-child{border-bottom:none}
 
+    .theme-switch-row{justify-content:space-between}
+    .theme-switch{
+      position:relative; width:44px; height:26px; border-radius:999px; flex-shrink:0;
+      background:var(--line); transition:background .2s;
+    }
+    .theme-switch::after{
+      content:""; position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%;
+      background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.3); transition:transform .2s;
+    }
+    .theme-switch-row[aria-checked="true"] .theme-switch{background:var(--mint)}
+    .theme-switch-row[aria-checked="true"] .theme-switch::after{transform:translateX(18px)}
+
     .addhome-modal-overlay{
       position:fixed; inset:0; background:rgba(22,33,31,.45); z-index:40;
       display:none; align-items:flex-end; justify-content:center;
@@ -394,7 +429,7 @@
     .oq-form label:first-of-type{margin-top:0}
     .oq-form input, .oq-form select{
       width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px;
-      font-size:15px; font-family:inherit; background:#fff; color:var(--ink);
+      font-size:15px; font-family:inherit; background:var(--card); color:var(--ink);
     }
     .oq-form input:focus, .oq-form select:focus{outline:2px solid var(--mint); outline-offset:1px}
     .oq-checkbox-row{display:flex; align-items:flex-start; gap:8px; margin-top:12px}
@@ -407,7 +442,7 @@
     }
     .oq-btn-primary{background:var(--mint); color:#fff}
     .oq-btn-primary:disabled{opacity:.6}
-    .oq-btn-secondary{background:#f3f4f6; color:var(--muted)}
+    .oq-btn-secondary{background:var(--chip); color:var(--muted)}
     .oq-account-row{
       display:flex; align-items:center; justify-content:space-between; gap:10px;
       padding:10px 2px; border-bottom:1px solid var(--line);
@@ -416,7 +451,7 @@
     .oq-account-name{font-size:14px; font-weight:700}
     .oq-account-actions{display:flex; gap:12px; flex-shrink:0}
     .oq-account-actions a{font-size:12.5px; font-weight:700; color:var(--mint-dark); cursor:pointer}
-    .oq-account-actions a.danger{color:#993c1d}
+    .oq-account-actions a.danger{color:var(--danger)}
     .oq-add-link{
       display:inline-block; margin-top:14px; font-size:13.5px; font-weight:800;
       color:var(--mint-dark); cursor:pointer;
@@ -426,7 +461,7 @@
     .oq-account-pick-row label{margin:0; font-size:13.5px; font-weight:600; color:var(--ink)}
     .oq-progress-wrap{margin-top:16px}
     .oq-progress-track{
-      width:100%; height:8px; border-radius:999px; background:#eef2f0; overflow:hidden;
+      width:100%; height:8px; border-radius:999px; background:var(--track); overflow:hidden;
     }
     .oq-progress-fill{
       height:100%; background:var(--mint); border-radius:999px; width:0%;
@@ -443,7 +478,7 @@
     }
     .oq-bulk-item-row .status{font-size:12px; font-weight:700; color:var(--muted); white-space:nowrap}
     .oq-bulk-item-row .status.ok{color:var(--mint-dark)}
-    .oq-bulk-item-row .status.fail{color:#993c1d}
+    .oq-bulk-item-row .status.fail{color:var(--danger)}
     .oq-spinner{
       display:inline-block; width:11px; height:11px; border-radius:50%; vertical-align:-1px;
       border:2px solid var(--line); border-top-color:var(--mint); margin-right:4px;
@@ -478,6 +513,13 @@
       <h2>메뉴</h2>
       <button class="menu-close" id="menuCloseBtn" type="button" aria-label="닫기">✕</button>
     </div>
+    <div>
+      <p class="menu-section-title">화면 설정</p>
+      <button type="button" class="menu-link-btn theme-switch-row" id="themeToggleBtn" role="switch" aria-checked="false">
+        <span>🌙 다크모드</span><span class="theme-switch"></span>
+      </button>
+    </div>
+
     <div id="addHomeMenuSection">
       <p class="menu-section-title">앱처럼 사용하기</p>
       <button type="button" class="menu-link-btn" id="addHomeMenuBtn">📲 홈 화면에 추가</button>
@@ -1527,6 +1569,28 @@
 
     // 좌측 상단 메뉴 - 지금은 "패치노트" 하나뿐이지만, 나중에 메뉴 항목이
     // 늘어나도 이 패널 안에 섹션만 추가하면 되는 구조로 만들어뒀다.
+    const themeToggleBtn = document.getElementById("themeToggleBtn");
+    const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+    function applyTheme(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      themeToggleBtn.setAttribute("aria-checked", theme === "dark" ? "true" : "false");
+      if (themeColorMeta) themeColorMeta.setAttribute("content", theme === "dark" ? "#121917" : "#2fc5b3");
+    }
+    applyTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light");
+    themeToggleBtn.addEventListener("click", () => {
+      const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      applyTheme(next);
+      try { localStorage.setItem("theme", next); } catch (e) {}
+    });
+    // 직접 고른 적이 없으면 기기의 다크모드 설정 변화를 따라간다.
+    if (window.matchMedia) {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+        let saved = null;
+        try { saved = localStorage.getItem("theme"); } catch (err) {}
+        if (!saved) applyTheme(e.matches ? "dark" : "light");
+      });
+    }
+
     const menuBtn = document.getElementById("menuBtn");
     const menuOverlay = document.getElementById("menuOverlay");
     const menuPanel = document.getElementById("menuPanel");
