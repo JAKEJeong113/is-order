@@ -458,6 +458,20 @@ scheduler.add_job(
     id="price_snapshot_snack",
     replace_existing=True,
 )
+# 폴센트 알림 처리 중 쿠팡 검색 한도(분당 35회)에 걸려 실패한 건을 1분마다 다시 처리한다.
+def _run_polcent_retry() -> None:
+    try:
+        polcent.retry_pending_errors()
+    except Exception as e:
+        print("[POLCENT] 재시도 작업 실패:", e)
+
+
+scheduler.add_job(
+    _run_polcent_retry,
+    trigger=IntervalTrigger(minutes=1),
+    id="polcent_retry",
+    replace_existing=True,
+)
 scheduler.add_job(
     functools.partial(_run_hotdeal_priority_refresh, product_ranking.BEVERAGE),
     trigger=IntervalTrigger(minutes=10),
@@ -2113,8 +2127,10 @@ def api_admin_polcent_ingest(req: PolcentIngestRequest, _: bool = Depends(requir
 
 
 @app.get("/api/admin/polcent/alerts")
-def api_admin_polcent_alerts(limit: int = Query(60, ge=1, le=200), _: bool = Depends(require_admin)):
-    return polcent.list_alerts(limit)
+def api_admin_polcent_alerts(
+    limit: int = Query(60, ge=1, le=200), include_ignored: bool = Query(False), _: bool = Depends(require_admin),
+):
+    return polcent.list_alerts(limit, include_ignored)
 
 
 @app.post("/api/admin/polcent/alerts/{alert_id}/expire")

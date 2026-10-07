@@ -30,6 +30,10 @@ _PRICE_RE = re.compile(r"현재가\s*([\d,]+)\s*원")
 _AVG_RE = re.compile(r"평균가\s*([\d,]+)\s*원")
 _TRAILING_OPTION_RE = re.compile(r",\s*\d+(?:\.\d+)?\s*(?:ml|g|kg|l)\s*[×xX*]\s*\d+\s*개\s*$", re.IGNORECASE)
 _SIZE_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:ml|g|kg|l)(?![a-z])|\d+\s*개(?:입)?|[×xX*]", re.IGNORECASE)
+RATE_LIMIT_REASON_PREFIX = "쿠팡 검색 한도 초과"
+RETRY_WINDOW_MINUTES = 30           # 한도 초과로 실패한 알림을 다시 시도하는 기간
+RETRY_MAX = 15
+IGNORED_KEEP_DAYS = 3               # 해석 못 한 알림(광고 등) 기록 보관 기간
 _ACTIVE = "status = 'exposed' AND deleted = 0 AND ended = 0"
 
 _verify_locks: dict[int, threading.Lock] = {}
@@ -90,6 +94,7 @@ def init_tables() -> None:
     )
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_polcent_points_alert ON polcent_price_points (alert_id)")
+    cur.execute("ALTER TABLE polcent_alerts ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0")
     conn.commit()
     conn.close()
 
@@ -228,7 +233,7 @@ def process_alert(title: str, text: str, source: str = "notification", dry_run: 
     try:
         match, reason = _find_match(parsed)
     except product_ranking.CoupangRateLimitError as e:
-        return finish("error", f"쿠팡 검색 한도 초과: {e}")
+        return finish("error", f"{RATE_LIMIT_REASON_PREFIX}: {e}")
     except Exception as e:
         return finish("error", f"쿠팡 검색 실패: {e}")
 
@@ -414,15 +419,17 @@ def _load(alert_id: int) -> dict | None:
     return dict(zip([c.strip() for c in _COLUMNS.split(",")], r))
 
 
-def list_alerts(limit: int = 60) -> dict:
-    """관리자 화면용 최근 알림 목록 + 마지막 수신 시각."""
+def list_alerts(limit: int = 60, include_ignored: bool = False) -> dict:
+    """관리자 화면용 최근 알림 목록 + 마지막 수신 시각. 폴센트의 광고/추천 알림처럼
+    해석 못 해 무시된 건 기본으로 숨긴다(include_ignored로 볼 수 있음)."""
     conn = db_conn.get_conn()
     cur = conn.cursor()
+    where = "" if include_ignored else "WHERE status <> 'ignored'"
     cur.execute(
-        """
+        f"""
         SELECT id, received_at, source, raw_title, raw_text, kind, parsed_name, parsed_price, avg_price,
                status, reason, matched_name, current_price, expires_at, ended, deleted, click_count, partners_link
-        FROM polcent_alerts ORDER BY id DESC LIMIT ?
+        FROM polcent_alerts {where} ORDER BY id DESC LIMIT ?
         """,
         (limit,),
     )
@@ -465,3 +472,51 @@ def reprocess_alert(alert_id: int) -> dict:
     expire_alert(alert_id)
     result = process_alert(row["raw_title"], row["raw_text"], source="reprocess")
     return {"ok": True, **{k: v for k, v in result.items() if k != "parsed"}}
+
+
+def retry_pending_errors() -> dict:
+    """쿠팡 검색 한도 초과로 실패한 최근 알림을 다시 처리한다(1분마다 호출). 한도는
+    분 단위로 풀리므로 보통 다음 시도에서 성공한다. 같은 알림을 RETRY_MAX번까지,
+    RETRY_WINDOW_MINUTES 안에서만 시도하고, 다시 실패하면 기록을 늘리지 않고
+    시도 횟수만 올린다. 오래된 '무시' 기록도 여기서 같이 정리한다."""
+    cutoff = (datetime.now() - timedelta(minutes=RETRY_WINDOW_MINUTES)).isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM polcent_alerts WHERE status = 'ignored' AND received_at < ?",
+        ((datetime.now() - timedelta(days=IGNORED_KEEP_DAYS)).isoformat(timespec="seconds"),),
+    )
+    cur.execute(
+        """
+        SELECT id, raw_title, raw_text, retry_count FROM polcent_alerts
+        WHERE status = 'error' AND deleted = 0 AND reason LIKE ? AND received_at >= ? AND retry_count < ?
+        ORDER BY id ASC LIMIT 5
+        """,
+        (RATE_LIMIT_REASON_PREFIX + "%", cutoff, RETRY_MAX),
+    )
+    rows = cur.fetchall()
+    conn.commit()
+    conn.close()
+
+    retried = succeeded = 0
+    for alert_id, title, text, retry_count in rows:
+        retried += 1
+        result = process_alert(title, text, source="retry")
+        new_id = result.get("alert_id")
+        conn = db_conn.get_conn()
+        cur = conn.cursor()
+        if result["status"] == "error" and result["reason"].startswith(RATE_LIMIT_REASON_PREFIX):
+            # 또 한도 초과 - 새로 생긴 오류 기록은 지우고 원래 건의 시도 횟수만 올린다.
+            if new_id:
+                cur.execute("DELETE FROM polcent_alerts WHERE id = ?", (new_id,))
+            cur.execute("UPDATE polcent_alerts SET retry_count = retry_count + 1 WHERE id = ?", (alert_id,))
+        else:
+            # 노출/중복/매칭 실패 등 최종 결과가 나왔다 - 원래 오류 건은 재처리됨으로 닫는다.
+            succeeded += 1
+            cur.execute(
+                "UPDATE polcent_alerts SET deleted = 1, reason = ? WHERE id = ?",
+                (f"재시도로 처리됨(#{new_id})", alert_id),
+            )
+        conn.commit()
+        conn.close()
+    return {"retried": retried, "resolved": succeeded}

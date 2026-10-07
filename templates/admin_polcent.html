@@ -99,6 +99,7 @@
 
   <div class="card">
     <div class="row"><h2 style="margin:0">최근 감지 내역</h2><button class="btn small" type="button" id="refreshBtn">새로고침</button></div>
+    <label class="check" style="margin-top:8px"><input type="checkbox" id="showIgnored" /> 해석 못 한 알림(광고·추천 등)도 보기</label>
     <div id="alerts" style="margin-top:12px"><div class="empty-text">불러오는 중…</div></div>
   </div>
 
@@ -188,6 +189,7 @@
         return a.live ? '<span class="pill live">노출 중</span>' : '<span class="pill gray">만료</span>';
       }
       if (a.status === "duplicate") return '<span class="pill gray">연장</span>';
+      if (a.deleted && (a.status === "unmatched" || a.status === "error")) return '<span class="pill gray">다시 처리됨</span>';
       if (a.status === "unmatched") return '<span class="pill warn">매칭 실패</span>';
       if (a.status === "error") return '<span class="pill err">오류</span>';
       return '<span class="pill gray">무시</span>';
@@ -195,7 +197,7 @@
     async function loadAlerts() {
       const box = document.getElementById("alerts");
       try {
-        const res = await fetch("/api/admin/polcent/alerts?limit=60");
+        const res = await fetch("/api/admin/polcent/alerts?limit=60&include_ignored=" + (document.getElementById("showIgnored").checked ? "true" : "false"));
         const data = await res.json();
         document.getElementById("lastLine").innerHTML =
           `마지막 알림 수신: <b>${ago(data.last_notification_age_seconds)}</b>`;
@@ -206,7 +208,7 @@
           const priceInfo = a.price ? `${won(a.price)}${a.avg_price ? " (평균 " + won(a.avg_price) + ")" : ""}` : "가격 없음";
           const buttons = [];
           if (a.status === "exposed" && a.live) buttons.push(`<button class="btn small" data-act="expire" data-id="${a.id}">내리기</button>`);
-          if (a.status === "unmatched" || a.status === "error") buttons.push(`<button class="btn small" data-act="reprocess" data-id="${a.id}">다시 처리</button>`);
+          if ((a.status === "unmatched" || a.status === "error") && !a.deleted) buttons.push(`<button class="btn small" data-act="reprocess" data-id="${a.id}">다시 처리</button>`);
           return `
             <div class="alert-item">
               <div class="row"><span class="pill kind">${kind}</span>${pillFor(a)}</div>
@@ -228,6 +230,7 @@
       loadAlerts();
     });
     document.getElementById("refreshBtn").addEventListener("click", loadAlerts);
+    document.getElementById("showIgnored").addEventListener("change", loadAlerts);
 
     refreshAccess();
     loadAlerts();
