@@ -850,6 +850,27 @@ def _barcode_in_current_corner(page, barcode: str) -> bool:
     return barcode in page.inner_text("#innerHtmlDiv")
 
 
+def _is_checked(checkbox) -> bool:
+    try:
+        return checkbox.is_checked()
+    except Exception:
+        return False
+
+
+def _describe_row(row) -> str:
+    """체크박스 선택에 실패했을 때 텔레그램 알림만 보고 원인을 짐작할 수 있게
+    해당 행의 상태(비활성 여부, 행 텍스트 일부)를 짧게 남긴다."""
+    try:
+        disabled = row.locator('input[name="menuCd"]').first.is_disabled()
+    except Exception:
+        disabled = "?"
+    try:
+        text = re.sub(r"\s+", " ", row.inner_text() or "").strip()[:70]
+    except Exception:
+        text = ""
+    return f"비활성={disabled}, 행={text!r}"
+
+
 def push_menu_item_to_kiosk_screen(
     login_id: str, login_pw: str, barcode: str, store_id: str | None = None,
 ) -> dict:
@@ -972,7 +993,30 @@ def push_menu_item_to_kiosk_screen(
                     pass
                 return {"ok": False, "message": f"검색 결과 바코드 불일치(찾음: {row_barcode!r}) - 등록을 건너뜁니다."}
 
-            row.locator('input[name="menuCd"]').click(force=True, timeout=8000)
+            checkbox = row.locator('input[name="menuCd"]').first
+            checkbox.click(force=True, timeout=8000)
+            if not _is_checked(checkbox):
+                # 클릭이 먹지 않았거나(또는 이미 체크돼 있던 걸 해제해버린 경우) -
+                # 체크 상태를 직접 맞춘다. 체크 없이 "등록"을 누르면 오더퀸이
+                # "등록하실 메뉴에 체크하세요."라고 거절한다(실측: 본오점 계정).
+                try:
+                    checkbox.check(force=True, timeout=5000)
+                except Exception:
+                    pass
+                if not _is_checked(checkbox):
+                    try:
+                        checkbox.evaluate(
+                            "el => { el.checked = true; el.dispatchEvent(new Event('change', {bubbles: true})); }"
+                        )
+                    except Exception:
+                        pass
+                if not _is_checked(checkbox):
+                    detail = _describe_row(row)
+                    try:
+                        page.evaluate("$('#pop-menu-add').dialog('close')")
+                    except Exception:
+                        pass
+                    return {"ok": False, "message": f"메뉴 체크박스를 선택하지 못했습니다({detail})."}
 
             dialog_messages.clear()
             page.locator("#btn-add-reg").first.click(force=True, timeout=8000)
@@ -986,12 +1030,22 @@ def push_menu_item_to_kiosk_screen(
             page.wait_for_timeout(300)
 
             verified = _barcode_in_current_corner(page, barcode)
+            # 느린 매장은 등록 직후 목록 반영이 늦어 한 번 확인하면 실패로 보이는
+            # 경우가 있어(실측: 본오점 계정), 몇 초 간격으로 몇 번 더 확인한다.
+            for _ in range(3):
+                if verified:
+                    break
+                page.wait_for_timeout(2500)
+                verified = _barcode_in_current_corner(page, barcode)
 
             if store_id and verified:
                 vendors.save_session_state(store_id, vendor_id, context.storage_state())
 
             if not verified:
-                return {"ok": False, "message": combined or "화면(키오스크) 등록 확인에 실패했습니다."}
+                return {
+                    "ok": False,
+                    "message": (combined or "화면(키오스크) 등록 확인에 실패했습니다.") + f" (코너 {corner_cd}, 확인 4회)",
+                }
             return {"ok": True, "message": combined or "화면(키오스크)에 등록되었습니다."}
         finally:
             browser.close()
