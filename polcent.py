@@ -19,6 +19,7 @@ import db_conn
 import product_match
 import product_ranking
 
+SEARCH_BUCKET = "search_polcent"    # 폴센트 알림 전용 예약 호출분(product_ranking.SEARCH_BUCKET_LIMITS)
 EXPOSE_HOURS = 24
 PRICE_MATCH_TOLERANCE = 0.01        # 알림 현재가와 후보 가격 허용 오차(±1%)
 MIN_NAME_SCORE = 0.5                # 검색어 bigram이 후보명에 포함되는 비율 하한
@@ -144,7 +145,7 @@ def _find_match(parsed: dict) -> tuple[dict | None, str]:
     near = []
     any_result = False
     for query in queries:
-        cands = product_ranking._fetch_coupang_products(query, limit=10)
+        cands = product_ranking._fetch_coupang_products(query, limit=10, bucket=SEARCH_BUCKET)
         if not cands:
             continue
         any_result = True
@@ -360,7 +361,7 @@ def verify_item(item_key: str) -> dict:
         if row["status"] == "exposed" and not row["ended"] and (age is None or age >= VERIFY_COOLDOWN_SECONDS):
             try:
                 cands = product_ranking._fetch_coupang_products(
-                    parse_alert(row["raw_title"], row["raw_text"])["keyword"], limit=10,
+                    parse_alert(row["raw_title"], row["raw_text"])["keyword"], limit=10, bucket=SEARCH_BUCKET,
                 )
             except product_ranking.CoupangRateLimitError:
                 cands = None

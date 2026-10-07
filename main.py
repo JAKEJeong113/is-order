@@ -446,15 +446,22 @@ def _run_hotdeal_priority_refresh(pt: product_ranking.ProductType) -> None:
         raise
 
 
+# 쿠팡 검색 API를 쓰는 반복 작업들은 시작 시각을 엇갈리게 둔다 - 전부 같은 분에
+# 시작하면 분당 한도를 한 번에 소진해서 뒤쪽 작업이 한도 초과로 밀린다.
+# 가격 스캔(30분 주기)은 +1분/+16분, 핫딜 우선 갱신(10분 주기)은 +4분/+9분 뒤부터.
+def _start_in(minutes: int):
+    return datetime.now(timezone.utc) + timedelta(minutes=minutes)
+
+
 scheduler.add_job(
     functools.partial(_run_price_snapshot_and_notify, product_ranking.BEVERAGE),
-    trigger=IntervalTrigger(minutes=30),
+    trigger=IntervalTrigger(minutes=30, start_date=_start_in(1)),
     id="price_snapshot_beverage",
     replace_existing=True,
 )
 scheduler.add_job(
     functools.partial(_run_price_snapshot_and_notify, product_ranking.SNACK),
-    trigger=IntervalTrigger(minutes=30),
+    trigger=IntervalTrigger(minutes=30, start_date=_start_in(16)),
     id="price_snapshot_snack",
     replace_existing=True,
 )
@@ -474,13 +481,13 @@ scheduler.add_job(
 )
 scheduler.add_job(
     functools.partial(_run_hotdeal_priority_refresh, product_ranking.BEVERAGE),
-    trigger=IntervalTrigger(minutes=10),
+    trigger=IntervalTrigger(minutes=10, start_date=_start_in(4)),
     id="hotdeal_refresh_beverage",
     replace_existing=True,
 )
 scheduler.add_job(
     functools.partial(_run_hotdeal_priority_refresh, product_ranking.SNACK),
-    trigger=IntervalTrigger(minutes=10),
+    trigger=IntervalTrigger(minutes=10, start_date=_start_in(9)),
     id="hotdeal_refresh_snack",
     replace_existing=True,
 )

@@ -76,7 +76,16 @@ SEARCH_DELAY_SECONDS = 0.3
 # 딥링크 생성(파트너스 웹 링크생성 기능)도 별도로 분당 50회 한도가 있어
 # 같은 방식(다른 버킷)으로 보호한다 - main.py의 대표상품 링크 생성이 이
 # 버킷을 쓴다.
-SEARCH_API_SAFE_LIMIT_PER_MINUTE = 35
+# 검색 API는 쿠팡 계정 하나의 한도를 모든 작업이 같이 쓰므로, 안전 한도 35회를
+# 일반 작업(가격 스캔/핫딜 갱신/클릭 재확인) 25회 + 폴센트 알림 전용 10회로 나눠
+# 쓴다 - 다른 작업이 몰려도 폴센트 알림 처리가 밀리지 않게 하려는 것(2026-10-08,
+# 04:55 알림이 한도에 걸려 실패한 사고 이후).
+SEARCH_API_SAFE_LIMIT_PER_MINUTE = 25
+POLCENT_SEARCH_API_SAFE_LIMIT_PER_MINUTE = 10
+SEARCH_BUCKET_LIMITS = {
+    "search": SEARCH_API_SAFE_LIMIT_PER_MINUTE,
+    "search_polcent": POLCENT_SEARCH_API_SAFE_LIMIT_PER_MINUTE,
+}
 DEEPLINK_API_SAFE_LIMIT_PER_MINUTE = 35
 
 
@@ -124,8 +133,8 @@ def reserve_coupang_api_slot(bucket: str, limit_per_minute: int) -> bool:
     return True
 
 
-def _reserve_search_api_slot() -> bool:
-    return reserve_coupang_api_slot("search", SEARCH_API_SAFE_LIMIT_PER_MINUTE)
+def _reserve_search_api_slot(bucket: str = "search") -> bool:
+    return reserve_coupang_api_slot(bucket, SEARCH_BUCKET_LIMITS[bucket])
 
 
 class ProductType:
@@ -338,7 +347,7 @@ def _parse_coupang_product(raw: dict) -> dict:
     }
 
 
-def _fetch_coupang_products(keyword: str, limit: int = 1) -> list[dict]:
+def _fetch_coupang_products(keyword: str, limit: int = 1, bucket: str = "search") -> list[dict]:
     """검색어로 쿠팡 상품을 검색해서 상위 limit개를 그대로 돌려준다(빈 결과면
     빈 리스트). 응답의 productId는 쿠팡이 매기는 상품 고유 식별자라(실측
     확인: 같은 검색이라도 재검색 때마다 순위가 바뀔 수 있는 productName과
@@ -347,9 +356,9 @@ def _fetch_coupang_products(keyword: str, limit: int = 1) -> list[dict]:
     if not CP_ACCESS_KEY or not CP_SECRET_KEY:
         raise RuntimeError("CP_ACCESS_KEY / CP_SECRET_KEY 환경변수가 설정되지 않았습니다.")
 
-    if not _reserve_search_api_slot():
+    if not _reserve_search_api_slot(bucket):
         raise CoupangRateLimitError(
-            f"검색 API 자체 안전 한도(분당 {SEARCH_API_SAFE_LIMIT_PER_MINUTE}회) 도달 - "
+            f"검색 API 자체 안전 한도(분당 {SEARCH_BUCKET_LIMITS[bucket]}회, {bucket}) 도달 - "
             "실제 쿠팡 한도(분당 50회) 초과를 막기 위해 이번 호출은 건너뜁니다."
         )
 
