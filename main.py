@@ -2120,6 +2120,29 @@ class PolcentIngestRequest(BaseModel):
     dry_run: bool = False
 
 
+@app.get("/admin/hotdeal-twin", response_class=HTMLResponse)
+def admin_hotdeal_twin_page(request: Request, _: bool = Depends(require_admin)):
+    """바코드 검색기 앱 "핫딜상품"의 쌍둥이 테스트 화면(정식 공개 전 확인용)."""
+    return templates.TemplateResponse("admin_hotdeal_twin.html", {"request": request})
+
+
+@app.get("/api/admin/hotdeal-twin")
+def api_admin_hotdeal_twin(_: bool = Depends(require_admin)):
+    items = polcent.list_hotdeals()
+    for it in items:
+        m = re.search(r"lptag=([A-Za-z0-9]+)", it.get("partners_link") or "")
+        it["partner_tag"] = m.group(1) if m else None
+    return {"items": items}
+
+
+@app.post("/api/admin/hotdeal-twin/{item_key}/verify")
+def api_admin_hotdeal_twin_verify(item_key: str, _: bool = Depends(require_admin)):
+    result = polcent.verify_item(item_key)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail="item not found")
+    return result
+
+
 @app.get("/admin/polcent", response_class=HTMLResponse)
 def admin_polcent_page(request: Request, _: bool = Depends(require_admin)):
     return templates.TemplateResponse("admin_polcent.html", {"request": request})

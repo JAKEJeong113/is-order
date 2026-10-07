@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>핫딜상품 (테스트)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- 바코드 검색기 앱의 "핫딜상품" 메뉴와 같은 모양(민트 라인형)으로 폴센트 감지 상품을
+       보여주는 관리자 테스트 화면. 정식으로 열기 전에 폴센트 감지 상품이 내 쿠팡 파트너스
+       링크로 제대로 노출되는지 이 화면에서 먼저 확인한다. -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <style>
+    :root{
+      --mint:#2fc5b3; --mint-dark:#08796f; --mint-soft:#d9fbf5;
+      --ink:#16211f; --muted:#5c6a5e; --line:#e4e8e0; --bg:#fbfaf7; --card:#ffffff;
+      --danger:#993c1d; color-scheme:light;
+    }
+    @media (prefers-color-scheme: dark){
+      :root{
+        --mint-dark:#5fe0d0; --mint-soft:#173530; --ink:#e8efec; --muted:#98a9a2; --line:#2c3935;
+        --bg:#121917; --card:#1b2522; --danger:#ff9a7d; color-scheme:dark;
+      }
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; min-height:100vh; background:var(--bg); color:var(--ink);
+      font-family:'Pretendard',-apple-system,"Malgun Gothic",sans-serif;
+      display:flex; flex-direction:column; align-items:center; padding:28px 20px 40px; word-break:keep-all;
+    }
+    .badge{font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:10px}
+    h1{font-size:clamp(22px,5vw,26px); font-weight:800; margin:0 0 8px; letter-spacing:-.5px; text-align:center}
+    .sub{color:var(--muted); font-size:13px; margin:0 0 18px; text-align:center; max-width:40ch; line-height:1.5}
+    .wrap{width:100%; max-width:480px}
+    .disclosure{
+      background:var(--mint-soft); color:var(--mint-dark); font-size:11.5px; line-height:1.5;
+      padding:9px 12px; border-radius:10px; margin-bottom:14px;
+    }
+    .np-filter-row{display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap}
+    .np-filter-btn{
+      padding:7px 14px; border:1px solid var(--line); border-radius:999px; background:var(--card);
+      color:var(--muted); font-weight:700; font-size:12.5px; cursor:pointer;
+    }
+    .np-filter-btn.active{background:var(--mint); border-color:var(--mint); color:#fff}
+    .hint,.empty{color:var(--muted); font-size:13.5px; text-align:center; padding:22px 4px}
+    .results.loading{opacity:.4; pointer-events:none; transition:opacity .15s}
+    .result-row{
+      display:flex; justify-content:space-between; align-items:flex-start; gap:12px;
+      border-bottom:1px solid var(--line); padding:14px 2px;
+    }
+    .result-row:last-child{border-bottom:none}
+    .result-main{min-width:0; flex:1}
+    .result-name{font-size:14px; font-weight:700; margin:0; line-height:1.4}
+    .result-sub{font-size:11.5px; color:var(--muted); margin:3px 0 0; line-height:1.5}
+    .kind-chip{
+      display:inline-block; font-size:11px; font-weight:800; color:var(--mint-dark);
+      background:var(--mint-soft); border-radius:999px; padding:2px 8px; margin-bottom:5px;
+    }
+    .tag-line{font-size:11px; margin:4px 0 0; font-variant-numeric:tabular-nums}
+    .tag-ok{color:var(--mint-dark); font-weight:700}
+    .tag-bad{color:var(--danger); font-weight:700}
+    .result-side{display:flex; flex-direction:column; align-items:flex-end; gap:8px; flex-shrink:0}
+    .result-price{font-size:16px; font-weight:800; color:var(--mint-dark); white-space:nowrap}
+    .result-unit{font-size:11px; font-weight:600; color:var(--muted); white-space:nowrap}
+    .open-btn{
+      padding:6px 12px; border:1.5px solid var(--mint); border-radius:999px; background:transparent;
+      color:var(--mint-dark); font-weight:800; font-size:12px; text-decoration:none; white-space:nowrap;
+    }
+    .open-btn:active{background:var(--mint-soft)}
+    .verify-btn{
+      padding:4px 10px; border:1px solid var(--line); border-radius:999px; background:transparent;
+      color:var(--muted); font-weight:700; font-size:11px; cursor:pointer; white-space:nowrap;
+    }
+    .verify-btn:disabled{opacity:.6; cursor:default}
+    .note{font-size:11.5px; color:var(--muted); text-align:center; margin-top:18px; line-height:1.55}
+    .back-link{font-size:12.5px; font-weight:700; color:var(--mint-dark); text-decoration:none; margin-top:14px}
+  </style>
+</head>
+<body>
+  <div class="badge">i's&nbsp;ORDER · 테스트</div>
+  <h1>🔥 핫딜상품</h1>
+  <p class="sub">바코드 검색기 앱의 "핫딜상품"과 같은 모양의 테스트 화면이에요. 폴센트가 감지한 상품이 내 쿠팡 파트너스 링크로 노출되는지 확인하세요.</p>
+
+  <div class="wrap">
+    <div class="disclosure">*아래 링크를 통해 구매하시면 쿠팡 파트너스 활동의 일환으로 일정액의 수수료를 제공받습니다.</div>
+    <div class="np-filter-row" id="filterRow">
+      <button type="button" class="np-filter-btn active" data-kind="">전체</button>
+      <button type="button" class="np-filter-btn" data-kind="drop">📉 가격 하락</button>
+      <button type="button" class="np-filter-btn" data-kind="restock">🚚 재입고</button>
+    </div>
+    <div class="results" id="list"><p class="hint">불러오는 중...</p></div>
+    <p class="note">폴센트 알림이 오면 이 목록에 24시간 동안 노출돼요. "링크" 줄의 <b>파트너스 태그</b>가 보이면 내 쿠팡 파트너스 링크가 맞게 붙은 거예요. 아직 앱에는 공개되지 않은 테스트 화면입니다.</p>
+  </div>
+  <a class="back-link" href="/admin/polcent">← 폴센트 감지 내역 보기</a>
+
+  <script>
+    function esc(str) {
+      return String(str ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+    function ago(sec) {
+      if (sec == null) return "";
+      if (sec < 60) return "방금 확인";
+      const m = Math.floor(sec / 60);
+      if (m < 60) return `${m}분 전 확인`;
+      return `${Math.floor(m / 60)}시간 전 확인`;
+    }
+    const listEl = document.getElementById("list");
+    let items = [];
+    let kind = "";
+
+    function render() {
+      const shown = kind ? items.filter((it) => it.kind === kind) : items;
+      if (!shown.length) {
+        listEl.innerHTML = '<p class="empty">지금 노출 중인 폴센트 감지 상품이 없어요.</p>';
+        return;
+      }
+      listEl.innerHTML = shown.map((it) => {
+        const chip = it.kind === "restock" ? "🚚 재입고" : "📉 폴센트 감지";
+        const unit = (it.pack_qty && it.pack_qty > 1 && it.unit_cost) ? `${it.pack_qty}개입 · 개당 ${it.unit_cost.toLocaleString()}원` : "";
+        const avg = it.avg_price ? `평균가 ${it.avg_price.toLocaleString()}원 → ` : "";
+        const tag = it.partner_tag
+          ? `<p class="tag-line tag-ok">✅ 파트너스 태그 ${esc(it.partner_tag)}</p>`
+          : `<p class="tag-line tag-bad">⚠️ 파트너스 태그가 없는 링크예요</p>`;
+        return `
+          <div class="result-row" data-key="${esc(it.item_key)}">
+            <div class="result-main">
+              <span class="kind-chip">${chip}</span>
+              <p class="result-name">${esc(it.item_name)}</p>
+              <p class="result-sub">${avg}${esc(String((it.alert_price || it.price).toLocaleString()))}원 감지${unit ? " · " + unit : ""}</p>
+              <p class="result-sub" data-checked>${esc(ago(it.checked_age_seconds))}</p>
+              ${tag}
+            </div>
+            <div class="result-side">
+              <span class="result-price" data-price>${it.price.toLocaleString()}원</span>
+              ${unit ? `<span class="result-unit">${esc("개당 " + it.unit_cost.toLocaleString() + "원")}</span>` : ""}
+              <a class="open-btn" href="${esc(it.partners_link)}" target="_blank" rel="noopener">쿠팡에서 보기</a>
+              <button type="button" class="verify-btn">가격 재확인</button>
+            </div>
+          </div>`;
+      }).join("");
+    }
+
+    async function load() {
+      listEl.classList.add("loading");
+      try {
+        const res = await fetch("/api/admin/hotdeal-twin");
+        const data = await res.json();
+        items = data.items || [];
+        render();
+      } catch (e) {
+        listEl.innerHTML = '<p class="empty">불러오는 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.</p>';
+      } finally {
+        listEl.classList.remove("loading");
+      }
+    }
+
+    document.getElementById("filterRow").addEventListener("click", (e) => {
+      const btn = e.target.closest(".np-filter-btn");
+      if (!btn) return;
+      document.querySelectorAll(".np-filter-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      kind = btn.dataset.kind;
+      render();
+    });
+
+    listEl.addEventListener("click", async (e) => {
+      const btn = e.target.closest(".verify-btn");
+      if (!btn) return;
+      const row = btn.closest(".result-row");
+      btn.disabled = true; btn.textContent = "확인 중...";
+      try {
+        const res = await fetch(`/api/admin/hotdeal-twin/${encodeURIComponent(row.dataset.key)}/verify`, { method: "POST" });
+        const r = await res.json();
+        if (r.price != null) row.querySelector("[data-price]").textContent = r.price.toLocaleString() + "원";
+        row.querySelector("[data-checked]").textContent =
+          (r.is_hotdeal ? "" : "⚠️ 핫딜 종료(가격 상승) · ") + ago(r.checked_age_seconds);
+      } catch (err) {
+        row.querySelector("[data-checked]").textContent = "재확인 실패";
+      } finally {
+        btn.disabled = false; btn.textContent = "가격 재확인";
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>
