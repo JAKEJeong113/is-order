@@ -601,14 +601,17 @@
     추천판매가를 바로 확인하세요. 번호 입력이나 카메라 스캔으로 즉시 조회됩니다.
   </p>
 
-  <!-- 핫딜상품 - 옵션(수량)별 최저가 추적 로직은 이미 서버에서 돌고 있지만
-       (관리자 "핫딜안내" 모니터링 화면), 정확도 검증이 끝나기 전까진 손님용
-       정식 기능으로 열지 않는다. 메뉴 존재는 미리 알리되 눌러도 "준비중"
-       안내만 보여준다. -->
+  <!-- 핫딜상품 - 지금 노출 중인 핫딜(가격 하락/재입고) 상품을 쿠팡 링크와 함께 보여준다. -->
   <button type="button" class="new-products-btn" id="hotDealsBtn">🔥 핫딜상품</button>
 
   <div class="new-products-panel" id="hotDealsPanel">
-    <p class="empty">🔥 준비 중입니다. 곧 오픈 예정이에요!</p>
+    <p class="sr-hint">*쿠팡 파트너스 활동의 일환으로 일정액의 수수료를 제공받습니다. 가격은 마지막 확인 시점 기준이라 쿠팡에서 달라질 수 있어요.</p>
+    <div class="np-filter-row" id="hdFilterRow">
+      <button type="button" class="np-filter-btn active" data-kind="">전체</button>
+      <button type="button" class="np-filter-btn" data-kind="drop">📉 가격 하락</button>
+      <button type="button" class="np-filter-btn" data-kind="restock">🚚 재입고</button>
+    </div>
+    <div class="results" id="hotDealsList"></div>
   </div>
 
   <!-- 신제품 안내 - 도매몰 자동 크롤링이나 관리자 수동 등록으로 최근(4주
@@ -1372,9 +1375,78 @@
       });
     });
 
-    // 핫딜상품 - 정식 기능 전, 존재만 미리 알리는 준비중 안내.
+    // 핫딜상품 - 지금 노출 중인 핫딜 상품 목록(열 때마다 새로 불러온다).
+    const hotDealsPanel = document.getElementById("hotDealsPanel");
+    const hotDealsList = document.getElementById("hotDealsList");
+    const hdFilterRow = document.getElementById("hdFilterRow");
+    let hdItems = [];
+    let hdKind = "";
+
+    function hdAgeText(sec) {
+      if (sec == null) return "";
+      if (sec < 60) return "방금 확인";
+      const min = Math.floor(sec / 60);
+      if (min < 60) return `${min}분 전 확인`;
+      return `${Math.floor(min / 60)}시간 전 확인`;
+    }
+
+    function renderHotDeals() {
+      const shown = hdKind ? hdItems.filter((it) => it.kind === hdKind) : hdItems;
+      if (!shown.length) {
+        hotDealsList.innerHTML = '<p class="empty">지금은 진행 중인 핫딜이 없어요. 새 핫딜이 생기면 여기에 올라와요.</p>';
+        return;
+      }
+      hotDealsList.innerHTML = shown.map((it) => {
+        const parts = [it.kind === "restock" ? "🚚 재입고" : "📉 가격 하락"];
+        if (it.pack_qty && it.pack_qty > 1) parts.push(`${it.pack_qty}개입`);
+        if (it.unit_cost) parts.push(`개당 ${it.unit_cost.toLocaleString()}원`);
+        const age = hdAgeText(it.checked_age_seconds);
+        if (age) parts.push(age);
+        return `
+          <div class="result-row" style="cursor:default">
+            <div>
+              <p class="result-name">${escapeHtml(it.name)}</p>
+              <p class="result-barcode">${escapeHtml(parts.join(" · "))}</p>
+            </div>
+            <div class="result-side">
+              <span class="result-price">${it.price.toLocaleString()}원</span>
+              <a class="oq-register-btn" href="${escapeHtml(it.link)}" target="_blank" rel="noopener" style="text-decoration:none">쿠팡에서 보기</a>
+            </div>
+          </div>`;
+      }).join("");
+    }
+
+    async function loadHotDeals() {
+      if (!hotDealsList.childElementCount) {
+        hotDealsList.innerHTML = '<p class="hint">불러오는 중...</p>';
+      } else {
+        hotDealsList.classList.add("loading");
+      }
+      try {
+        const res = await fetch("/api/hot-deals");
+        const data = await res.json();
+        hdItems = data.items || [];
+        renderHotDeals();
+      } catch (e) {
+        hotDealsList.innerHTML = '<p class="empty">불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.</p>';
+      } finally {
+        hotDealsList.classList.remove("loading");
+      }
+    }
+
     document.getElementById("hotDealsBtn").addEventListener("click", () => {
-      document.getElementById("hotDealsPanel").classList.toggle("open");
+      const willOpen = !hotDealsPanel.classList.contains("open");
+      hotDealsPanel.classList.toggle("open", willOpen);
+      if (willOpen) loadHotDeals();
+    });
+
+    hdFilterRow.addEventListener("click", (e) => {
+      const btn = e.target.closest(".np-filter-btn");
+      if (!btn) return;
+      hdFilterRow.querySelectorAll(".np-filter-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      hdKind = btn.dataset.kind;
+      renderHotDeals();
     });
 
     // 신제품 안내 - 도매몰 자동 크롤링/관리자 수동 등록으로 최근(4주 이내)

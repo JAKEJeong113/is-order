@@ -521,3 +521,28 @@ def retry_pending_errors() -> dict:
         conn.commit()
         conn.close()
     return {"retried": retried, "resolved": succeeded}
+
+
+def refresh_live_items(limit: int = 6) -> dict:
+    """노출 중인 항목의 가격을 주기적으로 다시 확인한다(10분마다 호출). 바코드 검색기
+    앱은 쿠팡 API를 직접 못 불러서 클릭 시점 재확인이 없으므로, 서버가 미리 가격이
+    오른 항목을 내려둔다. verify_item이 쿨다운/한도 처리를 이미 갖고 있다."""
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        SELECT id FROM polcent_alerts
+        WHERE {_ACTIVE} AND expires_at > ?
+        ORDER BY last_verified_at ASC NULLS FIRST LIMIT ?
+        """,
+        (_now(), limit),
+    )
+    ids = [r[0] for r in cur.fetchall()]
+    conn.close()
+    checked = 0
+    for alert_id in ids:
+        result = verify_item(f"polcent_{alert_id}")
+        if result.get("rate_limited"):
+            break
+        checked += 1
+    return {"checked": checked}

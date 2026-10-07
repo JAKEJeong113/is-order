@@ -353,6 +353,49 @@ def api_new_products(
     return {"items": items}
 
 
+@app.get("/api/hot-deals")
+def api_hot_deals(limit: int = Query(30, ge=1, le=100)):
+    """"핫딜상품" 메뉴 - 본체(is-order)가 감지해 노출 중인(만료/종료/삭제 안 된)
+    핫딜 상품 목록. 본체가 쌓는 테이블을 읽기만 한다(catalog_items와 같은 패턴).
+    표시용 정보만 내려주고 감지 경로 같은 내부 정보는 내려주지 않는다."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT parsed_name, image_url, partners_link, current_price, pack_qty, kind, last_verified_at
+            FROM polcent_alerts
+            WHERE status = 'exposed' AND deleted = 0 AND ended = 0 AND expires_at > ?
+              AND partners_link IS NOT NULL AND current_price IS NOT NULL
+            ORDER BY received_at DESC LIMIT ?
+            """,
+            (now, limit),
+        )
+        rows = cur.fetchall()
+    except Exception:
+        conn.rollback()
+        rows = []
+    finally:
+        conn.close()
+
+    items = []
+    for name, image_url, link, price, pack_qty, kind, verified_at in rows:
+        age = None
+        if verified_at:
+            age = max(0.0, (datetime.now() - datetime.fromisoformat(verified_at)).total_seconds())
+        items.append({
+            "name": name,
+            "price": price,
+            "link": link,
+            "kind": "restock" if kind == "restock" else "drop",
+            "pack_qty": pack_qty,
+            "unit_cost": round(price / pack_qty) if pack_qty and pack_qty > 1 else None,
+            "checked_age_seconds": age,
+        })
+    return {"items": items}
+
+
 @app.get("/api/price-increases")
 def api_price_increases(
     category: str | None = Query(None, description="본체 is_coupang 값(0=아이스크림,1=쿠팡,2=도매몰). 안 주면 전체."),

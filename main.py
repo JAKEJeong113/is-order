@@ -479,6 +479,23 @@ scheduler.add_job(
     id="polcent_retry",
     replace_existing=True,
 )
+
+
+# 노출 중인 핫딜의 가격을 10분마다 다시 확인해 오른 건 내린다(바코드 검색기 앱은
+# 클릭 시점 재확인을 못 하므로 서버가 미리 정리).
+def _run_polcent_live_refresh() -> None:
+    try:
+        polcent.refresh_live_items(limit=6)
+    except Exception as e:
+        print("[POLCENT] 노출 상품 재확인 실패:", e)
+
+
+scheduler.add_job(
+    _run_polcent_live_refresh,
+    trigger=IntervalTrigger(minutes=10, start_date=_start_in(7)),
+    id="polcent_live_refresh",
+    replace_existing=True,
+)
 scheduler.add_job(
     functools.partial(_run_hotdeal_priority_refresh, product_ranking.BEVERAGE),
     trigger=IntervalTrigger(minutes=10, start_date=_start_in(4)),
