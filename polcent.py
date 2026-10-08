@@ -243,8 +243,10 @@ def _notify_unlinked(alert_id: int | None, parsed: dict, reason: str) -> None:
     ]
     import telegram_bot  # 순환 import를 피하려고 필요할 때만 불러온다
 
-    telegram_bot.notify_admin("\n".join(lines))
-    if alert_id:
+    # 실제로 보내졌을 때만 "안내함"으로 기록한다 - 전송이 실패했는데 기록해버리면
+    # 같은 상품의 다음 알림까지 12시간 동안 막힌다.
+    sent = bool(telegram_bot.ADMIN_CHAT_ID) and telegram_bot.send_message(telegram_bot.ADMIN_CHAT_ID, "\n".join(lines))
+    if sent and alert_id:
         conn = db_conn.get_conn()
         cur = conn.cursor()
         cur.execute("UPDATE polcent_alerts SET notified_at = ? WHERE id = ?", (_now(), alert_id))
