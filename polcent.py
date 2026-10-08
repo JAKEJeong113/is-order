@@ -34,6 +34,7 @@ _SIZE_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:ml|g|kg|l)(?![a-z])|\d+\s*개(?
 RATE_LIMIT_REASON_PREFIX = "쿠팡 검색 한도 초과"
 RETRY_WINDOW_MINUTES = 30           # 한도 초과로 실패한 알림을 다시 시도하는 기간
 RETRY_MAX = 15
+NOTIFY_DEDUPE_HOURS = 12            # 같은 상품 텔레그램 안내는 이 시간 안에 한 번만
 IGNORED_KEEP_DAYS = 3               # 해석 못 한 알림(광고 등) 기록 보관 기간
 _ACTIVE = "status = 'exposed' AND deleted = 0 AND ended = 0"
 
@@ -96,6 +97,7 @@ def init_tables() -> None:
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_polcent_points_alert ON polcent_price_points (alert_id)")
     cur.execute("ALTER TABLE polcent_alerts ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0")
+    cur.execute("ALTER TABLE polcent_alerts ADD COLUMN IF NOT EXISTS notified_at TEXT")
     conn.commit()
     conn.close()
 
@@ -209,6 +211,60 @@ def _add_price_point(alert_id: int, price: int) -> None:
     conn.close()
 
 
+def _notify_unlinked(alert_id: int | None, parsed: dict, reason: str) -> None:
+    """폴센트가 알림을 줬는데 내 쿠팡 파트너스 링크를 만들지 못한 상품을 대표님
+    텔레그램으로 알린다. 폴센트가 같은 상품을 계속 다시 알려도 스팸이 되지 않게
+    같은 상품명은 NOTIFY_DEDUPE_HOURS 안에 한 번만 보낸다."""
+    name = parsed.get("name") or ""
+    if alert_id:
+        since = (datetime.now() - timedelta(hours=NOTIFY_DEDUPE_HOURS)).isoformat(timespec="seconds")
+        conn = db_conn.get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM polcent_alerts WHERE parsed_name = ? AND notified_at >= ? LIMIT 1", (name, since),
+        )
+        already = cur.fetchone() is not None
+        conn.close()
+        if already:
+            return
+
+    kind_text = "🚚 재입고" if parsed.get("kind") == "restock" else "📉 가격 하락"
+    price_text = f"{parsed['price']:,}원" if parsed.get("price") else "가격 미상"
+    if parsed.get("avg_price"):
+        price_text += f" (평균가 {parsed['avg_price']:,}원)"
+    lines = [
+        "🔔 폴센트 알림 - 내 쿠팡 파트너스 링크를 만들지 못했어요",
+        "",
+        f"{kind_text} · {name}",
+        f"알림가: {price_text}",
+        f"사유: {reason}",
+        "",
+        "쿠팡에서 직접 확인해 보세요. 관리자 앱 > 폴센트 감지에서 '다시 처리'도 할 수 있어요.",
+    ]
+    import telegram_bot  # 순환 import를 피하려고 필요할 때만 불러온다
+
+    telegram_bot.notify_admin("\n".join(lines))
+    if alert_id:
+        conn = db_conn.get_conn()
+        cur = conn.cursor()
+        cur.execute("UPDATE polcent_alerts SET notified_at = ? WHERE id = ?", (_now(), alert_id))
+        conn.commit()
+        conn.close()
+
+
+def _maybe_notify(result: dict, source: str, dry_run: bool) -> None:
+    """링크를 못 만든 최종 결과(매칭 실패/검색 오류)만 안내한다. 쿠팡 검색 한도 초과는
+    자동 재시도가 처리하므로 보내지 않고, 대표님이 직접 누른 다시 처리/테스트도 보내지 않는다."""
+    if dry_run or source not in ("notification", "retry"):
+        return
+    status, reason = result.get("status"), result.get("reason") or ""
+    if status == "unmatched" or (status == "error" and not reason.startswith(RATE_LIMIT_REASON_PREFIX)):
+        try:
+            _notify_unlinked(result.get("alert_id"), result["parsed"], reason)
+        except Exception as e:
+            print("[POLCENT] 텔레그램 안내 실패:", e)
+
+
 def process_alert(title: str, text: str, source: str = "notification", dry_run: bool = False) -> dict:
     """알림 하나를 해석하고 쿠팡에서 같은 상품을 찾아 바로 노출한다. dry_run이면
     DB에 아무것도 남기지 않고 해석/매칭 결과만 돌려준다(관리자 화면 테스트용)."""
@@ -236,10 +292,14 @@ def process_alert(title: str, text: str, source: str = "notification", dry_run: 
     except product_ranking.CoupangRateLimitError as e:
         return finish("error", f"{RATE_LIMIT_REASON_PREFIX}: {e}")
     except Exception as e:
-        return finish("error", f"쿠팡 검색 실패: {e}")
+        result = finish("error", f"쿠팡 검색 실패: {e}")
+        _maybe_notify(result, source, dry_run)
+        return result
 
     if not match:
-        return finish("unmatched", reason)
+        result = finish("unmatched", reason)
+        _maybe_notify(result, source, dry_run)
+        return result
 
     product_id = str(match["product_id"]) if match.get("product_id") is not None else None
     matched = {"product_id": product_id, "matched_name": match.get("product_name"), "matched_price": match["price"]}
@@ -511,6 +571,14 @@ def retry_pending_errors() -> dict:
             if new_id:
                 cur.execute("DELETE FROM polcent_alerts WHERE id = ?", (new_id,))
             cur.execute("UPDATE polcent_alerts SET retry_count = retry_count + 1 WHERE id = ?", (alert_id,))
+            if retry_count + 1 >= RETRY_MAX:
+                try:
+                    _notify_unlinked(
+                        alert_id, parse_alert(title, text),
+                        f"쿠팡 검색 한도 때문에 자동으로 {RETRY_MAX}번 다시 시도했지만 처리하지 못했어요",
+                    )
+                except Exception as e:
+                    print("[POLCENT] 텔레그램 안내 실패:", e)
         else:
             # 노출/중복/매칭 실패 등 최종 결과가 나왔다 - 원래 오류 건은 재처리됨으로 닫는다.
             succeeded += 1
