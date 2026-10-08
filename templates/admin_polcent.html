@@ -210,6 +210,8 @@
           const buttons = [];
           if (a.status === "exposed" && a.live) buttons.push(`<button class="btn small" data-act="expire" data-id="${a.id}">내리기</button>`);
           if ((a.status === "unmatched" || a.status === "error") && !a.deleted) buttons.push(`<button class="btn small" data-act="reprocess" data-id="${a.id}">다시 처리</button>`);
+          const linkForm = ((a.status === "unmatched" || a.status === "error") && !a.deleted && a.price)
+            ? `<div class="btn-row"><input type="text" class="link-input" data-id="${a.id}" placeholder="내 쿠팡 파트너스 링크 붙여넣기" style="flex:1; min-width:180px" /><button class="btn small primary" data-act="link" data-id="${a.id}">이 링크로 노출</button></div>` : "";
           return `
             <div class="alert-item">
               <div class="row"><span class="pill kind">${kind}</span>${pillFor(a)}</div>
@@ -217,6 +219,7 @@
               <div class="alert-meta">${esc(a.received_kst)} · ${esc(a.source === "notification" ? "알림" : a.source === "test" ? "테스트" : a.source)} · ${priceInfo}${a.live ? " · 클릭 " + a.clicks + "회" : ""}${a.expires_kst && a.live ? " · ~" + esc(a.expires_kst) + " 까지" : ""}</div>
               <div class="alert-reason">${esc(a.reason || "")}${a.matched_name ? `<br>매칭: ${esc(a.matched_name)} ${won(a.current_price)}` : ""}</div>
               ${buttons.length ? `<div class="btn-row">${buttons.join("")}</div>` : ""}
+              ${linkForm}
             </div>`;
         }).join("");
       } catch (e) {
@@ -227,6 +230,17 @@
       const btn = e.target.closest("button[data-act]");
       if (!btn) return;
       btn.disabled = true;
+      if (btn.dataset.act === "link") {
+        const input = document.querySelector(`.link-input[data-id="${btn.dataset.id}"]`);
+        const res = await fetch(`/api/admin/polcent/alerts/${btn.dataset.id}/link`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: input ? input.value : "" }),
+        });
+        const r = await res.json();
+        if (!r.ok) { alert(r.error || "연결하지 못했어요."); btn.disabled = false; return; }
+        loadAlerts();
+        return;
+      }
       await fetch(`/api/admin/polcent/alerts/${btn.dataset.id}/${btn.dataset.act}`, { method: "POST" });
       loadAlerts();
     });

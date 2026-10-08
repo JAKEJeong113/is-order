@@ -2143,12 +2143,34 @@ def admin_hotdeal_twin_page(request: Request, _: bool = Depends(require_admin)):
     return templates.TemplateResponse("admin_hotdeal_twin.html", {"request": request})
 
 
+_partner_tag_cache: dict[str, str | None] = {}
+
+
+def _partner_tag_of(link: str) -> str | None:
+    """링크에서 쿠팡 파트너스 태그(lptag)를 읽는다. 단축 링크(link.coupang.com/a/...)는
+    주소에 태그가 없어서 리다이렉트 주소에서 읽고, 결과는 메모리에 저장해 둔다."""
+    m = re.search(r"lptag=([A-Za-z0-9]+)", link or "")
+    if m:
+        return m.group(1)
+    if not re.match(r"https?://link\.coupang\.com/a/", link or ""):
+        return None
+    if link not in _partner_tag_cache:
+        tag = None
+        try:
+            resp = requests.get(link, allow_redirects=False, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            m = re.search(r"lptag=([A-Za-z0-9]+)", resp.headers.get("Location", "") or "")
+            tag = m.group(1) if m else None
+        except Exception:
+            pass
+        _partner_tag_cache[link] = tag
+    return _partner_tag_cache[link]
+
+
 @app.get("/api/admin/hotdeal-twin")
 def api_admin_hotdeal_twin(_: bool = Depends(require_admin)):
     items = polcent.list_hotdeals()
     for it in items:
-        m = re.search(r"lptag=([A-Za-z0-9]+)", it.get("partners_link") or "")
-        it["partner_tag"] = m.group(1) if m else None
+        it["partner_tag"] = _partner_tag_of(it.get("partners_link") or "")
     return {"items": items}
 
 
@@ -2178,6 +2200,15 @@ def api_admin_polcent_alerts(
     limit: int = Query(60, ge=1, le=200), include_ignored: bool = Query(False), _: bool = Depends(require_admin),
 ):
     return polcent.list_alerts(limit, include_ignored)
+
+
+class PolcentLinkRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/admin/polcent/alerts/{alert_id}/link")
+def api_admin_polcent_link(alert_id: int, req: PolcentLinkRequest, _: bool = Depends(require_admin)):
+    return polcent.attach_link(alert_id, req.url)
 
 
 @app.post("/api/admin/polcent/alerts/{alert_id}/expire")

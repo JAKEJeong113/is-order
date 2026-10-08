@@ -102,12 +102,27 @@ def init_tables() -> None:
     conn.close()
 
 
+_EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F\u200d]")
+_PROMO_RE = re.compile(r"역대급\s*최저가")
+MANUAL_REASON = "수동 링크 연결"
+
+
+def _clean_title(title: str) -> str:
+    """제목의 이모지/홍보 문구("🔥역대급최저가🔥")와 같은 옵션 중복("40개, 40개")을 걷어낸
+    상품명을 돌려준다."""
+    t = _PROMO_RE.sub("", _EMOJI_RE.sub("", title or "")).strip()
+    t = _TRAILING_OPTION_RE.sub("", t).strip()
+    parts = [p.strip() for p in t.split(",") if p.strip()]
+    deduped = [p for i, p in enumerate(parts) if i == 0 or p != parts[i - 1]]
+    return ", ".join(deduped)
+
+
 def parse_alert(title: str, text: str) -> dict:
     """알림 제목/본문에서 상품명·현재가·평균가·종류를 뽑는다. 종류는 가격 하락
     (drop) / 재입고(restock) / 해석 불가(unknown)."""
     title = (title or "").strip()
     text = (text or "").strip()
-    name = _TRAILING_OPTION_RE.sub("", title).strip()
+    name = _clean_title(title)
     price_m = _PRICE_RE.search(text) or _PRICE_RE.search(title)
     avg_m = _AVG_RE.search(text)
     price = int(price_m.group(1).replace(",", "")) if price_m else None
@@ -420,7 +435,8 @@ def verify_item(item_key: str) -> dict:
         if not row:
             return {"ok": False, "error": "not_found"}
         age = _age_seconds(row["last_verified_at"])
-        if row["status"] == "exposed" and not row["ended"] and (age is None or age >= VERIFY_COOLDOWN_SECONDS):
+        if (row["status"] == "exposed" and not row["ended"] and row["reason"] != MANUAL_REASON
+                and (age is None or age >= VERIFY_COOLDOWN_SECONDS)):
             try:
                 cands = product_ranking._fetch_coupang_products(
                     parse_alert(row["raw_title"], row["raw_text"])["keyword"], limit=10, bucket=SEARCH_BUCKET,
@@ -467,7 +483,7 @@ def _apply_verified(alert_id: int, new_price: int, alert_price: int) -> None:
 
 _COLUMNS = (
     "id, raw_title, raw_text, status, product_id, current_price, parsed_price, pack_qty, "
-    "last_verified_at, expires_at, ended, deleted"
+    "last_verified_at, expires_at, ended, deleted, reason"
 )
 
 
@@ -616,3 +632,59 @@ def refresh_live_items(limit: int = 6) -> dict:
             break
         checked += 1
     return {"checked": checked}
+
+
+def _resolve_product_id(url: str) -> str | None:
+    """쿠팡 파트너스 단축 링크(link.coupang.com/a/...)가 가리키는 쿠팡 상품번호를
+    리다이렉트 주소에서 읽는다(실패해도 연결 자체에는 문제없다)."""
+    import requests
+
+    try:
+        resp = requests.get(url, allow_redirects=False, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        m = re.search(r"/products/(\d+)", resp.headers.get("Location", "") or "")
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
+def attach_link(alert_id: int, url: str) -> dict:
+    """쿠팡이 같은 상품을 자동으로 못 찾은 알림에 대표님이 직접 만든 쿠팡 파트너스
+    링크를 붙여 바로 노출한다. 알림가를 그대로 현재가로 쓰고, 가격이 오른 걸
+    자동으로 확인할 수는 없어서(검색에 안 잡히는 상품) 24시간 뒤 내려간다."""
+    url = (url or "").strip()
+    if not re.match(r"https?://(?:link|www|m)\.coupang\.com/", url):
+        return {"ok": False, "error": "쿠팡 파트너스 링크(link.coupang.com/...)를 넣어 주세요."}
+
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT parsed_name, parsed_price, status, raw_title, raw_text FROM polcent_alerts WHERE id = ?", (alert_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row or not row[1]:
+        return {"ok": False, "error": "가격 정보가 있는 알림이 아니에요."}
+    price, status = row[1], row[2]
+    # 예전 해석 규칙으로 저장된 상품명(이모지/홍보 문구 포함)도 지금 규칙으로 다시 정리해 쓴다.
+    name = parse_alert(row[3], row[4])["name"] or row[0]
+    if status == "exposed":
+        return {"ok": False, "error": "이미 노출 중인 알림이에요."}
+
+    product_id = _resolve_product_id(url)
+    now = _now()
+    expires_at = (datetime.now() + timedelta(hours=EXPOSE_HOURS)).isoformat(timespec="seconds")
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE polcent_alerts
+        SET status = 'exposed', reason = ?, partners_link = ?, current_price = ?, product_id = ?,
+            matched_name = ?, parsed_name = ?, expires_at = ?, last_verified_at = ?, ended = 0, deleted = 0
+        WHERE id = ?
+        """,
+        (MANUAL_REASON, url, price, product_id, name, name, expires_at, now, alert_id),
+    )
+    conn.commit()
+    conn.close()
+    _add_price_point(alert_id, price)
+    return {"ok": True, "alert_id": alert_id, "price": price, "product_id": product_id}
