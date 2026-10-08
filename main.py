@@ -14,6 +14,7 @@ load_dotenv()
 import functools
 import math
 import re
+import threading
 import time
 import traceback
 import uuid
@@ -1240,6 +1241,39 @@ class OqAppCredentialsRequest(BaseModel):
     sales_data_consent: bool = False
 
 
+def _notify_new_oq_account(nickname: str, device_id: str, accounts_on_device: int, consent: bool) -> None:
+    """앱에서 오더퀸 계정이 새로 등록됐을 때 대표님 텔레그램으로 알린다(로그인 정보는
+    절대 담지 않음). 응답을 늦추지 않도록 별도 스레드에서 보낸다."""
+    def _send() -> None:
+        try:
+            conn = db_conn.get_conn()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT COUNT(*), COUNT(DISTINCT store_id) FROM store_vendor_credentials WHERE vendor_id = ?",
+                    (_OQ_APP_VENDOR_ID,),
+                )
+                total_accounts, total_devices = cur.fetchone()
+            finally:
+                conn.close()
+            kind = "신규 기기(처음 등록하는 사용자)" if accounts_on_device == 0 else f"기존 기기의 {accounts_on_device + 1}번째 계정"
+            lines = [
+                "🆕 앱에 오더퀸 매장이 새로 등록됐어요",
+                "",
+                f"매장명: {nickname}",
+                f"구분: {kind}",
+                f"판매 데이터 활용 동의: {'함' if consent else '안 함'}",
+                f"기기 {device_id[:8]}…",
+                "",
+                f"현재 오더퀸 계정 {total_accounts}개 · 사용 기기 {total_devices}곳",
+            ]
+            telegram_bot.notify_admin("\n".join(lines))
+        except Exception as e:
+            print("[OQ-APP] 신규 계정 텔레그램 안내 실패:", e)
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
 @app.post("/api/oq-app/credentials")
 def api_oq_app_save_credentials(req: OqAppCredentialsRequest):
     """앱에서 오더퀸 계정을 하나 추가한다(암호화 저장 - vendors.py의 기존
@@ -1255,10 +1289,16 @@ def api_oq_app_save_credentials(req: OqAppCredentialsRequest):
     if not verify.get("ok"):
         return {"ok": False, "message": verify.get("message") or "로그인에 실패했습니다."}
 
+    store_id = _oq_app_store_id(req.device_id)
+    existing_accounts = vendors.list_store_vendor_accounts(store_id, _OQ_APP_VENDOR_ID)
+    is_new_account = req.nickname.strip() not in {a["nickname"] for a in existing_accounts}
+
     account_id = vendors.add_store_vendor_account(
-        _oq_app_store_id(req.device_id), _OQ_APP_VENDOR_ID, req.nickname,
+        store_id, _OQ_APP_VENDOR_ID, req.nickname,
         req.login_id, req.login_pwd, sales_data_consent=req.sales_data_consent,
     )
+    if is_new_account:
+        _notify_new_oq_account(req.nickname.strip(), req.device_id, len(existing_accounts), req.sales_data_consent)
     return {"ok": True, "account_id": account_id}
 
 
