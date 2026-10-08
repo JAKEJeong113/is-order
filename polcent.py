@@ -647,7 +647,7 @@ def _resolve_product_id(url: str) -> str | None:
         return None
 
 
-def attach_link(alert_id: int, url: str) -> dict:
+def attach_link(alert_id: int, url: str, force: bool = False) -> dict:
     """쿠팡이 같은 상품을 자동으로 못 찾은 알림에 대표님이 직접 만든 쿠팡 파트너스
     링크를 붙여 바로 노출한다. 알림가를 그대로 현재가로 쓰고, 가격이 오른 걸
     자동으로 확인할 수는 없어서(검색에 안 잡히는 상품) 24시간 뒤 내려간다."""
@@ -671,6 +671,27 @@ def attach_link(alert_id: int, url: str) -> dict:
         return {"ok": False, "error": "이미 노출 중인 알림이에요."}
 
     product_id = _resolve_product_id(url)
+    live_note = ""
+    if product_id:
+        # 링크의 상품이 쿠팡 검색에 잡히면 지금 가격을 확인한다 - 알림 이후 가격이 올랐으면
+        # (핫딜 종료) 노출하지 않고, 같은 옵션 가격이 보이면 그 현재가로 노출한다.
+        try:
+            cands = product_ranking._fetch_coupang_products(
+                parse_alert(row[3], row[4])["keyword"], limit=10, bucket=SEARCH_BUCKET,
+            )
+            same = [c for c in cands if c.get("price") and str(c.get("product_id")) == product_id]
+        except Exception:
+            same = []
+        if same:
+            best = min(same, key=lambda c: abs(c["price"] - price))
+            if abs(best["price"] - price) / price <= SAME_OPTION_MAX_DIFF:
+                if best["price"] > price * ENDED_RISE_RATIO and not force:
+                    return {
+                        "ok": False, "current_price": best["price"],
+                        "error": f"쿠팡 현재가가 {best['price']:,}원으로 알림가({price:,}원)보다 올라서 핫딜이 끝난 것 같아요.",
+                    }
+                price = best["price"]
+                live_note = " (쿠팡 현재가 확인)"
     now = _now()
     expires_at = (datetime.now() + timedelta(hours=EXPOSE_HOURS)).isoformat(timespec="seconds")
     conn = db_conn.get_conn()
@@ -687,4 +708,4 @@ def attach_link(alert_id: int, url: str) -> dict:
     conn.commit()
     conn.close()
     _add_price_point(alert_id, price)
-    return {"ok": True, "alert_id": alert_id, "price": price, "product_id": product_id}
+    return {"ok": True, "alert_id": alert_id, "price": price, "product_id": product_id, "note": live_note.strip()}
