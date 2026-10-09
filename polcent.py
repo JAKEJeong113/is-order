@@ -20,7 +20,12 @@ import product_match
 import product_ranking
 
 SEARCH_BUCKET = "search_polcent"    # 폴센트 알림 전용 예약 호출분(product_ranking.SEARCH_BUCKET_LIMITS)
-EXPOSE_HOURS = 24
+EXPOSE_HOURS_DROP = 12              # 가격 하락 핫딜은 금방 끝나서 12시간만 노출
+EXPOSE_HOURS_RESTOCK = 24           # 재입고는 품절될 때까지 이어지는 경우가 많아 24시간
+
+
+def _expose_hours(kind: str | None) -> int:
+    return EXPOSE_HOURS_RESTOCK if kind == "restock" else EXPOSE_HOURS_DROP
 PRICE_MATCH_TOLERANCE = 0.01        # 알림 현재가와 후보 가격 허용 오차(±1%)
 MIN_NAME_SCORE = 0.5                # 검색어 bigram이 후보명에 포함되는 비율 하한
 VERIFY_COOLDOWN_SECONDS = 180
@@ -320,7 +325,8 @@ def process_alert(title: str, text: str, source: str = "notification", dry_run: 
 
     product_id = str(match["product_id"]) if match.get("product_id") is not None else None
     matched = {"product_id": product_id, "matched_name": match.get("product_name"), "matched_price": match["price"]}
-    expires_at = (datetime.now() + timedelta(hours=EXPOSE_HOURS)).isoformat(timespec="seconds")
+    hours = _expose_hours(parsed["kind"])
+    expires_at = (datetime.now() + timedelta(hours=hours)).isoformat(timespec="seconds")
 
     # 같은 상품이 이미 노출 중이면(폴센트 재알림) 새 카드를 만들지 않고 기간/가격만 갱신한다.
     existing_id = None
@@ -353,7 +359,7 @@ def process_alert(title: str, text: str, source: str = "notification", dry_run: 
         "image_url": match.get("image_url"), "partners_link": match.get("reference_url"),
         "current_price": match["price"], "expires_at": expires_at, "last_verified_at": now,
     }
-    result = finish("exposed", f"노출됨({EXPOSE_HOURS}시간)", matched=matched, db=db_fields)
+    result = finish("exposed", f"노출됨({hours}시간)", matched=matched, db=db_fields)
     if not dry_run:
         _add_price_point(result["alert_id"], match["price"])
     return result
@@ -452,7 +458,7 @@ def verify_item(item_key: str) -> dict:
                     ref = row["current_price"]
                     best = min(same, key=lambda c: abs(c["price"] - ref))
                     if abs(best["price"] - ref) / ref <= SAME_OPTION_MAX_DIFF:
-                        _apply_verified(alert_id, best["price"], row["parsed_price"])
+                        _apply_verified(alert_id, best["price"])
             row = _load(alert_id)
 
     live = bool(row and row["status"] == "exposed" and not row["ended"] and not row["deleted"]
@@ -468,8 +474,23 @@ def verify_item(item_key: str) -> dict:
     }
 
 
-def _apply_verified(alert_id: int, new_price: int, alert_price: int) -> None:
-    ended = 1 if new_price > alert_price * ENDED_RISE_RATIO else 0
+def _initial_price(alert_id: int) -> int | None:
+    """최초 등록 시점의 가격 = 가격 기록의 첫 값(재알림으로 가격이 갱신돼도 첫 값은 유지)."""
+    conn = db_conn.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT price FROM polcent_price_points WHERE alert_id = ? ORDER BY recorded_at ASC, id ASC LIMIT 1",
+        (alert_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def _apply_verified(alert_id: int, new_price: int) -> None:
+    """재확인한 가격이 최초 등록 가격보다 오르면(조금이라도) 노출을 종료한다."""
+    initial = _initial_price(alert_id)
+    ended = 1 if initial is not None and new_price > initial else 0
     conn = db_conn.get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -650,7 +671,8 @@ def _resolve_product_id(url: str) -> str | None:
 def attach_link(alert_id: int, url: str, force: bool = False) -> dict:
     """쿠팡이 같은 상품을 자동으로 못 찾은 알림에 대표님이 직접 만든 쿠팡 파트너스
     링크를 붙여 바로 노출한다. 알림가를 그대로 현재가로 쓰고, 가격이 오른 걸
-    자동으로 확인할 수는 없어서(검색에 안 잡히는 상품) 24시간 뒤 내려간다."""
+    자동으로 확인할 수는 없어서(검색에 안 잡히는 상품) 종류별 노출 시간(가격 하락 12시간,
+    재입고 24시간)이 지나면 내려간다."""
     url = (url or "").strip()
     if not re.match(r"https?://(?:link|www|m)\.coupang\.com/", url):
         return {"ok": False, "error": "쿠팡 파트너스 링크(link.coupang.com/...)를 넣어 주세요."}
@@ -658,7 +680,7 @@ def attach_link(alert_id: int, url: str, force: bool = False) -> dict:
     conn = db_conn.get_conn()
     cur = conn.cursor()
     cur.execute(
-        "SELECT parsed_name, parsed_price, status, raw_title, raw_text FROM polcent_alerts WHERE id = ?", (alert_id,),
+        "SELECT parsed_name, parsed_price, status, raw_title, raw_text, kind FROM polcent_alerts WHERE id = ?", (alert_id,),
     )
     row = cur.fetchone()
     conn.close()
@@ -697,7 +719,7 @@ def attach_link(alert_id: int, url: str, force: bool = False) -> dict:
                     price = best["price"]
                     live_note = " (쿠팡 현재가 확인)"
     now = _now()
-    expires_at = (datetime.now() + timedelta(hours=EXPOSE_HOURS)).isoformat(timespec="seconds")
+    expires_at = (datetime.now() + timedelta(hours=_expose_hours(row[5]))).isoformat(timespec="seconds")
     conn = db_conn.get_conn()
     cur = conn.cursor()
     cur.execute(
