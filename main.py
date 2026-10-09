@@ -2424,9 +2424,19 @@ def admin_api_pending_submissions_list(_: bool = Depends(require_admin)):
     return {"ok": True, "items": mapping.list_pending_catalog_submissions()}
 
 
+class PendingApproveRequest(BaseModel):
+    # 승인하면서 분류를 바꿀 때만 준다(0 아이스크림, 1 쿠팡, 2 도매몰, 3 문구·완구, 99 미분류).
+    is_coupang: Optional[int] = None
+
+
 @app.post("/admin/api/pending-submissions/{barcode}/approve")
-def admin_api_pending_submissions_approve(barcode: str, _: bool = Depends(require_admin)):
-    ok = mapping.approve_pending_catalog_submission(barcode)
+def admin_api_pending_submissions_approve(
+    barcode: str, req: Optional[PendingApproveRequest] = None, _: bool = Depends(require_admin),
+):
+    is_coupang = req.is_coupang if req else None
+    if is_coupang is not None and is_coupang not in (0, 1, 2, 3, 99):
+        raise HTTPException(status_code=400, detail="알 수 없는 분류입니다.")
+    ok = mapping.approve_pending_catalog_submission(barcode, is_coupang)
     return {"ok": ok}
 
 

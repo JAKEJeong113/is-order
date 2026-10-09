@@ -85,6 +85,12 @@
     .pending-item button{
       flex:1; padding:7px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer;
     }
+    .pending-item .pi-cat-row{display:flex; align-items:center; gap:8px; margin-top:8px}
+    .pending-item .pi-cat-row label{font-size:11.5px; font-weight:700; color:var(--muted); flex-shrink:0}
+    .pending-item select.pi-cat{
+      flex:1; padding:7px 8px; border:1px solid var(--line); border-radius:8px; font-size:13px;
+      font-family:inherit; background:#fff; color:inherit;
+    }
     .pi-approve{border:none; background:var(--mint); color:#fff}
     .pi-reject{border:1px solid var(--line); background:#fff; color:var(--muted)}
     .nav-links{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px}
@@ -320,6 +326,18 @@
       renderPending();
     }
 
+    // 승인할 때 분류를 바꿀 수 있게 항목마다 분류 선택칸을 둔다(기본값은 점주가 고른 분류).
+    function categorySelectHtml(selected) {
+      const current = String(selected ?? 99);
+      return (
+        '<select class="pi-cat">' +
+        Object.keys(CATEGORY_LABELS)
+          .map((k) => '<option value="' + k + '"' + (k === current ? " selected" : "") + ">" + CATEGORY_LABELS[k] + "</option>")
+          .join("") +
+        "</select>"
+      );
+    }
+
     function renderPending() {
       pendingSection.style.display = pendingItems.length > 0 ? "block" : "none";
       pendingCountEl.textContent = String(pendingItems.length);
@@ -331,10 +349,11 @@
             '<div class="pending-item" data-barcode="' + escapeHtml(it.barcode) + '">' +
             '<div class="pi-main">' +
             '<p class="pi-name">' + escapeHtml(it.menu_name) + "</p>" +
-            '<p class="pi-meta">' + escapeHtml(it.barcode) + " · " + cat + " · " + price + "</p>" +
+            '<p class="pi-meta">' + escapeHtml(it.barcode) + " · 점주 선택: " + cat + " · " + price + "</p>" +
             "</div>" +
+            '<div class="pi-cat-row"><label>분류</label>' + categorySelectHtml(it.is_coupang) + "</div>" +
             '<div class="pi-actions">' +
-            '<button type="button" class="pi-approve">그대로 승인</button>' +
+            '<button type="button" class="pi-approve">승인</button>' +
             '<button type="button" class="pi-reject">거절</button>' +
             "</div></div>"
           );
@@ -349,15 +368,20 @@
       const item = pendingItems.find((it) => it.barcode === barcode);
       if (!item) return;
 
+      // 분류 선택칸을 눌렀을 때는 폼으로 불러오지 않고 선택만 한다.
+      if (e.target.closest(".pi-cat-row")) return;
+
       if (e.target.closest(".pi-approve")) {
         try {
+          const chosen = parseInt(itemEl.querySelector(".pi-cat").value, 10);
           const res = await fetch(
             "/admin/api/pending-submissions/" + encodeURIComponent(barcode) + "/approve",
-            { method: "POST" },
+            { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_coupang: chosen }) },
           );
           const data = await res.json();
           if (!data.ok) throw new Error();
-          toast("승인됐습니다");
+          const changed = chosen !== (item.is_coupang ?? 99);
+          toast(changed ? "분류를 '" + CATEGORY_LABELS[chosen] + "'(으)로 바꿔 승인했습니다" : "승인됐습니다");
           await loadPending();
         } catch (e2) {
           toast("승인 실패, 다시 시도해주세요");

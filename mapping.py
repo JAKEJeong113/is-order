@@ -294,8 +294,9 @@ def list_pending_catalog_submissions(limit: int = 200) -> list[dict]:
     ]
 
 
-def approve_pending_catalog_submission(barcode: str) -> bool:
-    """검수 대기 항목을 정식 카탈로그로 승격한다 - 기존에 같은 바코드가 이미
+def approve_pending_catalog_submission(barcode: str, is_coupang: int | None = None) -> bool:
+    """검수 대기 항목을 정식 카탈로그로 승격한다(is_coupang을 주면 점주가 고른 분류
+    대신 승인하는 사람이 바꾼 분류로 등록한다) - 기존에 같은 바코드가 이미
     카탈로그에 있으면(관리자가 그 사이 다른 경로로 먼저 등록했을 수 있음)
     이름/구분/가격만 덮어쓰고 나머지(1타 개수 등) 필드는 유지한다. 승격 후
     대기열에서는 지운다."""
@@ -308,7 +309,8 @@ def approve_pending_catalog_submission(barcode: str) -> bool:
     conn.close()
     if not row:
         return False
-    menu_name, is_coupang, recommended_price = row
+    menu_name, submitted_is_coupang, recommended_price = row
+    is_coupang = submitted_is_coupang if is_coupang is None else is_coupang
     existing = load_catalog().get(barcode)
     item = CoupangCatalogItem(
         barcode=barcode,
