@@ -238,6 +238,7 @@
         });
         const r = await res.json();
         if (!r.ok) { alert(r.error || "연결하지 못했어요."); btn.disabled = false; return; }
+        if (r.warning) alert("노출했어요.\n\n" + r.warning);
         loadAlerts();
         return;
       }

@@ -672,9 +672,12 @@ def attach_link(alert_id: int, url: str, force: bool = False) -> dict:
 
     product_id = _resolve_product_id(url)
     live_note = ""
+    warning = ""
     if product_id:
-        # 링크의 상품이 쿠팡 검색에 잡히면 지금 가격을 확인한다 - 알림 이후 가격이 올랐으면
-        # (핫딜 종료) 노출하지 않고, 같은 옵션 가격이 보이면 그 현재가로 노출한다.
+        # 링크의 상품이 쿠팡 검색에 잡히면 지금 가격을 비교한다. 쿠팡 검색 API 가격에는
+        # 와우할인/쿠폰이 반영되지 않아 폴센트·쿠팡 화면 가격보다 높게 나온다(실측:
+        # 꼬깔콘 쿠팡 화면 7,920원 vs API 8,800원). 대표님이 직접 고른 링크이므로
+        # 가격이 높게 보여도 거절하지 않고 알림가로 노출하되 경고만 돌려준다.
         try:
             cands = product_ranking._fetch_coupang_products(
                 parse_alert(row[3], row[4])["keyword"], limit=10, bucket=SEARCH_BUCKET,
@@ -685,13 +688,14 @@ def attach_link(alert_id: int, url: str, force: bool = False) -> dict:
         if same:
             best = min(same, key=lambda c: abs(c["price"] - price))
             if abs(best["price"] - price) / price <= SAME_OPTION_MAX_DIFF:
-                if best["price"] > price * ENDED_RISE_RATIO and not force:
-                    return {
-                        "ok": False, "current_price": best["price"],
-                        "error": f"쿠팡 현재가가 {best['price']:,}원으로 알림가({price:,}원)보다 올라서 핫딜이 끝난 것 같아요.",
-                    }
-                price = best["price"]
-                live_note = " (쿠팡 현재가 확인)"
+                if best["price"] > price * ENDED_RISE_RATIO:
+                    warning = (
+                        f"쿠팡 검색가는 {best['price']:,}원이에요. 알림가({price:,}원)와 다른 건 와우할인/쿠폰이 "
+                        "검색가에 반영되지 않아서일 수 있어요. 쿠팡 화면에서 가격을 확인해 주세요."
+                    )
+                else:
+                    price = best["price"]
+                    live_note = " (쿠팡 현재가 확인)"
     now = _now()
     expires_at = (datetime.now() + timedelta(hours=EXPOSE_HOURS)).isoformat(timespec="seconds")
     conn = db_conn.get_conn()
@@ -708,4 +712,7 @@ def attach_link(alert_id: int, url: str, force: bool = False) -> dict:
     conn.commit()
     conn.close()
     _add_price_point(alert_id, price)
-    return {"ok": True, "alert_id": alert_id, "price": price, "product_id": product_id, "note": live_note.strip()}
+    return {
+        "ok": True, "alert_id": alert_id, "price": price, "product_id": product_id,
+        "note": live_note.strip(), "warning": warning,
+    }
