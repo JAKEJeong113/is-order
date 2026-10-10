@@ -316,6 +316,31 @@ def download_orderqueen_xlsx_with_retry(
 REGISTER_MAX_ATTEMPTS = 2
 REGISTER_RETRY_DELAY_SECONDS = 3
 
+# 같은 브랜드(예: icezzang)의 매장 여러 곳을 동시에 등록하면 오더퀸이 "브랜드는 현재 일괄
+# 메뉴 등록중입니다. 잠시후 시도해주세요."라며 한쪽을 거절한다(실측: "모든 계정에 추가"가
+# 계정 2개씩 병렬로 도는 중 가끔 한두 곳이 이 안내로 실패). 거절된 쪽은 아무것도 저장되지
+# 않았으므로 잠시 기다렸다 다시 시도하면 된다 - 예외가 아닌 정상 반환({"ok": False, ...})이라
+# 기존 예외 재시도로는 안 잡혀서 별도로 처리한다.
+BRAND_LOCK_MARKERS = ("일괄 메뉴 등록", "잠시후 시도")
+BRAND_LOCK_RETRY_DELAYS_SECONDS = (6, 12, 20)
+
+
+def _is_brand_lock_result(result: dict) -> bool:
+    if result.get("ok"):
+        return False
+    message = result.get("message") or ""
+    return any(marker in message for marker in BRAND_LOCK_MARKERS)
+
+
+def _retry_on_brand_lock(call) -> dict:
+    result = call()
+    for delay in BRAND_LOCK_RETRY_DELAYS_SECONDS:
+        if not _is_brand_lock_result(result):
+            break
+        time.sleep(delay)
+        result = call()
+    return result
+
 
 def register_menu_item_with_retry(
     login_id: str, login_pw: str, barcode: str, menu_name: str, sale_price: int, class_cd: str,
@@ -333,10 +358,10 @@ def register_menu_item_with_retry(
     last_error: Exception | None = None
     for attempt in range(1, REGISTER_MAX_ATTEMPTS + 1):
         try:
-            return register_menu_item(
+            return _retry_on_brand_lock(lambda: register_menu_item(
                 login_id, login_pw, barcode=barcode, menu_name=menu_name,
                 sale_price=sale_price, class_cd=class_cd, store_id=store_id, class_name=class_name,
-            )
+            ))
         except Exception as e:
             last_error = e
             if attempt < REGISTER_MAX_ATTEMPTS:
@@ -1381,10 +1406,10 @@ def register_or_update_menu_item_with_retry(
     last_error: Exception | None = None
     for attempt in range(1, REGISTER_MAX_ATTEMPTS + 1):
         try:
-            return register_or_update_menu_item(
+            return _retry_on_brand_lock(lambda: register_or_update_menu_item(
                 login_id, login_pw, barcode=barcode, menu_name=menu_name, sale_price=sale_price,
                 class_cd=class_cd, store_id=store_id, class_name=class_name,
-            )
+            ))
         except Exception as e:
             last_error = e
             if attempt < REGISTER_MAX_ATTEMPTS:
